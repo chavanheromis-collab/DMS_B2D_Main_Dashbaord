@@ -107,12 +107,21 @@ Reload — the ⚙️ admin panel appears in the sidebar.
    group, and tick the spreadsheets it may draw on. Click **Build**.
 3. **🧱 Widgets** — add a table from MASTER, a KPI from Quotations, a chart
    from a completely different sheet, then *Publish to dashboard*.
-   **Width** is a slider from 1 to 12 columns of the canvas, reading back as
-   the fraction it makes (`1/6`, `1/4`, `5/12`, `Full width`). Columns rather
-   than pixels because a fixed pixel width can't stay right across a phone, a
-   laptop with the sidebar open and a 4K monitor at once — and 12 units gives
-   finer control than the five old presets could. Narrow widgets still go full
-   width on a phone, where a 1/6 card would be an unreadable sliver.
+   **Width** is set one of two ways, chosen explicitly per widget:
+
+   | Mode | What it means |
+   |---|---|
+   | **Standard width** | A fraction of the canvas — a slider across all 12 columns, reading back as `1/6`, `1/4`, `5/12`, `Full width`. Adapts to the screen. |
+   | **Exact pixels** | A fixed number, for when a widget must match a specific size. |
+
+   The mode is explicit rather than inferred, because the two answer different
+   questions and guessing would make one behave surprisingly. A **standard**
+   width is relative to whatever room there is, so it survives a phone, a
+   laptop with the sidebar open and a 4K monitor. A **pixel** width can't
+   adapt: on a narrow window it's capped to the space available rather than
+   overflowing and pushing a horizontal scrollbar onto the page. Narrow
+   standard widths still go full width on a phone, where a 1/6 card would be
+   an unreadable sliver.
    Widget cards stay collapsed to one row until you open them, and there's a
    search box once a page has more than three — a page with a dozen widgets
    stays scannable instead of running to thousands of pixels.
@@ -138,6 +147,11 @@ name nest under one heading. The sidebar collapses to a 64px icon rail on
 desktop and becomes a drawer below `lg`; both the collapsed state and which
 groups are open are remembered per browser, so one person tidying their
 sidebar doesn't rearrange anyone else's.
+
+**Opening a page collapses the sidebar to its rail**, handing the width back
+to the canvas — you clicked through to read the dashboard, not the navigation.
+The chevron re-opens it whenever you want to browse, and because the collapsed
+state is remembered, it stays how you last left it.
 
 A page carries **two names**, edited separately under **Pages → Settings**:
 

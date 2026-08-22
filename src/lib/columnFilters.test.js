@@ -10,8 +10,16 @@ import {
   setAllOptions,
   toggleOption,
 } from './columnFilters.js'
-import { WIDTH_UNITS, widthUnitsFor, widthUnitsLabel } from './config.js'
-import { spanForWidth } from './gridSpan.js'
+import {
+  MAX_WIDGET_PX,
+  MIN_WIDGET_PX,
+  WIDTH_UNITS,
+  widgetUsesPx,
+  widgetWidthPx,
+  widthUnitsFor,
+  widthUnitsLabel,
+} from './config.js'
+import { spanForItem, spanForPixels, spanForWidth } from './gridSpan.js'
 
 const rows = [
   { Model: 'SPLENDOR +', SKU: 'A1', Stock: '159' },
@@ -192,6 +200,50 @@ test('an exact span still goes full width on a phone', () => {
   assert.equal(spanForWidth(null, 'base', 3), 12)
   // A widget already half the canvas doesn't double past full width.
   assert.equal(spanForWidth(null, 'md', 8), 12)
+})
+
+// --- pixel widths -------------------------------------------------------
+
+test('pixel mode only applies when a real number is set', () => {
+  assert.equal(widgetUsesPx({ widthMode: 'preset', widthPx: 400 }), false)
+  assert.equal(widgetUsesPx({ widthMode: 'px' }), false, 'the mode alone is not a width')
+  assert.equal(widgetUsesPx({ widthMode: 'px', widthPx: 0 }), false)
+  assert.equal(widgetUsesPx({ widthMode: 'px', widthPx: 400 }), true)
+})
+
+test('a pixel width is clamped to something renderable', () => {
+  assert.equal(widgetWidthPx({ widthPx: 480 }), 480)
+  assert.equal(widgetWidthPx({ widthPx: 10 }), MIN_WIDGET_PX)
+  assert.equal(widgetWidthPx({ widthPx: 99999 }), MAX_WIDGET_PX)
+  assert.equal(widgetWidthPx({ widthPx: 'abc' }), null)
+  assert.equal(widgetWidthPx({}), null)
+})
+
+test('a pixel width claims whole columns, rounding UP', () => {
+  // Rounding down would let the next widget be placed underneath and
+  // overlap: a widget 1.2 columns wide really does occupy two.
+  const colWidth = 100
+  const gap = 12
+  assert.equal(spanForPixels(100, colWidth, gap), 1)
+  assert.equal(spanForPixels(120, colWidth, gap), 2, '1.2 columns takes two')
+  assert.equal(spanForPixels(212, colWidth, gap), 2, 'exactly two columns plus the gap')
+  assert.equal(spanForPixels(213, colWidth, gap), 3)
+})
+
+test('a pixel width never claims more than the whole canvas', () => {
+  assert.equal(spanForPixels(99999, 100, 12), 12)
+})
+
+test('before the container is measured, pixels fall back to the standard span', () => {
+  // Dividing by a zero column width would be NaN columns.
+  assert.equal(spanForPixels(400, 0, 12), null)
+  assert.equal(spanForItem({ widthPx: 400, width: 'quarter' }, 'lg', 0, 12), 3)
+})
+
+test('pixels beat the standard width once the container is known', () => {
+  assert.equal(spanForItem({ widthPx: 400, width: 'quarter' }, 'lg', 100, 12), 4)
+  // ...and a widget with no pixel width still uses its preset.
+  assert.equal(spanForItem({ width: 'quarter' }, 'lg', 100, 12), 3)
 })
 
 test('without an exact span the named presets behave as before', () => {

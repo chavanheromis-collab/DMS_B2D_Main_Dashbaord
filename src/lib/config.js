@@ -75,17 +75,47 @@ export const STAGE_PALETTE = [
   '#6366F1', '#A855F7', '#F97316', '#EA580C',
 ]
 
+// The standard widths, as fractions of the 12-column canvas. These are the
+// ones that tile cleanly -- two halves, three thirds, four quarters -- which
+// is why they're offered as named choices rather than left to arithmetic.
 export const WIDTHS = [
+  { value: 'sixth', label: '1/6 — narrow', units: 2, css: 'lg:col-span-2 md:col-span-4 col-span-12' },
   { value: 'quarter', label: '1/4', units: 3, css: 'lg:col-span-3 md:col-span-6 col-span-12' },
   { value: 'third', label: '1/3', units: 4, css: 'lg:col-span-4 md:col-span-6 col-span-12' },
+  { value: 'fivetwelfths', label: '5/12', units: 5, css: 'lg:col-span-5 md:col-span-6 col-span-12' },
   { value: 'half', label: '1/2', units: 6, css: 'lg:col-span-6 md:col-span-6 col-span-12' },
+  { value: 'seventwelfths', label: '7/12', units: 7, css: 'lg:col-span-7 col-span-12' },
   { value: 'twothird', label: '2/3', units: 8, css: 'lg:col-span-8 col-span-12' },
-  { value: 'full', label: 'Full', units: 12, css: 'col-span-12' },
+  { value: 'threequarter', label: '3/4', units: 9, css: 'lg:col-span-9 col-span-12' },
+  { value: 'fivesixths', label: '5/6', units: 10, css: 'lg:col-span-10 col-span-12' },
+  { value: 'full', label: 'Full width', units: 12, css: 'col-span-12' },
 ]
 
 export function widthClass(w) {
-  return (WIDTHS.find((x) => x.value === w) || WIDTHS[4]).css
+  return (WIDTHS.find((x) => x.value === w) || WIDTHS[WIDTHS.length - 1]).css
 }
+
+// ---------------------------------------------------------------------
+// Widget width: standard, or exact pixels
+// ---------------------------------------------------------------------
+// Two ways to size a widget, and they answer different questions.
+//
+// STANDARD is a fraction of the canvas. It tiles cleanly, and it stays right
+// on a phone, on a laptop with the sidebar open, and on a 4K monitor --
+// because it is relative to whatever room there happens to be.
+//
+// PIXELS is an exact number. Worth having when a widget must match a
+// specific size regardless of the screen, but it cannot adapt: on a narrow
+// window it is capped to the space available rather than overflowing, which
+// is the only sane thing to do with a number too big for the room.
+
+export const WIDTH_MODES = [
+  { value: 'preset', label: 'Standard width', hint: 'A fraction of the canvas. Adapts to the screen.' },
+  { value: 'px', label: 'Exact pixels', hint: 'A fixed size, capped when the screen is narrower.' },
+]
+
+export const MIN_WIDGET_PX = 120
+export const MAX_WIDGET_PX = 3000
 
 // ---------------------------------------------------------------------
 // Exact widget width
@@ -97,7 +127,26 @@ export function widthClass(w) {
 // finer than the five named presets could offer.
 export const WIDTH_UNITS = 12
 
-/** The exact column span for a widget, from `widthUnits` or its preset. */
+/** Is this widget sized in pixels rather than as a fraction? */
+export function widgetUsesPx(widget) {
+  if (widget?.widthMode !== 'px') return false
+  const px = Number(widget.widthPx)
+  return Number.isFinite(px) && px > 0
+}
+
+/** A widget's pixel width, clamped to something renderable. */
+export function widgetWidthPx(widget) {
+  const px = Number(widget?.widthPx)
+  if (!Number.isFinite(px) || px <= 0) return null
+  return Math.min(MAX_WIDGET_PX, Math.max(MIN_WIDGET_PX, Math.round(px)))
+}
+
+/**
+ * The column span for a widget sized the STANDARD way.
+ *
+ * `widthUnits` is still read first: pages saved while width was a bare 1-12
+ * slider keep the exact span they were given.
+ */
 export function widthUnitsFor(widget) {
   const units = Number(widget?.widthUnits)
   if (Number.isFinite(units) && units >= 1) return Math.min(WIDTH_UNITS, Math.round(units))
@@ -108,13 +157,14 @@ export function widthUnitsFor(widget) {
 export function widthUnitsLabel(units) {
   const n = Math.min(WIDTH_UNITS, Math.max(1, Math.round(units || WIDTH_UNITS)))
   if (n === WIDTH_UNITS) return 'Full width'
-  const divisor = [2, 3, 4, 6, 12].find((d) => (WIDTH_UNITS / d) * Math.round(n / (WIDTH_UNITS / d)) === n && n % (WIDTH_UNITS / d) === 0)
-  if (divisor) {
-    const numerator = n / (WIDTH_UNITS / divisor)
-    if (numerator === 1) return `1/${divisor}`
-    return `${numerator}/${divisor}`
-  }
+  const named = WIDTHS.find((w) => w.units === n)
+  if (named) return named.label.replace(/ —.*$/, '')
   return `${n}/12`
+}
+
+/** The named preset whose span matches, for showing a slider's position. */
+export function presetForUnits(units) {
+  return WIDTHS.find((w) => w.units === units)?.value || ''
 }
 
 // ---------------------------------------------------------------------

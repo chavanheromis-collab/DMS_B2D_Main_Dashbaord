@@ -8,8 +8,10 @@ import {
   PALETTE,
   STAGE_PALETTE,
   WIDGET_TYPES,
+  WIDTH_MODES,
   WIDTH_UNITS,
   aggNeedsColumn,
+  presetForUnits,
   uid,
   widthUnitsFor,
   widthUnitsLabel,
@@ -470,25 +472,7 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) 
                         each stage picks its own tab
                       </span>
                     )}
-                    {/* Width in COLUMNS of the 12-wide canvas. A slider
-                        rather than five presets, because "a bit narrower
-                        than a third" is a real thing to want and the grid
-                        can express it exactly. */}
-                    <span className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1">
-                      <span className="whitespace-nowrap text-[10px] font-medium text-slate-500">Width</span>
-                      <input
-                        type="range"
-                        min={1}
-                        max={WIDTH_UNITS}
-                        value={widthUnitsFor(widget)}
-                        onChange={(e) => set({ widthUnits: Number(e.target.value), width: null })}
-                        className="h-1 w-24 accent-indigo-500"
-                        aria-label="Widget width in columns"
-                      />
-                      <span className="w-12 whitespace-nowrap text-right text-[10px] tabular-nums text-slate-600">
-                        {widthUnitsLabel(widthUnitsFor(widget))}
-                      </span>
-                    </span>
+                    <WidthPicker widget={widget} set={set} />
 
                     {/* The DEFAULT position for everyone. A user can override
                         it from the dashboard's arrange mode, and an admin can
@@ -577,6 +561,62 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) 
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * How wide a widget is, sized one of two ways.
+ *
+ * The mode is explicit rather than inferred, because the two answer different
+ * questions: a STANDARD width is a fraction of whatever room there is and so
+ * survives a phone, a sidebar and a 4K monitor; a PIXEL width is an exact
+ * number for when a widget has to match a specific size. Leaving the app to
+ * guess which was meant would make one of them behave surprisingly.
+ */
+function WidthPicker({ widget, set }) {
+  const mode = widget.widthMode === 'px' ? 'px' : 'preset'
+  const units = widthUnitsFor(widget)
+
+  return (
+    <span className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1">
+      <Select
+        value={mode}
+        onChange={(v) => set({ widthMode: v })}
+        options={WIDTH_MODES.map((m) => ({ value: m.value, label: m.label }))}
+        className="w-32 !py-0.5 !text-[10px]"
+      />
+
+      {mode === 'px' ? (
+        <>
+          <TextInput
+            type="number"
+            value={widget.widthPx ?? ''}
+            onChange={(v) => set({ widthPx: v === '' ? null : Number(v) })}
+            placeholder="480"
+            className="w-20 !py-0.5 text-center !text-[10px]"
+          />
+          <span className="text-[10px] text-slate-400">px</span>
+        </>
+      ) : (
+        <>
+          {/* A slider AND the named fractions: the slider reaches every one
+              of the twelve columns, the labels below name the ones that
+              tile cleanly. */}
+          <input
+            type="range"
+            min={1}
+            max={WIDTH_UNITS}
+            value={units}
+            onChange={(e) => set({ widthUnits: Number(e.target.value), width: presetForUnits(Number(e.target.value)) })}
+            className="h-1 w-24 accent-indigo-500"
+            aria-label="Widget width in columns"
+          />
+          <span className="w-16 whitespace-nowrap text-right text-[10px] tabular-nums text-slate-600">
+            {widthUnitsLabel(units)}
+          </span>
+        </>
+      )}
+    </span>
   )
 }
 

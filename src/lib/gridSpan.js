@@ -41,6 +41,38 @@ export function spanForWidth(width, breakpoint, units) {
 }
 
 /**
+ * How many columns a PIXEL-sized widget occupies.
+ *
+ * The packer reasons in columns, so an exact pixel width still has to claim
+ * whole ones. It rounds UP: a widget 1.2 columns wide that claimed only one
+ * would have the next widget placed underneath it and overlapping.
+ *
+ * Returns `null` before the container has been measured, so the caller can
+ * fall back to the standard span for that first frame instead of dividing
+ * by zero.
+ */
+export function spanForPixels(widthPx, colWidth, gap = 12, columns = COLUMNS) {
+  if (!(colWidth > 0) || !(widthPx > 0)) return null
+  const span = Math.ceil((widthPx + gap) / (colWidth + gap))
+  return Math.min(columns, Math.max(1, span))
+}
+
+/**
+ * The span an item takes, whichever way it was sized.
+ *
+ * One place decides, so the packer (which needs a span) and the renderer
+ * (which needs a pixel width) can never disagree about how much room a
+ * widget claims.
+ */
+export function spanForItem(item, breakpoint, colWidth, gap = 12, columns = COLUMNS) {
+  if (item?.widthPx > 0) {
+    const fromPx = spanForPixels(item.widthPx, colWidth, gap, columns)
+    if (fromPx !== null) return fromPx
+  }
+  return Math.min(columns, Math.max(1, spanForWidth(item?.width, breakpoint, item?.widthUnits)))
+}
+
+/**
  * Which breakpoint the GRID is at -- measured from the space the grid
  * actually has, not from the window.
  *

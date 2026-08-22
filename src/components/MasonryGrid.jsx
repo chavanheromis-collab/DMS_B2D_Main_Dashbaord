@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 // The span maths lives in lib/gridSpan.js so it can be tested without a DOM
 // -- Node cannot import a .jsx file. Re-exported because callers (and its
 // own tests) have long imported `spanForWidth` from here.
-import { COLUMNS, breakpointFor, spanForWidth } from '../lib/gridSpan'
+import { COLUMNS, breakpointFor, spanForItem, spanForWidth } from '../lib/gridSpan'
 
 export { spanForWidth }
 
@@ -24,11 +24,11 @@ const FALLBACK_HEIGHT = 220 // used only when an item has no estimatedHeight and
  * KPI stack the admin built to sit in one column stays in that column
  * forever, exactly in that order.
  */
-export function assignColumns(items, breakpoint, columns = COLUMNS) {
+export function assignColumns(items, breakpoint, columns = COLUMNS, colWidth = 0, gap = 12) {
   const colHeights = new Array(columns).fill(0)
   const slots = {}
   for (const item of items) {
-    const span = Math.min(columns, Math.max(1, spanForWidth(item.width, breakpoint, item.widthUnits)))
+    const span = spanForItem(item, breakpoint, colWidth, gap, columns)
     let best = { col: 0, y: Infinity }
     for (let c = 0; c <= columns - span; c++) {
       const y = Math.max(...colHeights.slice(c, c + span))
@@ -96,7 +96,12 @@ export default function MasonryGrid({ items, gap = 12, className = '' }) {
   // Column assignment only depends on WHICH widgets exist, in what order,
   // at what width -- not on anything about their live content -- so this
   // key deliberately excludes `heights`.
-  const slotKey = items.map((i) => `${i.id}:${i.width}:${i.widthUnits ?? ''}`).join('|')
+  // A pixel-sized widget's SPAN depends on how wide a column currently is,
+  // so the column width is part of the key -- rounded, so sub-pixel resize
+  // noise cannot churn the layout.
+  const slotKey = items
+    .map((i) => `${i.id}:${i.width}:${i.widthUnits ?? ''}:${i.widthPx ?? ''}`)
+    .join('|')
 
   // Exact column pixel width, and the breakpoint that follows from it.
   //
@@ -140,7 +145,11 @@ export default function MasonryGrid({ items, gap = 12, className = '' }) {
   // PASS 1 -- stable. Only recomputed when the widget list or breakpoint
   // actually changes, never when live data (and therefore `heights`)
   // changes.
-  const slots = useMemo(() => assignColumns(items, breakpoint, COLUMNS), [slotKey, breakpoint])
+  const slots = useMemo(
+    () => assignColumns(items, breakpoint, COLUMNS, colWidth, gap),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [slotKey, breakpoint, Math.round(colWidth), gap]
+  )
 
   // PASS 2 -- live. Recomputed whenever a widget's real height changes,
   // using the columns already fixed by PASS 1.
@@ -168,7 +177,11 @@ export default function MasonryGrid({ items, gap = 12, className = '' }) {
           )
         }
         const left = p.col * (colWidth + gap)
-        const width = p.span * colWidth + (p.span - 1) * gap
+        const spanWidth = p.span * colWidth + (p.span - 1) * gap
+        // A pixel-sized widget draws at exactly its number, but never wider
+        // than the canvas -- overflowing would push a horizontal scrollbar
+        // onto the whole page.
+        const width = item.widthPx > 0 ? Math.min(item.widthPx, containerWidth) : spanWidth
         return (
           <div
             key={item.id}

@@ -9,6 +9,7 @@ import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, orderWidgets } from '../hooks/useUserPrefs'
 import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
 import { applyFilters } from '../lib/filterEngine'
+import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
 import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
@@ -629,9 +630,10 @@ export default function Dashboard() {
                 return {
                   id: widget.id,
                   width: widget.width,
-                  // An exact 1-12 span the admin set, which overrides the
-                  // named preset when present.
+                  // An exact 1-12 span, which overrides the named preset.
                   widthUnits: widget.widthUnits,
+                  // ...unless the admin chose pixels, which overrides both.
+                  widthPx: widgetUsesPx(widget) ? widgetWidthPx(widget) : null,
                   estimatedHeight: estimateWidgetHeight(widget.type),
                   content: (
                     // The wrapper publishes this widget's appearance as CSS

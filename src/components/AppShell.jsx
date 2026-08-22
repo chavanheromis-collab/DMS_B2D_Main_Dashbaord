@@ -29,6 +29,10 @@ export default function AppShell({ pages, activePageId, children, title, actions
         onToggleCollapsed={() => setCollapsed((c) => !c)}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
+        // Opening a page collapses the sidebar to its rail, so the canvas
+        // gets the width back. The collapsed state is remembered per
+        // browser, so this is also what it will be next time.
+        onNavigate={() => setCollapsed(true)}
         query={query}
         onQuery={setQuery}
       />

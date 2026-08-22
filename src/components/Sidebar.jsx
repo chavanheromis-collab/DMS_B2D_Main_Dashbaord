@@ -40,6 +40,7 @@ export default function Sidebar({
   onToggleCollapsed,
   mobileOpen,
   onCloseMobile,
+  onNavigate,
   query,
   onQuery,
 }) {
@@ -63,6 +64,11 @@ export default function Sidebar({
   function go(pageId) {
     navigate(`/d/${pageId}`)
     onCloseMobile?.()
+    // Picking a page collapses the sidebar to its icon rail, handing the
+    // width back to the canvas -- you came here to read the dashboard, not
+    // the navigation. Already-collapsed stays collapsed, and the chevron
+    // re-opens it whenever you want to browse.
+    onNavigate?.()
   }
 
   const isGroupOpen = (name) => openGroups[name] !== false // default open
