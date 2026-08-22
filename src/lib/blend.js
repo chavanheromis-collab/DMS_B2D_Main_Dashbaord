@@ -31,6 +31,7 @@ import { parseRef } from './refs.js'
 //     prefix:   'Quotations.',         // namespaces the incoming columns
 //     columns:  ['Amount', 'Status'],  // [] = bring everything
 //     rollups:  [{ id, column, aggregation, as }],
+//     fallbacks:[{ id, column, from, text }],  // when the other tab is blank
 //   }
 
 export const BLEND_TYPES = [
@@ -68,6 +69,7 @@ export const DEFAULT_BLEND = {
   prefix: '',
   columns: [],
   rollups: [],
+  fallbacks: [],
 }
 
 /** Is this blend fully specified enough to actually run? */
@@ -99,6 +101,34 @@ function incomingColumns(blend, rightHeaders) {
 /** The final name a blended column takes on the merged row. */
 export function blendedColumnName(blend, column) {
   return `${blend?.prefix || ''}${column}`
+}
+
+/**
+ * What to show when the other tab has nothing to give.
+ *
+ * Two ways a blended cell ends up empty, and they look identical on screen:
+ * the key matched nothing at all, or it matched a row whose cell happens to
+ * be blank. Either way the value is missing, and a missing value is worse
+ * than it first appears -- a chart grouped by that column SKIPS blanks, so
+ * the affected rows quietly disappear and the totals no longer add up.
+ *
+ * A fallback fills the gap from the widget's OWN tab: a column the admin
+ * picks, or a literal like "Not allocated". Order is deliberate -- the real
+ * value, then the main tab's own answer, then the caption of last resort.
+ */
+function fallbackIndex(blend) {
+  const map = new Map()
+  for (const rule of blend?.fallbacks || []) {
+    if (rule?.column) map.set(rule.column, rule)
+  }
+  return map
+}
+
+function withFallback(value, leftRow, rule) {
+  if (!isBlank(value)) return value
+  if (rule?.from && !isBlank(leftRow?.[rule.from])) return leftRow[rule.from]
+  if (!isBlank(rule?.text)) return rule.text
+  return value
 }
 
 /**
@@ -161,6 +191,7 @@ export function blendRows(leftRows, rightRows, blend, rightHeaders) {
   const columns = incomingColumns(blend, rightHeaders)
   const rollups = (blend.rollups || []).filter((r) => r.column || r.aggregation === 'count')
   const index = indexByKey(rightRows, blend.rightKey)
+  const fallbacks = fallbackIndex(blend)
   const countName = blendedColumnName(blend, 'Match count')
   const type = blend.type || 'left'
   const multi = blend.multi || 'first'
@@ -176,7 +207,9 @@ export function blendRows(leftRows, rightRows, blend, rightHeaders) {
       // Left join: keep the row, blank out every incoming column so the
       // table still has a consistent shape and sorting doesn't break.
       const blank = { ...leftRow, [countName]: 0 }
-      for (const col of columns) blank[blendedColumnName(blend, col)] = ''
+      for (const col of columns) {
+        blank[blendedColumnName(blend, col)] = withFallback('', leftRow, fallbacks.get(col))
+      }
       for (const r of rollups) blank[r.as || `${r.aggregation} of ${r.column}`] = 0
       out.push(blank)
       continue
@@ -186,7 +219,9 @@ export function blendRows(leftRows, rightRows, blend, rightHeaders) {
       // A true join: one output row per matched right row.
       for (const rightRow of matches) {
         const merged = { ...leftRow, [countName]: matches.length }
-        for (const col of columns) merged[blendedColumnName(blend, col)] = rightRow[col] ?? ''
+        for (const col of columns) {
+          merged[blendedColumnName(blend, col)] = withFallback(rightRow[col] ?? '', leftRow, fallbacks.get(col))
+        }
         for (const r of rollups) {
           merged[r.as || `${r.aggregation} of ${r.column}`] = aggregate(matches, r.column, r.aggregation)
         }
@@ -197,7 +232,9 @@ export function blendRows(leftRows, rightRows, blend, rightHeaders) {
     }
 
     const merged = { ...leftRow, [countName]: matches.length }
-    for (const col of columns) merged[blendedColumnName(blend, col)] = collapse(matches, col, multi)
+    for (const col of columns) {
+      merged[blendedColumnName(blend, col)] = withFallback(collapse(matches, col, multi), leftRow, fallbacks.get(col))
+    }
     for (const r of rollups) {
       merged[r.as || `${r.aggregation} of ${r.column}`] = aggregate(matches, r.column, r.aggregation)
     }

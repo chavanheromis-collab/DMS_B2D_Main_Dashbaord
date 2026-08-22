@@ -399,6 +399,28 @@ formatting, so `SO-1001`, ` so-1001 ` and `1,001` vs `1001` all behave.
 | **Prefix** | Namespaces incoming columns so `Status` from the other tab can't overwrite your own `Status`. |
 | **Columns** | Which columns come across. |
 | **Roll-ups** | Summarise the matched rows — "sum of Amount across every quotation for this order". A match-count column is always added. |
+| **Fallbacks** | What to show when the other tab has nothing. |
+
+**Fallbacks are worth setting.** A blended cell ends up empty two ways — the
+key matched nothing, or it matched a row whose cell is blank — and they look
+identical on screen. Either way a chart grouped by that column **skips
+blanks**, so those rows quietly disappear and the totals stop adding up. Five
+vehicles in stock, four bars, no explanation.
+
+A fallback fills the gap from the widget's **own** tab. Per blended column,
+pick a column from the main tab and/or a literal:
+
+```
+if  Location  is empty, use  Default Yard  or  "Not allocated"
+```
+
+Tried in order: the real value, then your main-tab column, then the text. A
+real value is never overwritten, and the match-count column still tells the
+truth — a fallback fills the display, it doesn't pretend a match happened.
+
+One case where a fallback appears not to work: **"Only matching rows"** drops
+unmatched rows before anything can fill them. A matched-but-blank cell still
+falls back; a row with no match at all is already gone.
 
 Blended columns behave like any other column: sort them, chart them, put them
 in a KPI, show them as coloured pills. The blend is scoped to **that one
