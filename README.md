@@ -690,7 +690,10 @@ Each control also has:
 - **Tuck behind "More"** — keeps the bar short. The *More* button carries a
   badge counting how many hidden controls are currently active, so nothing can
   narrow the page invisibly.
-- **Visible** — switch a control off without deleting it.
+- **On the page** — three states, not two:
+  - *On the page* — anyone can change it. The normal case.
+  - **Fixed — always applied, never shown.** The page's own rule. See below.
+  - *Parked* — not shown and not applied; switched off without deleting it.
 - **Default value** (or *On by default* for a button) — the page opens with it
   applied. **Reset** returns to *these* defaults, not to blank: a control the
   admin meant to be on shouldn't be switched off by a reset.
@@ -705,6 +708,39 @@ already understood (`{from,to}` for ranges, a bare number for thresholds and
 day counts), and the page bar and the per-widget bar share one set of slider
 components — two implementations would drift apart the first time one got a
 fix.
+
+### Fixed filters — a page's own rules
+
+Some filtering isn't a choice anyone should be making. *This page is the Pune
+branch.* *This page never shows cancelled orders.* Set any control's **On the
+page** to **Fixed** and it becomes a rule of the page instead of a control on
+it:
+
+- **Always applied**, at the value the admin set.
+- **Never shown** — not in the bar, not behind *More*, nowhere.
+- **Not resettable.** Reset returns the page to how the admin designed it,
+  and how it was designed includes its rules.
+- **Not part of a saved view.** A view can neither carry a rule nor drop one
+  by being saved at the wrong moment.
+- **Only an admin can change it**, in the admin panel, where it carries a
+  `fixed` badge so a page's rules are findable at a glance.
+
+This isn't a default value on a hidden control. A default can be changed, and
+a Reset would put it back to something the admin never meant to offer. A fixed
+control's value is **forced at the moment of filtering**, over whatever else
+is in play — so no saved view, no stale value from before the control was
+fixed, and nothing written later can quietly override what the page says it
+is.
+
+It's the same control model as everything else, so a fixed control gets all of
+it: any kind (a dropdown, a date range, a **condition button** with as many
+column conditions as you like), and the full **reach** above — including *the
+whole page, by key*. A fixed condition button is how you say "this page is
+only ever about live, financed deals" in one place.
+
+Two states are excluded from the count of active filters and from the *More*
+badge: a rule the reader cannot see, reach or clear would otherwise send them
+hunting for a control that doesn't exist.
 
 ### Saved views
 
