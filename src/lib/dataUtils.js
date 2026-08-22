@@ -121,6 +121,27 @@ export function fromDateInput(s) {
   return new Date(+m[1], +m[2] - 1, +m[3])
 }
 
+/**
+ * Normalises a key cell so real-world sheet data still matches.
+ *
+ * Sheet keys are notoriously inconsistent -- " SO-1001 " vs "SO-1001", and
+ * an order number that Sheets stored as the number 1001 on one tab and the
+ * text "1,001" on another. Numbers are compared numerically when BOTH sides
+ * parse as numbers, and as trimmed lower-case text otherwise, so neither
+ * case silently produces zero matches.
+ */
+export function normalizeKey(value) {
+  if (isBlank(value)) return null
+  const text = String(value).trim()
+  // A bare number (possibly comma-grouped / currency-decorated) compares
+  // numerically, so 1001 === "1,001" === "1001.0".
+  if (/^[\s₹$€£]*-?[\d,]+(\.\d+)?[\s%]*$/.test(text)) {
+    const n = toNumber(text)
+    if (n !== null) return `n:${n}`
+  }
+  return `s:${text.toLowerCase()}`
+}
+
 // ---------------------------------------------------------------------
 // Aggregation
 // ---------------------------------------------------------------------

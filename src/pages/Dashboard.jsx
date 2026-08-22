@@ -8,10 +8,11 @@ import { usePageData } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, orderWidgets } from '../hooks/useUserPrefs'
 import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
-import { applyFilters } from '../lib/filterEngine'
+import { applyFilters, matchesConditions } from '../lib/filterEngine'
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
+import { normalizeKey } from '../lib/dataUtils'
 import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
 import { styleClass, styleVars } from '../lib/widgetStyle'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
@@ -288,6 +289,67 @@ export default function Dashboard() {
   }, [allowedWidgets, filteredByRef, dataByRef])
 
   // --- Interaction -------------------------------------------------------
+  /**
+   * Turns a drill on a BLENDED column into one the whole page understands.
+   *
+   * A blended column exists only on the widget that blended it, so filtering
+   * anything else by it directly matches nothing -- which is why clicking
+   * such a chart used to empty the dashboard. What every tab CAN be filtered
+   * by is the key the blend joined on, so the click is resolved here into
+   * the set of key values it selected ("the VINs whose Yard.Location is Pune
+   * Yard") and that set is what travels.
+   *
+   * Keys are collected from the UNFILTERED blend, so the set means "every
+   * VIN in Pune Yard" rather than "the ones that happened to survive the
+   * other filters". Those filters still apply on top; this way removing one
+   * widens the result instead of leaving it stuck.
+   */
+  function crossFilterHandlerFor(widget, blended, nativeHeaders) {
+    if (!blended) return toggleCrossFilter
+
+    const blend = widget.blend
+    const isBlendedColumn = (column) => column && !nativeHeaders.includes(column)
+
+    return (cf) => {
+      const touchesBlended =
+        cf.kind === 'conditions'
+          ? (cf.conditions || []).some((c) => isBlendedColumn(c.column))
+          : isBlendedColumn(cf.column)
+
+      if (!touchesBlended) return toggleCrossFilter(cf)
+
+      const source = blended.unfiltered || []
+      const matched =
+        cf.kind === 'conditions'
+          ? source.filter((row) => matchesConditions(row, cf.conditions, cf.match || 'all', dateOrder))
+          : source.filter((row) => String(row[cf.column] ?? '').trim() === String(cf.value).trim())
+
+      const keys = Array.from(
+        new Set(matched.map((row) => normalizeKey(row[blend.leftKey])).filter((k) => k !== null))
+      )
+
+      toggleCrossFilter({
+        id: cf.id,
+        kind: 'keys',
+        // Kept so clicking the same bar again still toggles the filter off.
+        value: cf.value,
+        keys,
+        // The pairs the blend stated outright. Both tabs are named because
+        // their key columns are usually called different things.
+        keyColumns: [
+          { tab: widget.tab, column: blend.leftKey },
+          { tab: labelFor(blend.ref), column: blend.rightKey },
+        ],
+        // ...and any other tab carrying a column of the same name is assumed
+        // to hold the same key, which is what reaches widgets nowhere near
+        // the blend.
+        keyNames: [blend.leftKey, blend.rightKey],
+        icon: '🔗',
+        label: cf.label,
+      })
+    }
+  }
+
   function toggleCrossFilter(cf) {
     setCrossFilters((current) => {
       const existing = current.find((c) => c.id === cf.id)
@@ -625,6 +687,11 @@ export default function Dashboard() {
                   ? applyWidgetControls(unfilteredBase, myControls, myValues, dateOrder)
                   : unfilteredBase
 
+                // A blended widget's drills go through a translator that
+                // resolves a blended column back to the join key, so the
+                // click narrows the whole page instead of nothing.
+                const drill = crossFilterHandlerFor(widget, blended, tabData?.headers || [])
+
                 const common = { widget, rows, unfilteredRows: unfiltered, tabError: tabData?.error }
 
                 return {
@@ -681,35 +748,35 @@ export default function Dashboard() {
                           {...common}
                           rowsByTab={rowsByLabel}
                           rawRowsByTab={rawRowsByLabel}
-                          onCrossFilter={toggleCrossFilter}
+                          onCrossFilter={drill}
                           isDrilled={crossFilters.some((c) => c.id === `kpi_${widget.id}`)}
                         />
                       )}
                       {widget.type === 'chart' && (
-                        <ChartWidget {...common} crossFilters={crossFilters} onCrossFilter={toggleCrossFilter} />
+                        <ChartWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
                       )}
                       {widget.type === 'trend' && (
                         <TrendWidget
                           {...common}
                           dateOrder={dateOrder}
                           crossFilters={crossFilters}
-                          onCrossFilter={toggleCrossFilter}
+                          onCrossFilter={drill}
                         />
                       )}
                       {widget.type === 'gauge' && (
                         <GaugeWidget
                           {...common}
-                          onCrossFilter={toggleCrossFilter}
+                          onCrossFilter={drill}
                           isDrilled={crossFilters.some((c) => c.id === `gauge_${widget.id}`)}
                         />
                       )}
-                      {widget.type === 'pivot' && <PivotWidget {...common} onCrossFilter={toggleCrossFilter} />}
-                      {widget.type === 'heatmap' && <HeatmapWidget {...common} onCrossFilter={toggleCrossFilter} />}
+                      {widget.type === 'pivot' && <PivotWidget {...common} onCrossFilter={drill} />}
+                      {widget.type === 'heatmap' && <HeatmapWidget {...common} onCrossFilter={drill} />}
                       {widget.type === 'stacked' && (
-                        <StackedWidget {...common} crossFilters={crossFilters} onCrossFilter={toggleCrossFilter} />
+                        <StackedWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
                       )}
                       {widget.type === 'combo' && (
-                        <ComboWidget {...common} crossFilters={crossFilters} onCrossFilter={toggleCrossFilter} />
+                        <ComboWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
                       )}
                       {widget.type === 'scatter' && <ScatterWidget {...common} />}
                       {widget.type === 'activity' && <ActivityFeedWidget {...common} dateOrder={dateOrder} />}
@@ -720,12 +787,12 @@ export default function Dashboard() {
                           rowsByTab={rowsByLabel}
                           rawRowsByTab={rawRowsByLabel}
                           crossFilters={crossFilters}
-                          onCrossFilter={toggleCrossFilter}
+                          onCrossFilter={drill}
                           dateOrder={dateOrder}
                         />
                       )}
                       {widget.type === 'leaderboard' && (
-                        <LeaderboardWidget {...common} crossFilters={crossFilters} onCrossFilter={toggleCrossFilter} />
+                        <LeaderboardWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
                       )}
                       {widget.type === 'table' && (
                         <TableWidget

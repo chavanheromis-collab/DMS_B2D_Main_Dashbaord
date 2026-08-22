@@ -404,6 +404,34 @@ Blended columns behave like any other column: sort them, chart them, put them
 in a KPI, show them as coloured pills. The blend is scoped to **that one
 widget** — nothing else on the page changes.
 
+### Drilling on a blended column
+
+Clicking a chart grouped by a **blended** column — say a horizontal bar of
+stock by `Yard.Location`, where the location came from a second tab — filters
+the **whole page**, not just that widget.
+
+It has to work indirectly, because a blended column exists only on the widget
+that blended it: filtering anything else by `Yard.Location` would match
+nothing. So the click is resolved back to **the join key**. "Pune Yard"
+becomes *the set of VINs whose location is Pune Yard*, and that set is what
+travels across the page:
+
+| Widget's tab | How it narrows |
+|---|---|
+| The blend's **left** tab (`STOCK`) | on `VIN` — the key the blend named |
+| The blend's **right** tab (`YARD`) | on `Chassis No` — its own, differently-named key |
+| Any **other** tab with a `VIN` column (`SERVICE`) | on `VIN`, by name |
+| A tab with neither | untouched — silence, not an empty table |
+
+The keys are collected from the **unfiltered** blend, so the set means "every
+VIN in Pune Yard" rather than "the ones that happened to survive the filters
+already applied". Other filters still stack on top, so removing one widens the
+result instead of leaving it stuck.
+
+The chip shows how many key values are behind the drill, and its tooltip names
+the column they matched on — a filter that reached widgets you didn't click
+should say so.
+
 Two deliberate limits: blended columns are never inline-editable (the cell
 lives in another spreadsheet, and one blended row can stand for several source
 rows), and the pipeline widget can't blend, because each of its stages already

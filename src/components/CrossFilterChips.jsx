@@ -16,7 +16,26 @@ function tabsTouched(cf) {
   if (cf.kind === 'conditions' && cf.conditions?.length) {
     return [...new Set(cf.conditions.map((c) => c.tab).filter(Boolean))]
   }
+  if (cf.kind === 'keys') {
+    return [...new Set((cf.keyColumns || []).map((k) => k.tab).filter(Boolean))]
+  }
   return cf.tab ? [cf.tab] : []
+}
+
+/**
+ * What a chip's tooltip says about how it is narrowing things.
+ *
+ * A key filter deserves the explanation: it reached widgets the click was
+ * nowhere near, and "matched on VIN · 34 values" is the difference between
+ * that feeling clever and feeling broken.
+ */
+function describe(cf, tabs) {
+  if (cf.kind !== 'keys') return tabs.length ? `on ${tabs.join(' + ')}` : ''
+  const names = [...new Set(cf.keyNames || [])].filter(Boolean)
+  const count = (cf.keys || []).length
+  return `matched on ${names.join(' / ') || 'the join key'} · ${count.toLocaleString('en-IN')} value${
+    count === 1 ? '' : 's'
+  }`
 }
 
 export default function CrossFilterChips({ crossFilters = [], onRemove, onClear }) {
@@ -33,11 +52,19 @@ export default function CrossFilterChips({ crossFilters = [], onRemove, onClear 
         return (
           <span
             key={cf.id}
-            title={tabs.length ? `on ${tabs.join(' + ')}` : undefined}
+            title={describe(cf, tabs) || undefined}
             className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 shadow-sm"
           >
             {cf.icon && <span className="leading-none">{cf.icon}</span>}
             <span className="max-w-[240px] truncate">{cf.label || cf.value || tabs[0]}</span>
+            {/* A key filter reached widgets the click wasn't near, so it says
+                how many key values are behind it rather than leaving that a
+                mystery. */}
+            {cf.kind === 'keys' && (
+              <span className="rounded-full bg-indigo-100 px-1.5 text-[10px] font-bold tabular-nums text-indigo-600">
+                {(cf.keys || []).length.toLocaleString('en-IN')}
+              </span>
+            )}
             <button
               onClick={() => onRemove(cf.id)}
               className="text-indigo-300 transition-colors hover:text-rose-500"

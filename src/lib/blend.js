@@ -1,4 +1,9 @@
-import { aggregate, isBlank, toNumber } from './dataUtils.js'
+import { aggregate, isBlank, normalizeKey, toNumber } from './dataUtils.js'
+
+// Re-exported: the blend defines what a key match means, and callers have
+// long imported it from here. Imported as well as re-exported, because
+// `export { x } from` creates no local binding and this file uses it.
+export { normalizeKey }
 import { parseRef } from './refs.js'
 
 // ---------------------------------------------------------------------
@@ -68,27 +73,6 @@ export const DEFAULT_BLEND = {
 /** Is this blend fully specified enough to actually run? */
 export function blendIsReady(blend) {
   return Boolean(blend?.enabled && blend.ref && blend.leftKey && blend.rightKey)
-}
-
-/**
- * Normalises a key cell so real-world sheet data still matches.
- *
- * Sheet keys are notoriously inconsistent -- " SO-1001 " vs "SO-1001", and
- * an order number that Sheets stored as the number 1001 on one tab and the
- * text "1,001" on another. Numbers are compared numerically when BOTH sides
- * parse as numbers, and as trimmed lower-case text otherwise, so neither
- * case silently produces zero matches.
- */
-export function normalizeKey(value) {
-  if (isBlank(value)) return null
-  const text = String(value).trim()
-  // A bare number (possibly comma-grouped / currency-decorated) compares
-  // numerically, so 1001 === "1,001" === "1001.0".
-  if (/^[\s₹$€£]*-?[\d,]+(\.\d+)?[\s%]*$/.test(text)) {
-    const n = toNumber(text)
-    if (n !== null) return `n:${n}`
-  }
-  return `s:${text.toLowerCase()}`
 }
 
 /** Groups the right-hand rows by their normalised key. */

@@ -1,4 +1,4 @@
-import { isBlank, toNumber, toDate, fromDateInput, startOfDay, endOfDay } from './dataUtils.js'
+import { isBlank, normalizeKey, toNumber, toDate, fromDateInput, startOfDay, endOfDay } from './dataUtils.js'
 
 // ---------------------------------------------------------------------
 // How filtering works across a multi-tab page
@@ -267,7 +267,58 @@ function applyButton(rows, button, tab, dateOrder) {
 //   { kind: 'value',      tab, column, value }   -- from a chart / leaderboard
 //   { kind: 'conditions', tab, conditions, match } -- from a pipeline stage
 // Same scoping rule as everything else: it only touches its own tab.
+/**
+ * Which column on THIS tab holds the key a key-filter is matching.
+ *
+ * Two ways to find it, most specific first:
+ *
+ *  1. `keyColumns` names the exact pairs the blend defined -- the left tab
+ *     with its key column, the right tab with its own (differently named)
+ *     one. Those are certain, because the admin stated them.
+ *  2. Otherwise, any tab carrying a column of the SAME NAME is assumed to
+ *     hold the same key. That is what carries a drill across to widgets
+ *     nowhere near the blend: a SERVICE tab with a `VIN` column narrows too.
+ *
+ * A tab with neither is left completely alone, which is the same rule every
+ * other filter here follows -- silence, not an empty table.
+ */
+function keyColumnFor(rows, cf, tab) {
+  const pair = (cf.keyColumns || []).find((k) => k.tab === tab && k.column)
+  if (pair) return pair.column
+
+  const sample = rows[0]
+  if (!sample) return null
+  for (const name of cf.keyNames || []) {
+    if (name && Object.prototype.hasOwnProperty.call(sample, name)) return name
+  }
+  return null
+}
+
+/**
+ * Narrows rows to a set of key values -- the shape a drill on a BLENDED
+ * column takes.
+ *
+ * A blended column ("Yard.Location") exists only on the widget that blended
+ * it, so filtering other widgets by it directly is impossible. What every
+ * tab CAN be filtered by is the key the blend joined on, so the click is
+ * resolved to "the VINs whose location is Pune Yard" and that set travels
+ * across the page instead.
+ */
+function applyKeyCrossFilter(rows, cf, tab) {
+  const column = keyColumnFor(rows, cf, tab)
+  if (!column) return rows
+
+  // Built once per tab rather than per row: a key set can hold thousands of
+  // VINs, and a linear scan inside the row loop would make it quadratic.
+  const wanted = new Set(cf.keys || [])
+  if (wanted.size === 0) return []
+
+  return rows.filter((row) => wanted.has(normalizeKey(row[column])))
+}
+
 function applyCrossFilter(rows, cf, tab, dateOrder) {
+  if (cf.kind === 'keys') return applyKeyCrossFilter(rows, cf, tab)
+
   if (cf.kind === 'conditions') {
     // Conditions each carry their own tab (exactly like buttons), so a
     // single cross-filter can legitimately span more than one tab -- e.g. a
