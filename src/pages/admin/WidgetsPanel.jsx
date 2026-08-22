@@ -509,8 +509,8 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) 
                 <>
               {cols.length === 0 && (
                 <p className="mb-2 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
-                  No columns known for “{labelFor(widget.tab)}” yet — open a dashboard using that tab once (or hit
-                  Refresh there) and the header row will sync automatically.
+                  No columns known for “{labelFor(widget.tab)}” yet — open <strong>Data Sources</strong> and hit
+                  “Sync data” on that spreadsheet.
                 </p>
               )}
 

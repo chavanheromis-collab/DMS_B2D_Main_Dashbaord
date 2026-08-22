@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check, Database, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { extractSheetId } from '../../lib/config'
-import { fetchSpreadsheetTabs } from '../../lib/sheetsApi'
+import { fetchSpreadsheetTabs, syncSource } from '../../lib/sheetsApi'
 import { emptySource } from '../../lib/workspace'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { Btn, Field, Select, TextInput, stableEqual } from './ui.jsx'
@@ -19,17 +19,69 @@ import { Btn, Field, Select, TextInput, stableEqual } from './ui.jsx'
  * reached even by crafting a request by hand.
  */
 export default function DataSourcesPanel({ sources, pages, onSave, onDelete }) {
+  const { getIdToken } = useAuth()
+  const [syncingAll, setSyncingAll] = useState(false)
+  const [allReport, setAllReport] = useState(null)
+
+  const syncable = sources.filter((s) => s.sheetId && (s.tabs || []).length > 0)
+
+  /**
+   * Refreshes every connected sheet.
+   *
+   * Sequential rather than parallel: each one is several Google API calls,
+   * and firing a dozen spreadsheets at once is how you meet a rate limit.
+   * One failing source is recorded and the rest continue.
+   */
+  async function syncAll() {
+    setSyncingAll(true)
+    setAllReport(null)
+    const report = { ok: 0, failed: [] }
+    try {
+      const idToken = await getIdToken()
+      for (const source of syncable) {
+        try {
+          await syncSource(idToken, source.id)
+          report.ok += 1
+        } catch (e) {
+          report.failed.push(`${source.name}: ${e.message}`)
+        }
+      }
+    } finally {
+      setAllReport(report)
+      setSyncingAll(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
         <Btn variant="accent" onClick={() => onSave(emptySource(`Spreadsheet ${sources.length + 1}`))}>
           <Plus size={13} /> Connect a spreadsheet
         </Btn>
-        <p className="max-w-xl text-[11px] text-slate-400">
+
+        {syncable.length > 1 && (
+          <Btn onClick={syncAll} disabled={syncingAll}>
+            <RefreshCw size={12} className={syncingAll ? 'animate-spin' : ''} />
+            {syncingAll ? 'Syncing…' : `Sync all ${syncable.length}`}
+          </Btn>
+        )}
+
+        <p className="max-w-lg text-[11px] text-slate-400">
           Each spreadsheet is connected once and can then feed any number of pages. Remember to share the sheet with
           your service account’s email, exactly as you’d share it with a person.
         </p>
       </div>
+
+      {allReport && (
+        <p
+          className={`rounded-lg px-2 py-1.5 text-[11px] ${
+            allReport.failed.length ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+          }`}
+        >
+          Synced {allReport.ok} of {syncable.length}.
+          {allReport.failed.length > 0 && ` Failed — ${allReport.failed.join('; ')}`}
+        </p>
+      )}
 
       {sources.length === 0 && (
         <p className="rounded-xl border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400">
@@ -52,6 +104,19 @@ export default function DataSourcesPanel({ sources, pages, onSave, onDelete }) {
   )
 }
 
+/** "3 minutes ago" — a sync time only needs to be roughly right. */
+function agoText(iso) {
+  if (!iso) return null
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return null
+  const mins = Math.round((Date.now() - then) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.round(hours / 24)}d ago`
+}
+
 function SourceCard({ source, usedBy, onSave, onDelete }) {
   const { getIdToken } = useAuth()
   const [draft, setDraft] = useState(source)
@@ -59,6 +124,8 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncReport, setSyncReport] = useState(null)
 
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
   const sheetId = extractSheetId(draft.sheetId)
@@ -90,8 +157,34 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
     }
   }
 
+  /**
+   * Reads the saved tabs and refreshes their column lists.
+   *
+   * Deliberately reads what is SAVED, not the draft: syncing tabs you have
+   * ticked but not saved would report columns for a configuration that isn't
+   * stored anywhere. The button is disabled while there are unsaved changes
+   * and says why.
+   */
+  async function sync() {
+    setSyncing(true)
+    setSyncReport(null)
+    setMessage(null)
+    try {
+      const idToken = await getIdToken()
+      const result = await syncSource(idToken, source.id)
+      setSyncReport(result)
+    } catch (e) {
+      setMessage({ type: 'error', text: e.message })
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const shownTabs = available.length ? available : draft.tabs || []
   const selected = draft.tabs || []
+  const lastSynced = agoText(source.lastSyncedAt)
+  const knownColumns = Object.keys(source.tabHeaders || {}).length
+  const needsSync = selected.length > 0 && knownColumns < selected.length
 
   function toggleTab(name) {
     set({ tabs: selected.includes(name) ? selected.filter((t) => t !== name) : [...selected, name] })
@@ -210,6 +303,24 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
           >
             Save source
           </Btn>
+
+          {/* Pulls the saved tabs and refreshes their column lists, so the
+              widget pickers know what's in this sheet without anyone having
+              to open a dashboard first. */}
+          <Btn
+            onClick={sync}
+            disabled={syncing || dirty || !source.sheetId || (source.tabs || []).length === 0}
+            title={
+              dirty
+                ? 'Save the source first — sync reads what is stored, not what is on screen'
+                : 'Read the selected tabs and refresh their column lists'
+            }
+            className={needsSync && !dirty ? '!border-amber-300 !bg-amber-50 !text-amber-700' : ''}
+          >
+            <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'Syncing…' : 'Sync data'}
+          </Btn>
+
           {dirty && <span className="text-xs text-amber-600">Unsaved changes</span>}
         </div>
 
@@ -217,6 +328,45 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
           {usedBy.length === 0 ? 'Not used by any page yet' : `Used by ${usedBy.map((p) => p.name).join(', ')}`}
         </p>
       </div>
+
+      {/* --- Sync state ------------------------------------------------- */}
+      {!dirty && needsSync && !syncReport && (
+        <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
+          {knownColumns === 0
+            ? 'No columns known yet — hit Sync data so the widget and filter pickers can offer this sheet’s columns.'
+            : `Columns known for ${knownColumns} of ${selected.length} tabs — Sync data to fetch the rest.`}
+        </p>
+      )}
+
+      {syncReport && (
+        <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2">
+          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
+            <Check size={11} className="text-emerald-600" />
+            Synced {Object.keys(syncReport.tabs).length} tab
+            {Object.keys(syncReport.tabs).length === 1 ? '' : 's'}
+          </p>
+          <div className="grid grid-cols-1 gap-0.5 md:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(syncReport.tabs).map(([tab, info]) => (
+              <p key={tab} className="truncate text-[10px]" title={info.error || undefined}>
+                <span className="font-medium text-slate-600">{tab}</span>{' '}
+                {info.error ? (
+                  // A single bad tab is reported on its own line rather than
+                  // failing the whole sync -- the other tabs are still fine.
+                  <span className="text-rose-600">· {info.error}</span>
+                ) : (
+                  <span className="text-slate-400">
+                    · {info.rows.toLocaleString('en-IN')} rows · {info.columns} cols
+                  </span>
+                )}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {lastSynced && !syncReport && (
+        <p className="mt-1.5 text-[10px] text-slate-400">Last synced {lastSynced}</p>
+      )}
     </div>
   )
 }

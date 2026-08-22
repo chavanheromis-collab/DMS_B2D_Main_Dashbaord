@@ -102,7 +102,20 @@ Reload — the ⚙️ admin panel appears in the sidebar.
 ### 4. Build a workspace
 
 1. **🗄️ Data Sources** — *Connect a spreadsheet*, paste the link, *Load tabs*,
-   tick the tabs this workspace may use, save. Repeat for each spreadsheet.
+   tick the tabs this workspace may use, **Save**, then **Sync data**. Repeat
+   for each spreadsheet.
+
+   *Sync data* reads the selected tabs and stores their column lists, which is
+   what lets the widget, filter and blend pickers offer real columns. Without
+   it there's a circle: a new sheet has no known columns until a page uses it,
+   and you can't build that page without the columns. The button reports rows
+   and columns per tab, and flags any single tab that failed rather than
+   failing the whole sync. **Sync all** appears once you have more than one
+   spreadsheet, and runs them one at a time to stay clear of Google's rate
+   limits.
+
+   Sync reads what is **saved**, not what's on screen, so it's disabled while
+   you have unsaved changes and says why.
 2. **📄 Pages** — *New dashboard page*. Name it, give it an icon and a sidebar
    group, and tick the spreadsheets it may draw on. Click **Build**.
 3. **🧱 Widgets** — add a table from MASTER, a KPI from Quotations, a chart
@@ -722,7 +735,7 @@ Anything prefixed `VITE_` is bundled into the browser. Never prefix a secret.
 | Collection | Document | Contents |
 |---|---|---|
 | `users` | `{uid}` | `email`, `name`, `status` (`pending`/`active`/`removed`), `role` (`user`/`admin`) |
-| `dataSources` | `{sourceId}` | `name`, `sheetId`, `tabs[]`, `tabHeaders{tab: columns[]}`, `dateOrder` |
+| `dataSources` | `{sourceId}` | `name`, `sheetId`, `tabs[]`, `tabHeaders{tab: columns[]}`, `dateOrder`, `lastSyncedAt` |
 | `dashboards` | `{pageId}` | `name`, `navLabel`, `icon`, `iconUrl`, `group`, `order`, `showInSidebar`, `parentId`, `tabUsesPageName`, `background`, `hideSearch`, `sourceIds[]`, `widgets[]`, `controls[]`, `views[]` |
 | `access` | `{uid}_{pageId}` | `canView`, `hiddenWidgets[]`, `widgetOrder{}`, `editable{ref: columns[]}`, `downloadable{ref: columns[]}` |
 | `userPrefs` | `{uid}_{pageId}` | `widgetOrder{widgetId: number}` — one user's own widget arrangement |
@@ -768,6 +781,7 @@ server verifies it and applies that user's permissions.
 | `GET /api/sheets?page=<pageId>` | Reads every ref the page is allowed |
 | `GET /api/sheets?page=<pageId>&refs=src_a::MASTER,src_b::Quotations` | Reads a subset |
 | `GET /api/sheets?action=listTabs&sheetId=…` | Admin only — lists a spreadsheet's real tab names |
+| `GET /api/sheets?action=syncSource&sourceId=…` | Admin only — reads a source's tabs and refreshes its stored column lists |
 | `POST /api/sheets` | Writes one cell (`{page, ref, row, column, value, headers}`) |
 
 A page may only read a ref whose source is on its own `sourceIds` list **and**
@@ -894,9 +908,10 @@ src/
 in Google, or its spreadsheet was removed from the page under **Pages**. Other
 tabs still render; the Pages panel warns you when widgets are left orphaned.
 
-**"No columns known for this tab yet"** — nobody has loaded a page using that
-tab since it was added. Open such a page once, or hit Refresh, and the header
-row syncs automatically.
+**"No columns known for this tab yet"** — that tab has never been read. Open
+**Data Sources** and hit **Sync data** on its spreadsheet. (Loading a page
+that uses the tab also syncs it, but sync is the direct route and works
+before any page exists.)
 
 **A blend returns no matches** — check the two key columns really hold the
 same identifier. Case, padding and comma-grouping are handled for you;

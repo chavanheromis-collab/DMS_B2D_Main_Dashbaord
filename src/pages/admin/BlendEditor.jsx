@@ -173,7 +173,7 @@ export default function BlendEditor({ widget, set }) {
                 })}
                 {rightCols.length === 0 && (
                   <p className="col-span-3 py-2 text-center text-[11px] text-slate-300">
-                    No columns known for that tab yet — open a dashboard using it once.
+                    No columns known for that tab yet — hit “Sync data” on its spreadsheet under Data Sources.
                   </p>
                 )}
               </div>

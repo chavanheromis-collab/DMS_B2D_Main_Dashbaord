@@ -169,6 +169,49 @@ async function handleGet(req, res, uid) {
     return res.status(200).json(await listTabs(sheetId))
   }
 
+  // --- Admin-only: pull one source's tabs and refresh its header lists ---
+  //
+  // Headers are normally written as a side effect of a dashboard loading,
+  // which meant a freshly connected spreadsheet had no known columns until
+  // someone opened a page that used it -- and you cannot build that page
+  // without the columns. This breaks the circle: sync the source directly,
+  // from the panel where you just added it.
+  if (action === 'syncSource') {
+    const { isAdmin } = await getAccess(uid, 'ANY')
+    if (!isAdmin) return res.status(403).json({ error: 'Admins only' })
+
+    const sourceId = String(req.query.sourceId || '')
+    if (!sourceId) return res.status(400).json({ error: 'Missing "sourceId"' })
+
+    const snap = await adminDb.doc(`dataSources/${sourceId}`).get()
+    if (!snap.exists) return res.status(404).json({ error: 'That spreadsheet is not connected' })
+
+    const source = snap.data()
+    const tabs = (source.tabs || []).filter(Boolean)
+    if (!source.sheetId) return res.status(400).json({ error: 'No spreadsheet ID saved for this source' })
+    if (tabs.length === 0) return res.status(400).json({ error: 'No tabs are selected for this source' })
+
+    const data = await fetchManyTabs(source.sheetId, tabs)
+
+    const tabHeaders = {}
+    const summary = {}
+    for (const [tab, result] of Object.entries(data)) {
+      if (result?.headers?.length) tabHeaders[tab] = result.headers
+      summary[tab] = {
+        rows: result?.rows?.length ?? 0,
+        columns: result?.headers?.length ?? 0,
+        error: result?.error || null,
+      }
+    }
+
+    const syncedAt = new Date().toISOString()
+    // Awaited, unlike the fire-and-forget sync on a normal read: the panel
+    // reports success, so it must not claim a write that never landed.
+    await adminDb.doc(`dataSources/${sourceId}`).set({ tabHeaders, lastSyncedAt: syncedAt }, { merge: true })
+
+    return res.status(200).json({ tabs: summary, syncedAt })
+  }
+
   if (!pageId) return res.status(400).json({ error: 'Missing "page" query param' })
 
   const access = await getAccess(uid, pageId)

@@ -87,6 +87,22 @@ export async function fetchSpreadsheetTabs(idToken, sheetId, sourceId) {
 }
 
 /**
+ * Admin-only: reads every selected tab of one connected spreadsheet and
+ * refreshes its stored column lists.
+ *
+ * Normally headers are written as a side effect of a dashboard loading. That
+ * left a circle for a newly connected sheet -- no known columns until a page
+ * used it, and no way to build that page without the columns. This is the
+ * way out, called from the Data Sources panel.
+ *
+ * Returns { tabs: { [tab]: { rows, columns, error } }, syncedAt }.
+ */
+export async function syncSource(idToken, sourceId) {
+  const params = new URLSearchParams({ action: 'syncSource', sourceId })
+  return apiFetch(idToken, `/api/sheets?${params.toString()}`)
+}
+
+/**
  * Writes a single cell back to the spreadsheet, addressed by ref + header
  * name. The server re-checks that this user may edit this column on this
  * ref before touching Google.
