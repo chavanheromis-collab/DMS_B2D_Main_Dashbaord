@@ -28,6 +28,7 @@ export function isValidPage(p) {
 export const WIDGET_TYPES = [
   { value: 'kpi', label: 'KPI Card', icon: '📊', hint: 'One number from one tab + column' },
   { value: 'pipeline', label: 'Workflow Pipeline', icon: '🔀', hint: 'Funnel of stages, each with its own pop-up KPIs' },
+  { value: 'flow', label: 'Flow (drill-down tree)', icon: '🌳', hint: 'One number that opens into levels — split, branch, or hop to another tab' },
   { value: 'leaderboard', label: 'Leaderboard', icon: '🏆', hint: 'Rank a column by any metrics you choose' },
   { value: 'table', label: 'Data Table', icon: '📋', hint: 'Rows with drag-ordered columns, dropdowns and buttons' },
   { value: 'chart', label: 'Chart', icon: '📈', hint: 'Group a tab by a column and plot it — 11 chart styles' },
@@ -219,6 +220,7 @@ export const OPERATORS = [
   { value: 'not_contains', label: 'does not contain', arity: 1 },
   { value: 'starts_with', label: 'starts with', arity: 1 },
   { value: 'one_of', label: 'is one of (comma separated)', arity: 1 },
+  { value: 'none_of', label: 'is none of (comma separated)', arity: 1 },
   { value: 'is_empty', label: 'is empty', arity: 0 },
   { value: 'is_not_empty', label: 'is not empty', arity: 0 },
   { value: 'gt', label: '> (number)', arity: 1 },

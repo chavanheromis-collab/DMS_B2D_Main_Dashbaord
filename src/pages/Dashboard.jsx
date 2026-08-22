@@ -27,6 +27,7 @@ import CrossFilterChips from '../components/CrossFilterChips.jsx'
 import MasonryGrid from '../components/MasonryGrid.jsx'
 import KpiWidget from '../components/widgets/KpiWidget.jsx'
 import PipelineWidget from '../components/widgets/PipelineWidget.jsx'
+import FlowWidget from '../components/widgets/FlowWidget.jsx'
 import LeaderboardWidget from '../components/widgets/LeaderboardWidget.jsx'
 import TableWidget from '../components/widgets/TableWidget.jsx'
 import ChartWidget from '../components/widgets/ChartWidget.jsx'
@@ -46,6 +47,7 @@ function estimateWidgetHeight(type) {
   if (type === 'kpi' || type === 'gauge') return 150
   if (type === 'scorecard') return 190
   if (type === 'pipeline') return 260
+  if (type === 'flow') return 300
   if (type === 'heatmap') return 320
   return 380
 }
@@ -59,7 +61,7 @@ function estimateWidgetHeight(type) {
  *
  * Refs are an internal address, never something a person should read, so
  * this component does the translation exactly once, at the boundary:
- * everything below it -- the filter engine, all ten widget types -- receives
+ * everything below it -- the filter engine, all fifteen widget types -- receives
  * the layout rewritten to short human labels, with the row maps keyed by the
  * same labels. That is what lets the entire widget layer stay untouched by
  * the move to many spreadsheets: it never learns that refs exist.
@@ -354,7 +356,13 @@ export default function Dashboard() {
   function toggleCrossFilter(cf) {
     setCrossFilters((current) => {
       const existing = current.find((c) => c.id === cf.id)
-      if (existing && (existing.value === cf.value || cf.kind === 'conditions')) {
+      // Same id AND same selection means "clicking the thing that is already
+      // on", which clears it. A different selection under the same id -- one
+      // flow, a different branch -- replaces instead, so a tree drill moves
+      // rather than stacking two contradictory filters on the page. Callers
+      // that carry no `value` (a pipeline stage, a trend bucket) compare
+      // undefined to undefined and toggle exactly as they always have.
+      if (existing && existing.value === cf.value) {
         return current.filter((c) => c.id !== cf.id)
       }
       return [...current.filter((c) => c.id !== cf.id), cf]
@@ -727,7 +735,7 @@ export default function Dashboard() {
 
                       {/* This widget's own controls, above its card. Living
                           here rather than inside each widget is what lets
-                          all fourteen types have them. */}
+                          all fifteen types have them. */}
                       <WidgetControls
                         controls={myControls}
                         values={myValues}
@@ -789,6 +797,16 @@ export default function Dashboard() {
                           rawRowsByTab={rawRowsByLabel}
                           crossFilters={crossFilters}
                           onCrossFilter={drill}
+                          dateOrder={dateOrder}
+                        />
+                      )}
+                      {widget.type === 'flow' && (
+                        <FlowWidget
+                          widget={widget}
+                          rowsByTab={rowsByLabel}
+                          rawRowsByTab={rawRowsByLabel}
+                          crossFilters={crossFilters}
+                          onCrossFilter={toggleCrossFilter}
                           dateOrder={dateOrder}
                         />
                       )}

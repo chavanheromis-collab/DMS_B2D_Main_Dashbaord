@@ -25,6 +25,8 @@ import AppImage from '../../components/PageIcon.jsx'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, optValue, useWorkspaceCtx } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import BlendEditor from './BlendEditor.jsx'
+import FlowEditor from './FlowEditor.jsx'
+import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from '../../lib/flow'
 import StyleEditor from './StyleEditor.jsx'
 import WidgetControlsEditor from './WidgetControlsEditor.jsx'
 import { ComboEditor, HeatmapEditor, ScatterEditor, StackedEditor } from './ComparisonEditors.jsx'
@@ -172,6 +174,25 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) 
             },
           },
         ],
+      })
+    } else if (addType === 'flow') {
+      // Ships with one working level rather than an empty shell: a flow with
+      // no levels is just a number, and the first thing anyone wants to see
+      // is that clicking it opens something.
+      Object.assign(base, {
+        title: `${name} flow`,
+        flow: {
+          ...DEFAULT_FLOW,
+          label: name,
+          levels: [
+            {
+              ...DEFAULT_FLOW_LEVEL,
+              id: uid('fl'),
+              kind: 'split',
+              column: cols[0] || '',
+            },
+          ],
+        },
       })
     } else if (addType === 'leaderboard') {
       Object.assign(base, {
@@ -519,6 +540,9 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) 
               )}
               {widget.type === 'pipeline' && (
                 <PipelineEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
+              )}
+              {widget.type === 'flow' && (
+                <FlowEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
               {widget.type === 'leaderboard' && <LeaderboardEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'chart' && <ChartEditor widget={widget} cols={cols} set={set} />}

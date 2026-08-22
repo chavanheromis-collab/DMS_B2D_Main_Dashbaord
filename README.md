@@ -490,12 +490,87 @@ lives in another spreadsheet, and one blended row can stand for several source
 rows), and the pipeline widget can't blend, because each of its stages already
 picks its own tab.
 
+### The Flow widget — depth on demand
+
+Every other widget answers one question at one depth. A KPI says 1,284. A
+chart says 1,284 split by Model. Neither says:
+
+> 1,284 in stock — of which 812 are SPLENDOR, of which 190 are unallocated,
+> of which 40 have an open job on the **service** tab.
+
+That sentence is the shape of most real questions, and it's what a flow is
+for. It starts as one number and a few branches; every click adds a level.
+Nothing below the top is computed until you open it, so depth costs what you
+actually look at rather than what the page was configured with.
+
+**Everything below a branch is a subset of it**, so the arithmetic reconciles
+all the way down. That is the property that makes a drill path trustworthy,
+and it's enforced in the small places too: the tail beyond *show top N* rolls
+into **Other** rather than being dropped, and blanks get a branch of their own
+instead of vanishing the way a chart silently drops them.
+
+#### The three ways to go one level deeper
+
+An admin describes a **path**, not a picture: each level says how to turn a
+branch into its children, and it applies at every branch. Three levels
+describe a tree of any width.
+
+| Level | What it does |
+|---|---|
+| **Break down by a column** | One child per value, biggest first, top N with an "Other" roll-up and a "(blank)" branch. Optionally **viewers can change the column**, which is the single most useful control here — the interesting split is rarely the one anyone predicted. |
+| **Branch on conditions** | Admin-written branches, each a label + colour + any number of column conditions (the same operator list as buttons). *First matching branch wins* by default, so the level reads as a decision tree and still adds up. |
+| **Follow a key into another tab** | The branch becomes the rows of a second tab whose key appears in the rows above it. "812 vehicles" becomes "1,940 service jobs", and every level below reads the new tab's columns. |
+
+A single branch can be marked **stop here**, which ends the flow for that
+branch alone. That's what gives a flowchart its asymmetry: lost deals rarely
+need breaking down five more ways.
+
+#### Reading one
+
+- The **tint behind each row** is that branch's share of its parent, so a
+  glance down a branch answers "how much of that survived to here".
+- **▼37%** is what was lost at that step — the funnel read, at every level,
+  not just the top.
+- **Extra numbers** (added by the admin) appear on a branch once it's open:
+  "how many, and worth how much", without leaving the tree.
+- Percentages can be measured against the parent (conversion at each step) or
+  against the starting number (share of the whole).
+
+Three affordances per row: **click to open**, the **funnel** to filter the
+whole page to that branch, the **zoom** to make it the temporary top of the
+tree — with a breadcrumb back out. Expand-all stops at a branch limit rather
+than locking the tab.
+
+#### What a click filters
+
+Whatever the branch actually means, expressed in the most portable form
+available:
+
+- **A readable condition** whenever the chain from the top is still a plain
+  AND — it reads well as a chip, and because it's a description rather than a
+  snapshot, removing some other filter widens it again instead of leaving it
+  stuck.
+- **By key, once the flow has hopped tabs.** This is the same mechanism a
+  blended drill uses, so the drill reaches every tab carrying that key — the
+  whole page follows the flow across the spreadsheet boundary. The branch's
+  own conditions travel with the keys, so on its own tab it stays exact:
+  clicking "PDI" filters the service table to PDI jobs, while the stock and
+  feedback tabs narrow to the vehicles those jobs belong to.
+- **By sheet row** for the branches no flat AND can describe — an ANY branch,
+  or a later branch of an exclusive level, whose real meaning includes "and
+  none of the branches above". Exact, and scoped to its own tab, since a row
+  number means nothing anywhere else.
+
+Clicking a second branch of the same flow **replaces** the first rather than
+stacking two contradictory filters.
+
 ### Widget types
 
 | Type | What it does |
 |---|---|
 | **KPI Card** | One number from a tab + column + calculation. Counts up on change; with filters active it shows the unfiltered total underneath. Can express a conversion between two tabs. Its mark can be an emoji **or an image URL**. |
 | **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and pop-up KPIs. Click a stage *or one of its KPIs* to drill in. |
+| **Flow (drill-down tree)** | One number that opens, level by level, into the branches under it — by column, by conditions, or across a **key into another tab**. See below. |
 | **Leaderboard** | Ranks any column by any metrics you define. Click a row to drill in. |
 | **Data Table** | Sortable, reorderable, searchable grid with optional inline editing, row detail panel and per-row download actions. |
 | **Chart** | One data shape, **17 styles** — bar, horizontal bar, lollipop, line, step, area, waterfall, pareto, histogram, pie, donut, rose, radar, radial, treemap, funnel, progress list. Plus colour rules, reference lines and axis scaling. Every style is clickable to drill in. |
@@ -602,7 +677,7 @@ other controls, not the top 10 of the raw tab which the others then whittle
 down to three.
 
 Controls render in the canvas wrapper above each widget, which is why all
-fourteen widget types get them without any widget knowing controls exist.
+fifteen widget types get them without any widget knowing controls exist.
 
 ### Chart styles
 
@@ -712,9 +787,10 @@ value no single column holds.
 
 ### Cross-filtering (drill-down)
 
-Clicking a **pipeline stage**, a **stage KPI**, a **chart bar/slice/tile**, a
-**stacked or combo bar**, a **heat-map cell**, a **leaderboard row**, a **KPI**
-or a **gauge** filters the whole page to those rows. Active drill-downs appear
+Clicking a **pipeline stage**, a **stage KPI**, a **flow branch**, a **chart
+bar/slice/tile**, a **stacked or combo bar**, a **heat-map cell**, a
+**leaderboard row**, a **KPI** or a **gauge** filters the whole page to those
+rows. Active drill-downs appear
 as removable chips, so it's always visible *why* the numbers changed. Clicking
 the same thing again clears it. Drill-downs obey the same tab scoping as
 everything else.
@@ -947,6 +1023,7 @@ api/
 src/
   lib/refs.js             Tab refs: encode, parse, label, rewrite a layout
   lib/blend.js            Per-widget joins between two tabs
+  lib/flow.js             The drill-down tree: levels, branches, tab hops
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties
@@ -970,7 +1047,7 @@ src/
   components/WidgetControls.jsx  Per-widget control bar
   components/Sliders.jsx      Slider primitives, shared by both bars
   components/PageIcon.jsx     Page mark: image, falling back to emoji
-  components/widgets/*        The fourteen widget types
+  components/widgets/*        The fifteen widget types
   pages/Dashboard.jsx     One canvas; resolves refs to labels and blends
   pages/Admin.jsx         Admin shell + admin/*Panel.jsx
 ```

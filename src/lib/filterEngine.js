@@ -133,11 +133,14 @@ export function testCondition(row, cond, dateOrder = 'DMY') {
     case 'starts_with':
       return lower.startsWith(targetLower)
     case 'one_of':
-      return target
+    case 'none_of': {
+      const listed = target
         .split(',')
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean)
         .includes(lower)
+      return cond.operator === 'one_of' ? listed : !listed
+    }
     case 'is_empty':
       return isBlank(cell)
     case 'is_not_empty':
@@ -266,6 +269,9 @@ function applyButton(rows, button, tab, dateOrder) {
 // cross-filter onto the page. Two shapes:
 //   { kind: 'value',      tab, column, value }   -- from a chart / leaderboard
 //   { kind: 'conditions', tab, conditions, match } -- from a pipeline stage
+//   { kind: 'keys',       keys, keyColumns, keyNames, conditions? } -- from a
+//       blended drill or a flow branch: a set of join-key values, which is
+//       the one thing every tab can be filtered by at once.
 // Same scoping rule as everything else: it only touches its own tab.
 /**
  * Which column on THIS tab holds the key a key-filter is matching.
@@ -317,7 +323,16 @@ function applyKeyCrossFilter(rows, cf, tab) {
 }
 
 function applyCrossFilter(rows, cf, tab, dateOrder) {
-  if (cf.kind === 'keys') return applyKeyCrossFilter(rows, cf, tab)
+  if (cf.kind === 'keys') {
+    const narrowed = applyKeyCrossFilter(rows, cf, tab)
+    // A key filter may ALSO carry conditions -- a flow branch below a tab
+    // hop is "these vehicles' rows" AND "the ones that are a PDI". The keys
+    // carry it to every tab; the conditions sharpen it on the tab they were
+    // written against, and say nothing about the others.
+    const conds = (cf.conditions || []).filter((c) => c.tab === tab && c.column)
+    if (conds.length === 0) return narrowed
+    return narrowed.filter((row) => matchesConditions(row, conds, cf.match || 'all', dateOrder))
+  }
 
   if (cf.kind === 'conditions') {
     // Conditions each carry their own tab (exactly like buttons), so a
