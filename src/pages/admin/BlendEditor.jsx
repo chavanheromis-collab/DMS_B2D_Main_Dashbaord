@@ -1,6 +1,13 @@
 import { Link2, Plus, X } from 'lucide-react'
 import { AGGREGATIONS, aggNeedsColumn, uid } from '../../lib/config'
-import { BLEND_MULTI, BLEND_TYPES, DEFAULT_BLEND, blendIsReady, blendedColumnName } from '../../lib/blend'
+import {
+  BLEND_MULTI,
+  BLEND_TYPES,
+  DEFAULT_BLEND,
+  backupColumnValue,
+  blendIsReady,
+  blendedColumnName,
+} from '../../lib/blend'
 import { Btn, Field, Select, TextInput, Toggle, useWorkspaceCtx } from './ui.jsx'
 
 /**
@@ -52,6 +59,15 @@ export default function BlendEditor({ widget, set }) {
   const rollups = blend.rollups || []
   const setRollups = (next) => setBlend({ rollups: next })
   const fallbacks = blend.fallbacks || []
+
+  // One picker, both tabs. Each option carries its side because the two tabs
+  // very often share a column name -- "Status" on either would otherwise be
+  // indistinguishable once saved.
+  const backupOptions = [
+    { value: '', label: '— pick a backup column —' },
+    ...leftCols.map((c) => ({ value: backupColumnValue('left', c), label: `${labelFor(widget.tab)} · ${c}` })),
+    ...rightCols.map((c) => ({ value: backupColumnValue('right', c), label: `${labelFor(blend.ref)} · ${c}` })),
+  ]
 
   return (
     <div className="mt-2 rounded-lg border border-teal-100 bg-teal-50/40 p-2">
@@ -271,7 +287,7 @@ export default function BlendEditor({ widget, set }) {
                 <p className="py-1 text-[10px] text-slate-400">
                   None. A row with no match — or a match whose cell is empty — leaves the blended column blank, and a
                   chart grouped by it <strong>skips blanks</strong>, so those rows quietly vanish and the totals stop
-                  adding up. A fallback keeps them visible.
+                  adding up. A backup column — from either tab — keeps them visible.
                 </p>
               )}
 
@@ -289,12 +305,12 @@ export default function BlendEditor({ widget, set }) {
                         placeholder="— blended column —"
                         className="w-40"
                       />
-                      <span className="text-[10px] text-slate-400">is empty, use</span>
+                      <span className="text-[10px] text-slate-400">is blank, use</span>
                       <Select
                         value={rule.from || ''}
                         onChange={(v) => setRule({ from: v })}
-                        options={[{ value: '', label: '— a column from this tab —' }, ...leftCols]}
-                        className="w-44"
+                        options={backupOptions}
+                        className="w-56"
                       />
                       <span className="text-[10px] text-slate-400">or</span>
                       <TextInput
@@ -306,7 +322,7 @@ export default function BlendEditor({ widget, set }) {
                       <button
                         onClick={() => setBlend({ fallbacks: fallbacks.filter((_, i) => i !== fi) })}
                         className="text-slate-300 hover:text-rose-500"
-                        title="Remove fallback"
+                        title="Remove backup"
                       >
                         <X size={14} />
                       </button>
@@ -317,10 +333,11 @@ export default function BlendEditor({ widget, set }) {
 
               {fallbacks.length > 0 && (
                 <p className="mt-1 text-[10px] text-slate-400">
-                  Tried in order: the real value, then your column from <strong>{labelFor(widget.tab)}</strong>, then
-                  the text.
+                  Tried in order: the real value, then the backup column, then the text. The backup can come from
+                  either tab — a <strong>{labelFor(blend.ref)}</strong> backup is empty for a row that matched nothing,
+                  so it falls through to the text.
                   {blend.type === 'inner' &&
-                    ' Note: “Only matching rows” drops unmatched rows before this runs — they never reach a fallback.'}
+                    ' “Only matching rows” drops unmatched rows before any of this runs — they never reach a fallback.'}
                 </p>
               )}
             </div>

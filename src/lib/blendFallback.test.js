@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { blendRows } from './blend.js'
+import { backupColumnValue, blendRows, parseBackupColumn } from './blend.js'
 import { groupRows } from './dataUtils.js'
 
 const STOCK = [
@@ -110,4 +110,94 @@ test('with a fallback the chart adds up again', () => {
     chart.map((d) => d.name).sort(),
     ['Main Store', 'Not allocated', 'Pune Yard']
   )
+})
+
+// --- the backup column can come from either tab --------------------------
+
+// Same three vehicles, but the yard tab carries a second column. A blank
+// Location doesn't mean the yard tab knows nothing about the vehicle.
+const YARD_WITH_ZONE = [
+  { 'Chassis No': 'V1', Location: 'Pune Yard', Zone: 'Zone 1' },
+  { 'Chassis No': 'V2', Location: '', Zone: 'Zone 3' },
+]
+
+const zoned = (extra) =>
+  blendRows(STOCK, YARD_WITH_ZONE, { ...base, ...extra }, ['Chassis No', 'Location', 'Zone'])
+
+test('a backup column can be another column of the blended tab', () => {
+  const out = zoned({ fallbacks: [{ column: 'Location', from: backupColumnValue('right', 'Zone') }] })
+  assert.deepEqual(locations(out), ['Pune Yard', 'Zone 3', ''])
+})
+
+test('a right-side backup has nothing to give an unmatched row, so the text catches it', () => {
+  // V3 has no row on the yard tab at all -- no cell of any column to borrow.
+  const out = zoned({
+    fallbacks: [{ column: 'Location', from: backupColumnValue('right', 'Zone'), text: 'Not allocated' }],
+  })
+  assert.deepEqual(locations(out), ['Pune Yard', 'Zone 3', 'Not allocated'])
+})
+
+test('the side is what separates two columns sharing a name', () => {
+  // Both tabs have a "Location". Without the prefix the rule would be a
+  // coin toss; with it, each side picks out the one the admin meant.
+  const stock = [{ VIN: 'V1', Location: 'Main Store' }]
+  const yard = [{ 'Chassis No': 'V1', Location: '', Zone: 'Zone 7' }]
+  const run = (from) =>
+    blendRows(stock, yard, { ...base, columns: ['Location'], fallbacks: [{ column: 'Location', from }] }, [
+      'Chassis No',
+      'Location',
+      'Zone',
+    ])[0]['Yard.Location']
+
+  assert.equal(run(backupColumnValue('left', 'Location')), 'Main Store')
+  assert.equal(run(backupColumnValue('right', 'Zone')), 'Zone 7')
+})
+
+test('a right-side backup collapses several matches the same way the value would', () => {
+  const yard = [
+    { 'Chassis No': 'V1', Location: '', Zone: 'Zone 1' },
+    { 'Chassis No': 'V1', Location: '', Zone: 'Zone 9' },
+  ]
+  const pick = (multi) =>
+    blendRows(
+      [{ VIN: 'V1' }],
+      yard,
+      { ...base, multi, fallbacks: [{ column: 'Location', from: backupColumnValue('right', 'Zone') }] },
+      ['Chassis No', 'Location', 'Zone']
+    )[0]['Yard.Location']
+
+  assert.equal(pick('first'), 'Zone 1')
+  assert.equal(pick('last'), 'Zone 9', 'the backup follows the same rule as the column it stands in for')
+})
+
+test('a right-side backup reaches the expand join, row by row', () => {
+  const out = blendRows(
+    [{ VIN: 'V1' }],
+    [
+      { 'Chassis No': 'V1', Location: '', Zone: 'Zone 1' },
+      { 'Chassis No': 'V1', Location: 'Pune Yard', Zone: 'Zone 9' },
+    ],
+    { ...base, type: 'expand', fallbacks: [{ column: 'Location', from: backupColumnValue('right', 'Zone') }] },
+    ['Chassis No', 'Location', 'Zone']
+  )
+  // Each emitted row falls back from its OWN matched row, not from the group.
+  assert.deepEqual(locations(out), ['Zone 1', 'Pune Yard'])
+})
+
+test('a bare column name still means the main tab', () => {
+  // Rules saved before the backup could come from either side.
+  assert.deepEqual(parseBackupColumn('Default Yard'), { side: 'left', column: 'Default Yard' })
+  assert.deepEqual(parseBackupColumn('left:Default Yard'), { side: 'left', column: 'Default Yard' })
+  assert.deepEqual(parseBackupColumn('right:Zone'), { side: 'right', column: 'Zone' })
+  assert.equal(parseBackupColumn(''), null)
+  assert.equal(parseBackupColumn(undefined), null)
+})
+
+test('a column name containing a colon is not mistaken for a side', () => {
+  assert.deepEqual(parseBackupColumn('Ref: Yard'), { side: 'left', column: 'Ref: Yard' })
+  // ...and the round trip through the picker keeps it addressable.
+  assert.deepEqual(parseBackupColumn(backupColumnValue('right', 'Ref: Yard')), {
+    side: 'right',
+    column: 'Ref: Yard',
+  })
 })

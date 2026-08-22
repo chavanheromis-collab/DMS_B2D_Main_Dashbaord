@@ -31,7 +31,8 @@ import { parseRef } from './refs.js'
 //     prefix:   'Quotations.',         // namespaces the incoming columns
 //     columns:  ['Amount', 'Status'],  // [] = bring everything
 //     rollups:  [{ id, column, aggregation, as }],
-//     fallbacks:[{ id, column, from, text }],  // when the other tab is blank
+//     fallbacks:[{ id, column, from, text }],  // when a blended cell is blank
+//                 from: 'left:Default Yard' | 'right:Alt Location'
 //   }
 
 export const BLEND_TYPES = [
@@ -124,10 +125,52 @@ function fallbackIndex(blend) {
   return map
 }
 
-function withFallback(value, leftRow, rule) {
+/**
+ * A backup column reference: `"left:Default Yard"` or `"right:Alt Location"`.
+ *
+ * The side is part of the value because the two tabs can easily both have a
+ * column called `Status`, and a bare name would be ambiguous. A bare name is
+ * still accepted and read as the main tab, so rules saved before backups
+ * could come from either side keep working.
+ */
+export function parseBackupColumn(from) {
+  const s = String(from || '').trim()
+  if (!s) return null
+  const at = s.indexOf(':')
+  if (at === -1) return { side: 'left', column: s }
+  const side = s.slice(0, at)
+  if (side !== 'left' && side !== 'right') return { side: 'left', column: s }
+  return { side, column: s.slice(at + 1) }
+}
+
+export function backupColumnValue(side, column) {
+  return `${side}:${column}`
+}
+
+/**
+ * Fills a blank blended cell from a backup column, then from a literal.
+ *
+ * The backup may be a column on EITHER tab -- the widget's own, or another
+ * column of the tab being blended in. A right-side backup is collapsed with
+ * the same multi-match strategy as the value it replaces, so "last match"
+ * means the same thing for both.
+ */
+function withFallback(value, rule, leftRow, rightRows, multi) {
   if (!isBlank(value)) return value
-  if (rule?.from && !isBlank(leftRow?.[rule.from])) return leftRow[rule.from]
-  if (!isBlank(rule?.text)) return rule.text
+  if (!rule) return value
+
+  const backup = parseBackupColumn(rule.from)
+  if (backup) {
+    const replacement =
+      backup.side === 'right'
+        ? // No matched rows means no right-side value to borrow -- which is
+          // exactly the unmatched case, so it falls through to the text.
+          (rightRows?.length ? collapse(rightRows, backup.column, multi) : '')
+        : leftRow?.[backup.column]
+    if (!isBlank(replacement)) return replacement
+  }
+
+  if (!isBlank(rule.text)) return rule.text
   return value
 }
 
@@ -208,7 +251,7 @@ export function blendRows(leftRows, rightRows, blend, rightHeaders) {
       // table still has a consistent shape and sorting doesn't break.
       const blank = { ...leftRow, [countName]: 0 }
       for (const col of columns) {
-        blank[blendedColumnName(blend, col)] = withFallback('', leftRow, fallbacks.get(col))
+        blank[blendedColumnName(blend, col)] = withFallback('', fallbacks.get(col), leftRow, [], multi)
       }
       for (const r of rollups) blank[r.as || `${r.aggregation} of ${r.column}`] = 0
       out.push(blank)
@@ -220,7 +263,13 @@ export function blendRows(leftRows, rightRows, blend, rightHeaders) {
       for (const rightRow of matches) {
         const merged = { ...leftRow, [countName]: matches.length }
         for (const col of columns) {
-          merged[blendedColumnName(blend, col)] = withFallback(rightRow[col] ?? '', leftRow, fallbacks.get(col))
+          merged[blendedColumnName(blend, col)] = withFallback(
+            rightRow[col] ?? '',
+            fallbacks.get(col),
+            leftRow,
+            [rightRow],
+            multi
+          )
         }
         for (const r of rollups) {
           merged[r.as || `${r.aggregation} of ${r.column}`] = aggregate(matches, r.column, r.aggregation)
@@ -233,7 +282,13 @@ export function blendRows(leftRows, rightRows, blend, rightHeaders) {
 
     const merged = { ...leftRow, [countName]: matches.length }
     for (const col of columns) {
-      merged[blendedColumnName(blend, col)] = withFallback(collapse(matches, col, multi), leftRow, fallbacks.get(col))
+      merged[blendedColumnName(blend, col)] = withFallback(
+        collapse(matches, col, multi),
+        fallbacks.get(col),
+        leftRow,
+        matches,
+        multi
+      )
     }
     for (const r of rollups) {
       merged[r.as || `${r.aggregation} of ${r.column}`] = aggregate(matches, r.column, r.aggregation)
