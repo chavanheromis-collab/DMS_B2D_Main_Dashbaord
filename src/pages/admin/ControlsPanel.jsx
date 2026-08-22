@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Bookmark, ChevronRight, Copy, Link as LinkIcon, Plus, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, SLIDER_FILTER_KINDS, uid } from '../../lib/config'
 import { looksLikeDateColumn } from '../../lib/dataUtils'
+import { controlCoverage } from '../../lib/filterEngine'
 import {
   CONTROL_GROUPS,
   WIDTH_PRESETS,
@@ -28,6 +29,54 @@ const KIND_OPTIONS = CONTROL_GROUPS.flatMap((group) =>
   group.kinds.map((kind) => ({ value: kind.value, label: `${group.label} · ${kind.label}` }))
 )
 
+const VIA = {
+  own: { label: 'its own tab', cls: 'bg-indigo-50 text-indigo-600 ring-indigo-200' },
+  column: { label: 'same column', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+  link: { label: 'bound column', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+  key: { label: 'by key', cls: 'bg-sky-50 text-sky-700 ring-sky-200' },
+  none: { label: 'not narrowed', cls: 'bg-slate-100 text-slate-400 ring-slate-200' },
+}
+
+/**
+ * What this control actually does to each tab on the page.
+ *
+ * Reach is the one setting whose effect is invisible until you save, open
+ * the dashboard and notice a table that did not move. Showing the answer
+ * where the decision is made turns a guess into a fact -- and the
+ * calculation is the engine's own, so it cannot drift from what will happen.
+ */
+function Coverage({ control, tabColumns, labelFor }) {
+  const rows = controlCoverage(control, tabColumns)
+  if (rows.length === 0) return null
+  const missed = rows.filter((r) => r.via === 'none').length
+
+  return (
+    <div className="rounded-lg border border-slate-100 bg-white p-1.5">
+      <div className="flex flex-wrap gap-1">
+        {rows.map((row) => {
+          const via = VIA[row.via] || VIA.none
+          return (
+            <span
+              key={row.tab}
+              className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] ring-1 ${via.cls}`}
+              title={row.column ? `${labelFor(row.tab)} · ${row.column}` : 'This control says nothing about this tab'}
+            >
+              <strong className="font-semibold">{labelFor(row.tab)}</strong>
+              <span className="opacity-70">{via.label}</span>
+            </span>
+          )
+        })}
+      </div>
+      {missed > 0 && (
+        <p className="mt-1 text-[10px] text-slate-400">
+          {missed} {missed === 1 ? 'tab is' : 'tabs are'} left alone. Give the control a key column, or bind one
+          below, to reach {missed === 1 ? 'it' : 'them'}.
+        </p>
+      )}
+    </div>
+  )
+}
+
 /**
  * Every page-level control in one place: dropdowns, chips, sliders, date
  * ranges and condition buttons, in one ordered list.
@@ -45,6 +94,17 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
   const [openId, setOpenId] = useState(null)
 
   const columnsOf = (tab) => tabHeaders?.[tab] || []
+
+  // The page's own tabs, as the engine sees them -- so the coverage strip
+  // below answers with the same rules the dashboard will actually apply.
+  const tabColumns = useMemo(() => {
+    const out = {}
+    for (const tab of tabs || []) {
+      const ref = optValue(tab)
+      if (ref) out[ref] = columnsOf(ref)
+    }
+    return out
+  }, [tabs, tabHeaders])
 
   function add() {
     const tab = optValue(tabs[0])
@@ -82,6 +142,11 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
         column,
         label: column || meta.label,
         links: [],
+        // The cautious reach by default: a new control cannot empty a table
+        // its author has not thought about yet.
+        reach: 'named',
+        keyColumn: '',
+        keyLinks: [],
         format: 'comma',
         ...(adding === 'threshold' ? { direction: 'gte' } : null),
         ...(adding === 'stepper' ? { steps: '0, 25, 50, 75, 100' } : null),
@@ -371,11 +436,45 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                     </div>
                   )}
 
-                  {/* --- Linked tabs ------------------------------------- */}
+                  {/* --- Reach ------------------------------------------- */}
                   {!isButton(control) && (
                     <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
-                      <p className="mb-1 flex items-center gap-1 text-[11px] font-medium text-slate-500">
-                        <LinkIcon size={11} /> Also narrow these tabs with the same value
+                      <div className="mb-1.5 flex flex-wrap items-end gap-2">
+                        <Field label="How far this reaches" className="w-72">
+                          <Select
+                            value={control.reach || 'named'}
+                            onChange={(v) => set({ reach: v })}
+                            options={[
+                              { value: 'named', label: 'Only its own tab and the ones listed below' },
+                              { value: 'auto', label: 'Every tab with a column of this name' },
+                              { value: 'key', label: 'The whole page — by column, else by key' },
+                            ]}
+                          />
+                        </Field>
+                        {control.reach === 'key' && (
+                          <Field label="Key column" className="w-48" hint="Shared id, e.g. VIN.">
+                            <Select
+                              value={control.keyColumn || ''}
+                              onChange={(v) => set({ keyColumn: v })}
+                              options={columnsOf(control.tab)}
+                              placeholder="— key column —"
+                            />
+                          </Field>
+                        )}
+                      </div>
+
+                      <p className="mb-1.5 text-[10px] text-slate-400">
+                        {control.reach === 'key'
+                          ? 'Tabs without that column are narrowed to the keys still standing on this control’s own tab — so a review table with no “DSE Name” still follows a DSE filter, by VIN.'
+                          : control.reach === 'auto'
+                            ? 'New tabs are covered the day they are added, as long as the column is named the same.'
+                            : 'Tabs not listed are untouched, so a MASTER filter can’t accidentally empty your GOOGLE REVIEW table.'}
+                      </p>
+
+                      <Coverage control={control} tabColumns={tabColumns} labelFor={labelFor} />
+
+                      <p className="mb-1 mt-2 flex items-center gap-1 text-[11px] font-medium text-slate-500">
+                        <LinkIcon size={11} /> Bind a specific tab to a differently-named column
                         <span className="font-normal text-slate-400">(optional)</span>
                       </p>
 
@@ -421,10 +520,56 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                       >
                         + link another tab
                       </button>
-                      <p className="mt-1 text-[10px] text-slate-400">
-                        Tabs not listed here are untouched, so a MASTER filter can’t accidentally empty your GOOGLE
-                        REVIEW table.
-                      </p>
+                      {control.reach === 'key' && (
+                        <div className="mt-2 border-t border-slate-100 pt-2">
+                          <p className="mb-1 text-[11px] font-medium text-slate-500">
+                            Key column on other tabs{' '}
+                            <span className="font-normal text-slate-400">
+                              (only where it isn’t also called “{control.keyColumn || '—'}”)
+                            </span>
+                          </p>
+                          <div className="space-y-1.5">
+                            {(control.keyLinks || []).map((link, li) => (
+                              <div key={li} className="flex items-center gap-2">
+                                <Select
+                                  value={link.tab}
+                                  onChange={(v) => {
+                                    const next = [...(control.keyLinks || [])]
+                                    next[li] = { tab: v, column: '' }
+                                    set({ keyLinks: next })
+                                  }}
+                                  options={tabs.filter((t) => optValue(t) !== control.tab)}
+                                  placeholder="— tab —"
+                                  className="w-48"
+                                />
+                                <Select
+                                  value={link.column}
+                                  onChange={(v) => {
+                                    const next = [...(control.keyLinks || [])]
+                                    next[li] = { ...next[li], column: v }
+                                    set({ keyLinks: next })
+                                  }}
+                                  options={columnsOf(link.tab)}
+                                  placeholder="— its key column —"
+                                  className="w-56"
+                                />
+                                <button
+                                  onClick={() => set({ keyLinks: (control.keyLinks || []).filter((_, i) => i !== li) })}
+                                  className="text-slate-300 hover:text-rose-500"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => set({ keyLinks: [...(control.keyLinks || []), { tab: '', column: '' }] })}
+                            className="mt-1.5 text-[11px] text-indigo-600 underline"
+                          >
+                            + map a tab’s key column
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 

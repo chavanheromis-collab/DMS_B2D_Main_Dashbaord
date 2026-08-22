@@ -8,7 +8,7 @@ import { usePageData } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, orderWidgets } from '../hooks/useUserPrefs'
 import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
-import { applyFilters, matchesConditions } from '../lib/filterEngine'
+import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from '../lib/filterEngine'
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
@@ -214,10 +214,16 @@ export default function Dashboard() {
   // that tab. A filter/button only touches the refs it explicitly names, so
   // a MASTER filter never empties the GOOGLE REVIEW table sitting next to
   // it -- and now, never empties a different sheet's MASTER either.
-  const filteredByRef = useMemo(() => {
+  const tabColumns = useMemo(() => {
     const out = {}
+    for (const [ref, data] of Object.entries(dataByRef)) out[ref] = data.headers || []
+    return out
+  }, [dataByRef])
+
+  const filteredByRef = useMemo(() => {
+    const first = {}
     for (const [ref, data] of Object.entries(dataByRef)) {
-      out[ref] = applyFilters(data.rows || [], {
+      first[ref] = applyFilters(data.rows || [], {
         tab: ref,
         filters,
         values: filterValues,
@@ -226,10 +232,40 @@ export default function Dashboard() {
         crossFilters: crossFiltersByRef,
         search,
         dateOrder,
+        tabColumns,
       })
     }
+
+    // Second pass, for controls set to reach the whole page. A key bridge
+    // asks "which keys are still standing on the source tab" -- which can
+    // only be answered once the first pass has finished, and has to be
+    // answered from the fully filtered rows so that every OTHER control on
+    // the page narrows the bridged tabs too.
+    const bridges = []
+    for (const filter of filters) {
+      if (filter.reach !== 'key') continue
+      if (!filterIsActive(filter, filterValues[filter.id])) continue
+      const bridge = buildKeyBridge({ filter, sourceRows: first[filter.tab] || [], tabColumns })
+      if (bridge) bridges.push(bridge)
+    }
+    if (bridges.length === 0) return first
+
+    const out = {}
+    for (const [ref, rows] of Object.entries(first)) {
+      out[ref] = applyFilters(rows, { tab: ref, crossFilters: bridges, dateOrder })
+    }
     return out
-  }, [dataByRef, filters, filterValues, buttons, activeButtonIds, crossFiltersByRef, search, dateOrder])
+  }, [
+    dataByRef,
+    filters,
+    filterValues,
+    buttons,
+    activeButtonIds,
+    crossFiltersByRef,
+    search,
+    dateOrder,
+    tabColumns,
+  ])
 
   // --- Re-key everything by human label ---------------------------------
   const rowsByLabel = useMemo(() => {

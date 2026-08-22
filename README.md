@@ -364,19 +364,44 @@ spreadsheet and issues one Google `batchGet` per spreadsheet, then caches
 briefly in the serverless function and at the CDN edge. A page drawing on
 three sheets costs three round-trips, not one per tab.
 
-### Filters are scoped to the tabs they name
+### How far a control reaches
 
 Because a page shows tabs with completely different columns — now from
-different spreadsheets — a filter that applied to everything would empty every
-unrelated table.
+different spreadsheets — a control that applied to everything by default would
+empty every unrelated table. So each one says how far it travels:
 
-So: **a filter narrows only the tab it names.** A `DSE Name` dropdown built on
-MASTER filters the MASTER widgets and leaves the GOOGLE REVIEW table alone.
-When two tabs genuinely share a field, use *"Also filter these tabs"* to link,
-say, `MASTER."DSE Name"` to `Quotations."DSE Name"` so one control drives both.
+| Reach | What it narrows |
+|---|---|
+| **Only its own tab and the ones listed** | The default, and what every control did before. A `DSE Name` dropdown built on MASTER filters the MASTER widgets and leaves GOOGLE REVIEW alone. |
+| **Every tab with a column of this name** | No links to maintain — and a tab added next month is covered the day it arrives. |
+| **The whole page — by column, else by key** | Everything above, *plus* the tabs that have no such column, narrowed by a shared key instead. |
 
-Buttons work the same way. The **global search box** is the exception — it
-matches any cell on any tab.
+That last one is what makes "show me the page as it looks for Ravi" true
+rather than nearly true. GOOGLE REVIEW has no `DSE Name` column, so nothing
+about a DSE can be asked of it directly — but it has a `VIN`, and the VINs
+Ravi sold are knowable. Give the control a **key column** and the tabs it
+couldn't reach by name follow the ones it could.
+
+Three details that stop it lying to you:
+
+- The keys are read from the source tab **after every other control has
+  run**, so a second filter narrows the bridged tabs too. Filter to Ravi *and*
+  model B, and the review of a vehicle that dropped out goes with it.
+- A tab that already matched **by column is never also intersected with the
+  keys**. A quotation for a vehicle MASTER has never heard of still belongs in
+  a "DSE = Ravi" view, and would silently vanish otherwise.
+- A tab sharing neither the column nor the key is still **left completely
+  alone** — silence, not an empty table. That rule never bends.
+
+Where the key is called different things on different tabs (`VIN` here,
+`Chassis No` there), map it once per tab. And the admin panel shows a
+**coverage strip** under every control — one chip per tab on the page, saying
+*its own tab* / *same column* / *bound column* / *by key* / *not narrowed* —
+computed by the filter engine itself, so what you are shown while editing
+cannot drift from what the dashboard will do.
+
+Buttons narrow only the tabs their conditions name. The **global search box**
+is the other exception — it matches any cell on any tab.
 
 ### Blending two tabs in one widget
 
@@ -639,8 +664,10 @@ Each control also has:
 - **Default value** (or *On by default* for a button) — the page opens with it
   applied. **Reset** returns to *these* defaults, not to blank: a control the
   admin meant to be on shouldn't be switched off by a reset.
-- **Also narrow these tabs** — one control driving the same field on several
-  tabs.
+- **How far this reaches** — its own tab, every tab sharing the column name,
+  or the whole page via a key. See *How far a control reaches* above.
+- **Bind a specific tab to a differently-named column** — one control driving
+  `Owner` on one tab and `DSE Name` on another.
 
 Sliders read their bounds from the column's real values unless you pin them,
 so they stay correct as the sheet grows. Each reuses a value shape the engine
