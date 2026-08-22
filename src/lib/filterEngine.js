@@ -14,14 +14,130 @@ import { isBlank, normalizeKey, toNumber, toDate, fromDateInput, startOfDay, end
 // links it to Quotations."DSE Name", it narrows those too; tabs it never
 // mentions (e.g. GOOGLE REVIEW) are left alone instead of being wiped to
 // zero rows. That's what makes one page with many tabs behave sensibly.
+//
+// That default is the safe one, but it is not always the one you want. Often
+// the whole point is "show me the page as it looks for Ravi" -- every table,
+// every chart, every KPI. A control's REACH says how far it travels:
+//
+//   named  its own tab plus the tabs it explicitly lists. The default, and
+//          what every control did before reach existed.
+//   auto   ...plus every tab on the page carrying a column of that name. One
+//          switch instead of one link per tab, and new tabs are covered the
+//          day they are added.
+//   key    ...plus the tabs that have no such column at all, narrowed by a
+//          shared key instead. A GOOGLE REVIEW tab has no "DSE Name", but it
+//          does have a VIN, and the VINs Ravi sold are knowable. This is the
+//          only way a page filter can honestly claim to narrow everything.
+//
+// The first two are per-tab column matching and stay inside `filterTargets`.
+// The third cannot: deciding which keys survive means looking at the SOURCE
+// tab's filtered rows, which no single-tab pass can see. It is resolved one
+// level up (see `buildKeyBridge`) and arrives back here as an ordinary key
+// cross-filter, which is machinery that already exists.
 
-/** Every (tab, column) pair a filter targets: its own, plus any links. */
-export function filterTargets(filter) {
+/**
+ * Every (tab, column) pair a filter targets.
+ *
+ * `tabColumns` -- a { tab: [columns] } map of the page -- is what makes the
+ * automatic modes possible; without it a filter reaches exactly the tabs it
+ * names, which is what every caller that does not care about reach wants.
+ */
+export function filterTargets(filter, tabColumns) {
   const list = [{ tab: filter.tab, column: filter.column }]
   for (const l of filter.links || []) {
     if (l && l.tab && l.column) list.push({ tab: l.tab, column: l.column })
   }
+
+  const spreads = filter.reach === 'auto' || filter.reach === 'key'
+  if (spreads && tabColumns && filter.column) {
+    // A tab the admin bound by hand keeps that binding: they may have
+    // pointed it at a differently-named column on purpose, and guessing
+    // over an explicit instruction is never right.
+    const named = new Set(list.map((t) => t.tab))
+    for (const [tab, columns] of Object.entries(tabColumns)) {
+      if (named.has(tab)) continue
+      if ((columns || []).includes(filter.column)) list.push({ tab, column: filter.column })
+    }
+  }
+
   return list.filter((t) => t.tab && t.column)
+}
+
+/**
+ * The tabs a key bridge has to cover: everything the column could not reach.
+ *
+ * Deliberately only those. A tab that already matches by column is filtered
+ * by its own data; also intersecting it with the source tab's keys would
+ * quietly drop its unmatched rows -- a quotation for a vehicle that is not
+ * in MASTER would vanish from a "DSE = Ravi" view that it genuinely belongs
+ * in.
+ */
+export function keyBridgeTargets(filter, tabColumns) {
+  if (filter?.reach !== 'key' || !filter.keyColumn || !tabColumns) return []
+
+  const covered = new Set(filterTargets(filter, tabColumns).map((t) => t.tab))
+  const overrides = new Map(
+    (filter.keyLinks || []).filter((k) => k && k.tab && k.column).map((k) => [k.tab, k.column])
+  )
+
+  const out = []
+  for (const [tab, columns] of Object.entries(tabColumns)) {
+    if (covered.has(tab)) continue
+    // The key is usually called the same thing everywhere; where it is not
+    // (VIN here, Chassis No there) the admin says so once.
+    const column = overrides.get(tab) || ((columns || []).includes(filter.keyColumn) ? filter.keyColumn : null)
+    if (column && (columns || []).includes(column)) out.push({ tab, column })
+  }
+  return out
+}
+
+/**
+ * Turns an active key-reaching filter into the key cross-filter that carries
+ * it to the tabs its column cannot reach.
+ *
+ * `sourceRows` must be the source tab AFTER the ordinary filters have run,
+ * so the keys mean "the rows still on screen" rather than "the rows this one
+ * control would have kept". Every other control on the page therefore
+ * narrows the bridged tabs too, which is the behaviour anyone expects from
+ * something described as a page filter.
+ */
+export function buildKeyBridge({ filter, sourceRows, tabColumns }) {
+  const targets = keyBridgeTargets(filter, tabColumns)
+  if (targets.length === 0) return null
+
+  const keys = Array.from(
+    new Set((sourceRows || []).map((row) => normalizeKey(row[filter.keyColumn])).filter((k) => k !== null))
+  )
+
+  return {
+    id: `bridge_${filter.id}`,
+    kind: 'keys',
+    keys,
+    // Named tabs only, and no `keyNames`: a bridge must reach exactly the
+    // tabs it was calculated for, never every tab that happens to have a
+    // column of the same name.
+    keyColumns: targets,
+    keyNames: [],
+    label: filter.label || filter.column,
+  }
+}
+
+/**
+ * How a control reaches every tab on the page -- the admin's answer to "will
+ * this actually narrow my other table?", which is otherwise only discoverable
+ * by saving and looking.
+ */
+export function controlCoverage(filter, tabColumns) {
+  const targets = new Map(filterTargets(filter, tabColumns).map((t) => [t.tab, t.column]))
+  const explicit = new Set((filter?.links || []).filter((l) => l && l.tab).map((l) => l.tab))
+  const bridged = new Map(keyBridgeTargets(filter, tabColumns).map((t) => [t.tab, t.column]))
+
+  return Object.keys(tabColumns || {}).map((tab) => {
+    if (tab === filter?.tab) return { tab, via: 'own', column: targets.get(tab) || filter?.column || '' }
+    if (targets.has(tab)) return { tab, via: explicit.has(tab) ? 'link' : 'column', column: targets.get(tab) }
+    if (bridged.has(tab)) return { tab, via: 'key', column: bridged.get(tab) }
+    return { tab, via: 'none', column: null }
+  })
 }
 
 /** Is this filter's current value actually narrowing anything? */
@@ -372,14 +488,30 @@ function matchesSearch(row, query) {
  *   activeIds   ids of the buttons currently toggled on
  *   crossFilters  drill-downs from clicking a chart / stage / leaderboard row
  *   search      global search box text
+ *   tabColumns  { tab: [columns] } for the whole page, which is what lets a
+ *               control reach tabs it does not name. Optional: without it
+ *               every control behaves as `named`.
  */
-export function applyFilters(rows, { tab, filters = [], values = {}, buttons = [], activeIds = [], crossFilters = [], search = '', dateOrder = 'DMY' }) {
+export function applyFilters(
+  rows,
+  {
+    tab,
+    filters = [],
+    values = {},
+    buttons = [],
+    activeIds = [],
+    crossFilters = [],
+    search = '',
+    dateOrder = 'DMY',
+    tabColumns = null,
+  }
+) {
   let out = rows || []
 
   for (const filter of filters) {
     const value = values[filter.id]
     if (!filterIsActive(filter, value)) continue
-    const target = filterTargets(filter).find((t) => t.tab === tab)
+    const target = filterTargets(filter, tabColumns).find((t) => t.tab === tab)
     if (!target) continue // this filter says nothing about this tab
     out = out.filter((row) => matchesFilterValue(row, target.column, filter, value, dateOrder))
   }
