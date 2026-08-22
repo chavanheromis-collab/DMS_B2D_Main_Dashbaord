@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // User profiles. A user may create their own doc on first sign-in but
+    // can never grant themselves status/role -- only an admin can.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSelf(userId) &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.role == 'user';
+      allow update: if isAdmin() ||
+        (isSelf(userId) &&
+          request.resource.data.status == resource.data.status &&
+          request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
+    }
+
+    // Per-user, per-page grants: access/{uid}_{pageId}
+    //
+    // NOTE: `get` only. Rules are filters for nobody -- a LIST query over
+    // this collection would be rejected outright for a non-admin, because it
+    // could return another user's grant. The client therefore reads these
+    // one document at a time by exact id (see hooks/useWorkspace.js); do not
+    // "optimise" that into a collection query.
+    match /access/{accessId} {
+      allow get: if isAdmin() || (isSignedIn() && accessId.matches(request.auth.uid + '_.*'));
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Workspace-wide settings. Today that's `settings/entrance` -- the brand
+    // wordmark and the campaign / achievement cards on the splash screen.
+    //
+    // Readable by ANYONE, signed in or not, which is the one deliberate
+    // exception in this file. The entrance plays while authentication is
+    // still resolving, so gating it on sign-in would mean it silently never
+    // showed its content. Nothing here is sensitive -- it is a greeting
+    // screen, and every word of it was written to be shown to people.
+    // Writing is still admins only.
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Personal, per-user, per-page settings: userPrefs/{uid}_{pageId}
+    //
+    // The ONE collection an ordinary user may write to, and deliberately the
+    // most boring one -- widget display order and nothing else. It grants no
+    // access and hides no widget, so the worst a user can do by writing here
+    // is rearrange their own screen. The id prefix check is what keeps them
+    // out of anyone else's.
+    //
+    // `get` only, for the same reason as `access` above: a list query would
+    // be rejected wholesale rather than narrowed.
+    match /userPrefs/{prefId} {
+      allow get: if isSignedIn() && prefId.matches(request.auth.uid + '_.*');
+      allow list: if isAdmin();
+      allow write: if isSignedIn() && prefId.matches(request.auth.uid + '_.*');
+    }
+
+    // Connected spreadsheets: which sheet, and which of its tabs this
+    // workspace may read.
+    //
+    // Readable by any signed-in user because the dashboard needs tab names
+    // and headers to render, and neither is sensitive -- the SHEET DATA
+    // itself never flows through here. It is read server-side by the service
+    // account in api/sheets.js, which re-checks the caller's page access
+    // before returning a single row. `tabHeaders` is written by that same
+    // route through the Admin SDK, which bypasses these rules entirely.
+    match /dataSources/{sourceId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // A dashboard page: its widgets, filters, buttons and the sources it may
+    // draw on. Readable by any signed-in user so the sidebar can be built;
+    // whether they may see a page's DATA is decided by `access` above and
+    // enforced server-side.
+    match /dashboards/{pageId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // --- v2 collections, kept readable so an unmigrated workspace still
+    // --- works. Safe to delete once you've run the importer in the admin
+    // --- panel and confirmed your pages look right.
+    match /sheetConfigs/{page} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    match /layouts/{page} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

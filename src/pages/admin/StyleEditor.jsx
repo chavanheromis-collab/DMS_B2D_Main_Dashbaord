@@ -1,0 +1,130 @@
+import { Palette, RotateCcw } from 'lucide-react'
+import {
+  DEFAULT_WIDGET_STYLE,
+  SHADOW_LEVELS,
+  WIDGET_THEMES,
+  resolveStyle,
+} from '../../lib/widgetStyle'
+import { Field, Select, TextInput } from './ui.jsx'
+
+/**
+ * Per-widget appearance.
+ *
+ * Every control starts at "system default" and stays there until touched.
+ * That's the important property: a widget nobody has restyled stores no
+ * style at all and renders exactly as the stock theme does, so this feature
+ * can't quietly drift the look of an existing dashboard. Clearing a field
+ * returns it to the theme rather than to some hard-coded value.
+ */
+export default function StyleEditor({ widget, set }) {
+  const style = { ...DEFAULT_WIDGET_STYLE, ...(widget.style || {}) }
+  const resolved = resolveStyle(style)
+
+  const setStyle = (patch) => set({ style: { ...style, ...patch } })
+
+  // A colour input can't express "unset", so each swatch is paired with a
+  // clear button and shows the theme's own value until it's overridden.
+  const colorField = (label, key, fallback) => (
+    <Field label={label}>
+      <div className="flex items-center gap-1">
+        <input
+          type="color"
+          value={style[key] || resolved?.[key] || fallback}
+          onChange={(e) => setStyle({ [key]: e.target.value })}
+          className="h-[30px] w-full rounded-lg border border-slate-200"
+        />
+        {style[key] && (
+          <button
+            onClick={() => setStyle({ [key]: null })}
+            className="shrink-0 rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+            title="Back to theme default"
+          >
+            <RotateCcw size={12} />
+          </button>
+        )}
+      </div>
+    </Field>
+  )
+
+  const numberField = (label, key, placeholder, hint) => (
+    <Field label={label} hint={hint}>
+      <TextInput
+        type="number"
+        value={style[key] ?? ''}
+        onChange={(v) => setStyle({ [key]: v === '' ? null : Number(v) })}
+        placeholder={placeholder}
+      />
+    </Field>
+  )
+
+  return (
+    <div className="mt-2 rounded-lg border border-violet-100 bg-violet-50/40 p-2">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-1 text-[11px] font-medium text-violet-700">
+          <Palette size={11} /> Appearance
+        </p>
+        {resolved && (
+          <button
+            onClick={() => set({ style: { ...DEFAULT_WIDGET_STYLE } })}
+            className="inline-flex items-center gap-1 text-[10px] text-slate-500 underline hover:text-slate-700"
+          >
+            <RotateCcw size={10} /> Reset to system theme
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <Field label="Theme" hint="A starting point you can then override.">
+          <Select
+            value={style.theme || ''}
+            onChange={(v) => setStyle({ theme: v })}
+            options={WIDGET_THEMES.map((t) => ({ value: t.value, label: t.label }))}
+          />
+        </Field>
+        {colorField('Background', 'bg', '#FFFFFF')}
+        {colorField('Border colour', 'borderColor', '#E2E8F0')}
+        <Field label="Shadow">
+          <Select
+            value={style.shadow || ''}
+            onChange={(v) => setStyle({ shadow: v || null })}
+            options={[{ value: '', label: 'Theme default' }, ...SHADOW_LEVELS]}
+          />
+        </Field>
+
+        {numberField('Border thickness', 'borderWidth', 'px', '0 removes the border')}
+        {numberField('Corner radius', 'radius', 'px')}
+        {numberField('Inner padding', 'padding', 'px')}
+        {colorField('Accent', 'accent', '#4F46E5')}
+      </div>
+
+      {/* A live sample, because reading six numbers back as a card in your
+          head is exactly the thing a preview should do for you. */}
+      <div className="mt-2 flex items-center gap-3">
+        <span className="text-[10px] text-slate-400">Preview</span>
+        <div
+          className={`flex-1 ${resolved?.invert ? 'card-invert' : ''}`}
+          style={{
+            ...(style.bg || resolved?.bg ? { '--card-bg': style.bg || resolved?.bg } : null),
+            ...(style.borderColor || resolved?.borderColor
+              ? { '--card-border-color': style.borderColor || resolved?.borderColor }
+              : null),
+            ...(style.borderWidth ?? resolved?.borderWidth
+              ? { '--card-border-width': `${style.borderWidth ?? resolved?.borderWidth}px` }
+              : null),
+            ...(style.radius ?? resolved?.radius
+              ? { '--card-radius': `${style.radius ?? resolved?.radius}px` }
+              : null),
+            ...(resolved?.shadow
+              ? { '--card-shadow': SHADOW_LEVELS.find((l) => l.value === resolved.shadow)?.css }
+              : null),
+          }}
+        >
+          <div className="card !py-2">
+            <p className="text-xs font-semibold text-slate-800">{widget.title || 'Widget title'}</p>
+            <p className="text-[10px] text-slate-400">This is how the card will look</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,305 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background:
+    radial-gradient(1100px 520px at 12% -8%, #e0e7ff 0%, transparent 55%),
+    radial-gradient(900px 480px at 92% 0%, #cffafe 0%, transparent 50%),
+    linear-gradient(160deg, #f8fafc 0%, #eef2ff 100%);
+  background-attachment: fixed;
+  color: #0f172a;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every card reads its appearance from custom properties, with the original
+   look as the fallback for each one. An unstyled widget sets none of them
+   and is therefore pixel-identical to before; a widget an admin restyled has
+   the relevant properties set on its wrapper by lib/widgetStyle.js. This is
+   what makes per-widget theming possible without touching a single one of
+   the widget components. */
+.card {
+  background: var(--card-bg, rgba(255, 255, 255, 0.9));
+  border-style: solid;
+  border-width: var(--card-border-width, 1px);
+  border-color: var(--card-border-color, rgb(226 232 240 / 0.7));
+  border-radius: var(--card-radius, 1rem);
+  padding: var(--card-padding, 1rem);
+  box-shadow: var(--card-shadow, 0 10px 30px rgba(15, 23, 42, 0.06));
+  color: var(--card-text, inherit);
+  backdrop-filter: blur(10px);
+}
+
+/* When a page's backdrop is dark, the chrome that sits directly ON it -- the
+   page heading, the tab strip, the control bars -- has to invert with it.
+   The widget CARDS keep their own light surface and are untouched, which is
+   why this is scoped to `> *` chrome rather than applied to everything. */
+.page-invert .page-chrome,
+.page-invert .page-chrome :where(h1, h2, p, span, button, label) {
+  color: #e2e8f0;
+}
+.page-invert .page-chrome :where(.text-slate-400, .text-slate-300) {
+  color: #cbd5e1;
+}
+.page-invert .page-chrome-surface {
+  background-color: rgb(15 23 42 / 0.55);
+  border-color: rgb(148 163 184 / 0.25);
+}
+
+/* A dark card needs its NEUTRAL text remapped -- the widgets hard-code
+   Tailwind slate-* classes, which would be unreadable on a dark background.
+   Only the neutral greys are listed: semantic colours (rose for errors,
+   emerald for success, a KPI's own accent) are deliberately left alone, so
+   an error message stays red and legible instead of vanishing into the card.
+   `:where()` contributes no specificity, so this wins on the strength of
+   `.card-invert .card` alone and never fights a widget's inline style. */
+.card-invert .card :where(.text-ink, .text-slate-900, .text-slate-800, .text-slate-700, .text-slate-600) {
+  color: #e2e8f0;
+}
+.card-invert .card :where(.text-slate-500, .text-slate-400, .text-slate-300) {
+  color: #94a3b8;
+}
+.card-invert .card :where(.border-slate-100, .border-slate-200) {
+  border-color: #1e293b;
+}
+.card-invert .card :where(.bg-white, .bg-slate-50) {
+  background-color: transparent;
+}
+
+/* The main content is inset by the sidebar's width, but ONLY at lg and up --
+   below that the sidebar is an off-canvas drawer and must not reserve any
+   space. `--sidebar-w` is published by AppShell (rail vs full); the
+   breakpoint lives here, so the layout re-evaluates on resize on its own
+   without a JS listener that could fall out of sync. */
+.app-content {
+  padding-left: 0;
+  transition: padding-left 200ms ease;
+}
+@media (min-width: 1024px) {
+  .app-content {
+    padding-left: var(--sidebar-w, 248px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-content { transition: none; }
+}
+
+h1, h2, h3, h4 {
+  letter-spacing: -0.01em;
+}
+
+button, input, select {
+  transition: all 180ms ease;
+}
+
+/* Two-handle range slider (FilterBar). Both inputs are stacked on the same
+   track, so the track and fill are drawn by the surrounding divs and the
+   inputs themselves must be invisible EXCEPT for their thumbs -- which stay
+   real, focusable native controls so keyboard and touch still work.
+   `pointer-events` is re-enabled only on the thumb, or the upper input would
+   swallow every click meant for the lower one. */
+.range-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+  height: 100%;
+  margin: 0;
+}
+.range-thumb:focus {
+  outline: none;
+}
+.range-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  height: 14px;
+  width: 14px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid #6366f1;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+  cursor: grab;
+}
+.range-thumb::-webkit-slider-thumb:active {
+  cursor: grabbing;
+}
+.range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  height: 14px;
+  width: 14px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid #6366f1;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+  cursor: grab;
+}
+.range-thumb::-moz-range-track {
+  background: transparent;
+}
+.range-thumb:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35);
+}
+
+/* Numbers should never jitter as they animate or re-sort. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Slimmer scrollbars inside tables and dropdowns. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Widgets fade up as they mount, so a page load doesn't snap into place. */
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rise-in {
+  animation: riseIn 320ms ease-out both;
+}
+
+/* The detail panel slides in from the right. */
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+aside.fixed.right-0 {
+  animation: slideInRight 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in, aside.fixed.right-0 { animation: none; }
+  * { transition-duration: 1ms !important; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Branded entrance (SplashScreen.jsx)                                 */
+/* ------------------------------------------------------------------ */
+/* Not wrapped in a reduced-motion guard: the component itself declines
+   to render at all when the user asks for reduced motion, which is the
+   honest response to a large decorative animation. */
+
+@keyframes splashLetter {
+  from { opacity: 0; transform: translateY(18px) rotateX(-45deg); filter: blur(6px); }
+  to   { opacity: 1; transform: translateY(0) rotateX(0); filter: blur(0); }
+}
+.splash-letter {
+  display: inline-block;
+  white-space: pre;
+  animation: splashLetter 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.splash-title {
+  perspective: 700px;
+}
+
+@keyframes splashFade {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.splash-tagline { animation: splashFade 700ms ease-out both; }
+.splash-hint    { animation: splashFade 700ms ease-out 1400ms both; }
+
+/* Announcement cards. `both` keeps them invisible until their delay
+   elapses, which matters because they arrive from Firestore mid-animation
+   and would otherwise flash in at full opacity before easing. */
+@keyframes splashItem {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.splash-item { animation: splashItem 560ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@keyframes splashMark {
+  0%   { opacity: 0; transform: scale(0.5) rotate(-25deg); }
+  60%  { opacity: 1; transform: scale(1.08) rotate(4deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+.splash-mark { animation: splashMark 900ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@keyframes splashRule {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: 1; }
+}
+.splash-rule { animation: splashRule 900ms cubic-bezier(0.16, 1, 0.3, 1) 900ms both; }
+
+/* Two large, slowly drifting colour fields. `filter: blur` on an element
+   this size is expensive to repaint, so they only ever move by transform,
+   which the compositor can handle without re-rasterising. */
+@keyframes splashDrift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(6%, -5%, 0) scale(1.18); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+.splash-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  will-change: transform;
+}
+.splash-orb-a {
+  top: -18%;
+  left: -12%;
+  width: 60vw;
+  height: 60vw;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.5) 0%, transparent 68%);
+  animation: splashDrift 9s ease-in-out infinite;
+}
+.splash-orb-b {
+  right: -16%;
+  bottom: -22%;
+  width: 55vw;
+  height: 55vw;
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.4) 0%, transparent 68%);
+  animation: splashDrift 11s ease-in-out infinite reverse;
+}
+
+.splash-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(ellipse at center, #000 10%, transparent 72%);
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 10%, transparent 72%);
+}
+
+@keyframes splashOut {
+  to { opacity: 0; transform: scale(1.06); visibility: hidden; }
+}
+.splash-out {
+  animation: splashOut 500ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+/* Stage KPI pop-up entrance */
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes popInUp {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.pop-in {
+  animation: popIn 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.pop-in-up {
+  animation: popInUp 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
