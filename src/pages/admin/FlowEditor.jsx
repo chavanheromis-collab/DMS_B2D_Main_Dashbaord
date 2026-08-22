@@ -7,6 +7,7 @@ import {
   FLOW_PERCENT_BASES,
   FLOW_SORTS,
 } from '../../lib/flow'
+import { FLOW_ORIENTATIONS } from '../../lib/flowLayout'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, useWorkspaceCtx } from './ui.jsx'
 
@@ -283,6 +284,30 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
 
       {/* --- how it reads -------------------------------------------------- */}
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-slate-50/60 p-2">
+        <Field label="Opens as" className="w-40" hint="Readers can switch.">
+          <Select
+            value={flow.view || 'tree'}
+            onChange={(v) => setFlow({ view: v })}
+            options={[
+              { value: 'tree', label: 'Indented list' },
+              { value: 'diagram', label: 'Diagram' },
+            ]}
+          />
+        </Field>
+        <Field label="Diagram direction" className="w-40">
+          <Select
+            value={flow.orientation || 'vertical'}
+            onChange={(v) => setFlow({ orientation: v })}
+            options={FLOW_ORIENTATIONS}
+          />
+        </Field>
+        <Field label="Diagram height" className="w-28" hint="Pixels.">
+          <TextInput
+            type="number"
+            value={flow.diagramHeight ?? 420}
+            onChange={(v) => setFlow({ diagramHeight: Number(v) || 420 })}
+          />
+        </Field>
         <Field label="Percentages measured against" className="w-64">
           <Select
             value={flow.percentBase || 'parent'}

@@ -42,7 +42,7 @@ function Shell({ widget, icon, caption, tabError, children }) {
   return (
     <div className="card flex h-full flex-col">
       <div className="mb-2">
-        <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">
+        <h2 className="widget-title">
           {icon} {widget.title}
         </h2>
         <p className="text-[11px] text-slate-400">
@@ -110,7 +110,7 @@ export function StackedWidget({ widget, rows, unfilteredRows, tabError, crossFil
       tabError={tabError}
     >
       {data.length === 0 ? (
-        <p className="py-10 text-center text-sm text-slate-300">No data to chart</p>
+        <p className="empty-state">No data to chart</p>
       ) : (
         <div className="min-h-[240px] flex-1">
           <ResponsiveContainer width="100%" height={widget.height || 280}>
@@ -207,7 +207,7 @@ export function ComboWidget({ widget, rows, unfilteredRows, tabError, crossFilte
       tabError={tabError}
     >
       {data.length === 0 ? (
-        <p className="py-10 text-center text-sm text-slate-300">No data to chart</p>
+        <p className="empty-state">No data to chart</p>
       ) : (
         <div className="min-h-[240px] flex-1">
           <ResponsiveContainer width="100%" height={widget.height || 280}>
@@ -294,7 +294,7 @@ export function ScatterWidget({ widget, rows, unfilteredRows, tabError }) {
       tabError={tabError}
     >
       {plotted === 0 ? (
-        <p className="py-10 text-center text-sm text-slate-300">
+        <p className="empty-state">
           {widget.xColumn && widget.yColumn
             ? 'No rows have numbers in both columns'
             : 'Pick an X and a Y column in the admin panel'}
@@ -401,7 +401,7 @@ export function HeatmapWidget({ widget, rows, unfilteredRows, tabError, onCrossF
       tabError={tabError}
     >
       {data.rowLabels.length === 0 ? (
-        <p className="py-10 text-center text-sm text-slate-300">No data to plot</p>
+        <p className="empty-state">No data to plot</p>
       ) : (
         <div className="-mx-1 flex-1 overflow-x-auto px-1">
           <table className="min-w-full border-separate border-spacing-[2px] text-[11px]">

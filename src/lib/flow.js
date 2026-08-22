@@ -92,6 +92,9 @@ export const DEFAULT_FLOW = {
   percentBase: 'parent',
   showDropOff: true,
   showBars: true,
+  view: 'tree',
+  orientation: 'vertical',
+  diagramHeight: 420,
   autoExpand: 1,
   // A ceiling on how many nodes one render may build. Depth is multiplicative
   // -- five levels of eight children is 32,768 nodes -- so "expand all" on a

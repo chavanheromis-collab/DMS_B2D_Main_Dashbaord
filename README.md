@@ -541,6 +541,26 @@ whole page to that branch, the **zoom** to make it the temporary top of the
 tree — with a breadcrumb back out. Expand-all stops at a branch limit rather
 than locking the tab.
 
+#### Two views of the same tree
+
+A **Tree / Diagram** switch sits in the widget's header; the admin picks
+which one a page opens on, and the reader can change it.
+
+- **Tree** — the indented list. Answers "what is under this", survives a
+  phone, and stays readable at any breadth.
+- **Diagram** — the same nodes as cards on a pannable canvas, laid out as a
+  tidy tree: every parent centred over its children, top-to-bottom or
+  left-to-right. Drag to pan, zoom in/out, **fit to view**. It auto-frames
+  itself as you open branches, and stops doing that the moment you pan or
+  zoom yourself — after that, Fit is one click away.
+
+The diagram exists for the one thing indentation cannot show: **shape**. The
+edge between two nodes is drawn as thick as the share flowing along it and
+carries that branch's number, so a fat line splitting into three hairlines is
+visible before you have read anything. Nodes are placed by the data — there
+is nothing to drag into position, and nothing to tidy up, so two people
+looking at the same page always see the same picture.
+
 #### What a click filters
 
 Whatever the branch actually means, expressed in the most portable form
@@ -1024,6 +1044,7 @@ src/
   lib/refs.js             Tab refs: encode, parse, label, rewrite a layout
   lib/blend.js            Per-widget joins between two tabs
   lib/flow.js             The drill-down tree: levels, branches, tab hops
+  lib/flowLayout.js       Tidy-tree geometry for the flow's diagram view
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties

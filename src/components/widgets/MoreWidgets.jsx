@@ -30,7 +30,7 @@ export default function ActivityFeedWidget({ widget, rows, unfilteredRows, tabEr
   return (
     <div className="card">
       <div className="mb-2">
-        <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">🕒 {widget.title}</h2>
+        <h2 className="widget-title">🕒 {widget.title}</h2>
         <p className="text-[11px] text-slate-400">
           {widget.tab} · newest {widget.dateColumn ? `by ${widget.dateColumn}` : ''}
         </p>
@@ -39,9 +39,9 @@ export default function ActivityFeedWidget({ widget, rows, unfilteredRows, tabEr
       {tabError ? (
         <p className="py-8 text-center text-sm text-rose-500">Tab "{widget.tab}" could not be read</p>
       ) : !widget.dateColumn ? (
-        <p className="py-8 text-center text-sm text-slate-300">Pick a date column in the admin panel</p>
+        <p className="empty-state">Pick a date column in the admin panel</p>
       ) : feed.length === 0 ? (
-        <p className="py-8 text-center text-sm text-slate-300">Nothing to show yet</p>
+        <p className="empty-state">Nothing to show yet</p>
       ) : (
         <div className="max-h-[420px] space-y-0.5 overflow-y-auto pr-1">
           {feed.map(({ row, date }, i) => (
@@ -115,7 +115,7 @@ export function ScorecardWidget({ widget, rows, unfilteredRows, tabError, dateOr
   return (
     <div className="card">
       <div className="mb-3">
-        <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">⚖️ {widget.title}</h2>
+        <h2 className="widget-title">⚖️ {widget.title}</h2>
         <p className="text-[11px] text-slate-400">{widget.tab}</p>
       </div>
 

@@ -259,7 +259,7 @@ export default function TableWidget({
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">📋 {widget.title}</h2>
+            <h2 className="widget-title">📋 {widget.title}</h2>
             {widget.rowDetail && (
               <div className="flex h-6 w-auto px-2 items-center justify-center rounded-xl border border-slate-200 bg-cyan-200 text-base font-semibold text-slate-900 shadow-sm">
                 {sorted.length.toLocaleString('en-IN')}

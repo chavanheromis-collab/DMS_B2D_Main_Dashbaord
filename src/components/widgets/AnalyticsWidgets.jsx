@@ -110,7 +110,7 @@ export function TrendWidget({ widget, rows, unfilteredRows, tabError, dateOrder,
     <div className="card flex h-full flex-col">
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
-          <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">📅 {widget.title}</h2>
+          <h2 className="widget-title">📅 {widget.title}</h2>
           <p className="text-[11px] text-slate-400">
             {widget.tab} · {widget.dateColumn || '—'} by {widget.grain || 'month'}
             {onCrossFilter && ' · click a period to drill in'}
@@ -131,7 +131,7 @@ export function TrendWidget({ widget, rows, unfilteredRows, tabError, dateOrder,
       {tabError ? (
         <p className="py-10 text-center text-sm text-rose-500">Tab “{widget.tab}” could not be read</p>
       ) : data.length === 0 ? (
-        <p className="py-10 text-center text-sm text-slate-300">
+        <p className="empty-state">
           {widget.dateColumn ? 'No parseable dates in that column' : 'Pick a date column in the admin panel'}
         </p>
       ) : (
@@ -305,7 +305,7 @@ export function PivotWidget({ widget, rows, unfilteredRows, tabError, onCrossFil
   return (
     <div className="card">
       <div className="mb-2">
-        <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">🧮 {widget.title}</h2>
+        <h2 className="widget-title">🧮 {widget.title}</h2>
         <p className="text-[11px] text-slate-400">
           {widget.tab} · {rowHeading}
           {!totalsOnly && colCols.length > 0 && ` × ${colCols.join(' / ')}`}
@@ -323,7 +323,7 @@ export function PivotWidget({ widget, rows, unfilteredRows, tabError, onCrossFil
           onDrill={onCrossFilter ? (parts) => drill(parts.join(' / '), null) : null}
         />
       ) : rowLabels.length === 0 ? (
-        <p className="py-8 text-center text-sm text-slate-300">Pick at least one row column in the admin panel</p>
+        <p className="empty-state">Pick at least one row column in the admin panel</p>
       ) : (
         <div className="max-h-[420px] overflow-auto rounded-lg border border-slate-100">
           <table className="w-full text-xs">
@@ -437,10 +437,10 @@ export function PivotWidget({ widget, rows, unfilteredRows, tabError, onCrossFil
  */
 function PivotTree({ tree, widget, color, onDrill }) {
   if (!tree || tree.columns.length === 0) {
-    return <p className="py-8 text-center text-sm text-slate-300">Pick at least one row column in the admin panel</p>
+    return <p className="empty-state">Pick at least one row column in the admin panel</p>
   }
   if (tree.rows.length === 0) {
-    return <p className="py-8 text-center text-sm text-slate-300">No data to group</p>
+    return <p className="empty-state">No data to group</p>
   }
 
   const depth = tree.columns.length

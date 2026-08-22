@@ -696,7 +696,7 @@ export default function ChartWidget({ widget, rows, unfilteredRows, tabError, cr
   return (
     <div className="card flex h-full flex-col">
       <div className="mb-2">
-        <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">📈 {widget.title}</h2>
+        <h2 className="widget-title">📈 {widget.title}</h2>
         <p className="text-[11px] text-slate-400">
           {widget.tab} · {caps.binned ? 'distribution of' : 'by'} {subject || '—'}
           {widget.ignoreFilters && ' · unfiltered'}
@@ -707,7 +707,7 @@ export default function ChartWidget({ widget, rows, unfilteredRows, tabError, cr
       {tabError ? (
         <p className="py-10 text-center text-sm text-rose-500">Tab “{widget.tab}” could not be read</p>
       ) : data.length === 0 ? (
-        <p className="py-10 text-center text-sm text-slate-300">
+        <p className="empty-state">
           {caps.binned && !subject ? 'Pick a numeric column in the admin panel' : 'No data to chart'}
         </p>
       ) : type === 'progress' ? (

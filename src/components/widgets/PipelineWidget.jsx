@@ -117,7 +117,7 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
   return (
     <div className="card">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">🔀 {widget.title}</h2>
+        <h2 className="widget-title">🔀 {widget.title}</h2>
         <p className="text-[11px] text-slate-400">
           {stages.map((s) => s.label).join(' → ')}
           {widget.ignoreFilters && ' · unfiltered'}
@@ -125,7 +125,7 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
       </div>
 
       {stages.length === 0 ? (
-        <p className="py-8 text-center text-sm text-slate-300">No stages configured yet</p>
+        <p className="empty-state">No stages configured yet</p>
       ) : (
         <div className="flex items-stretch gap-1 overflow-x-auto pb-1">
           {computed.map(({ stage, count, total, trend }, i) => {
@@ -153,7 +153,18 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
                   <span className="absolute left-0 top-0 h-full w-1" style={{ backgroundColor: color }} />
 
                   <div className="flex items-start justify-between gap-2">
-                    <span className="text-base leading-none">{stage.icon || '•'}</span>
+                    <span className="flex items-center gap-1.5">
+                      {/* The step number: a funnel is an ordered thing, and
+                          numbering it is what lets someone say "we lose them
+                          at three" instead of pointing at the screen. */}
+                      <span
+                        className="text-[13px] font-black leading-none tabular-nums opacity-30"
+                        style={{ color }}
+                      >
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                      <span className="text-base leading-none">{stage.icon || '•'}</span>
+                    </span>
                     <span
                       className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
                       style={{ backgroundColor: `${color}22`, color }}

@@ -1,7 +1,21 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, CornerDownRight, Filter, Maximize2, Minus, Plus, X } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  CornerDownRight,
+  Filter,
+  GitBranch,
+  ListTree,
+  Maximize2,
+  Minus,
+  MoveHorizontal,
+  MoveVertical,
+  Plus,
+  X,
+} from 'lucide-react'
 import { formatNumber } from '../../lib/dataUtils.js'
 import { STAGE_PALETTE } from '../../lib/config.js'
+import FlowDiagram from './FlowDiagram.jsx'
 import {
   DEFAULT_FLOW,
   buildFlow,
@@ -43,6 +57,12 @@ export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilte
   const [autoExpand, setAutoExpand] = useState(undefined)
   const [focusPath, setFocusPath] = useState('')
   const [levelOverrides, setLevelOverrides] = useState({})
+  // The admin picks which view a page opens on; the reader picks what they
+  // want to look at. Neither answer is right for every flow -- a two-level
+  // breakdown reads better as a list, a five-level process reads better as
+  // a picture.
+  const [view, setView] = useState(flow.view === 'diagram' ? 'diagram' : 'tree')
+  const [orientation, setOrientation] = useState(flow.orientation === 'horizontal' ? 'horizontal' : 'vertical')
 
   const built = useMemo(
     () => buildFlow({ widget, rowsByTab: source, dateOrder, expanded, collapsed, autoExpand, levelOverrides }),
@@ -125,14 +145,45 @@ export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilte
     <div className="card">
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">🔀 {widget.title}</h2>
+          <h2 className="widget-title">🔀 {widget.title}</h2>
           <p className="truncate text-[11px] text-slate-400">
             {describeFlow(widget)}
             {widget.ignoreFilters && ' · unfiltered'}
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 flex-wrap items-center gap-1">
+          <div className="flex overflow-hidden rounded-lg border border-slate-200">
+            <button
+              onClick={() => setView('tree')}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium ${
+                view === 'tree' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'
+              }`}
+              title="Read it as a list"
+            >
+              <ListTree size={11} /> Tree
+            </button>
+            <button
+              onClick={() => setView('diagram')}
+              className={`flex items-center gap-1 border-l border-slate-200 px-2 py-1 text-[10px] font-medium ${
+                view === 'diagram' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'
+              }`}
+              title="See its shape"
+            >
+              <GitBranch size={11} /> Diagram
+            </button>
+          </div>
+
+          {view === 'diagram' && (
+            <button
+              onClick={() => setOrientation((o) => (o === 'vertical' ? 'horizontal' : 'vertical'))}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-slate-50"
+              title={orientation === 'vertical' ? 'Lay it out left to right' : 'Lay it out top to bottom'}
+            >
+              {orientation === 'vertical' ? <MoveVertical size={11} /> : <MoveHorizontal size={11} />}
+            </button>
+          )}
+
           <button
             onClick={expandAll}
             className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-slate-50"
@@ -206,7 +257,18 @@ export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilte
       )}
 
       {built.depth === 0 ? (
-        <p className="py-8 text-center text-sm text-slate-300">No levels configured yet</p>
+        <p className="empty-state">No levels configured yet</p>
+      ) : view === 'diagram' ? (
+        <FlowDiagram
+          root={focused}
+          flow={flow}
+          orientation={orientation}
+          height={Number(flow.diagramHeight) || 420}
+          isDrilled={(node) => flowNodeIsDrilled(widget, node, crossFilters)}
+          onToggle={toggle}
+          onDrill={drill}
+          onFocus={setFocusPath}
+        />
       ) : (
         <div className="-mx-1 overflow-x-auto px-1">
           <FlowNode

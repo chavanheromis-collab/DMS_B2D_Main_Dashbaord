@@ -45,7 +45,7 @@ export default function LeaderboardWidget({ widget, rows, unfilteredRows, tabErr
   return (
     <div className="card flex h-[480px] flex-col overflow-hidden">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-1.5 font-semibold text-slate-800">🏆 {widget.title}</h2>
+        <h2 className="widget-title">🏆 {widget.title}</h2>
         <p className="text-[11px] text-slate-400">
           {widget.tab} · by {widget.groupBy || '—'}
           {widget.ignoreFilters && ' · unfiltered'}
@@ -55,7 +55,7 @@ export default function LeaderboardWidget({ widget, rows, unfilteredRows, tabErr
       {tabError ? (
         <p className="py-8 text-center text-sm text-rose-500">Tab “{widget.tab}” could not be read</p>
       ) : ranked.length === 0 ? (
-        <p className="py-8 text-center text-sm text-slate-300">Nothing to rank yet</p>
+        <p className="empty-state">Nothing to rank yet</p>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-full text-sm">
