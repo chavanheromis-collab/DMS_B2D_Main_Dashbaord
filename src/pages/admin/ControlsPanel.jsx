@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
-import { Bookmark, ChevronRight, Copy, Link as LinkIcon, Plus, X } from 'lucide-react'
+import { Bookmark, ChevronRight, Copy, Link as LinkIcon, Lock, Plus, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, SLIDER_FILTER_KINDS, uid } from '../../lib/config'
 import { looksLikeDateColumn } from '../../lib/dataUtils'
 import { controlCoverage } from '../../lib/filterEngine'
 import {
   CONTROL_GROUPS,
+  CONTROL_MODES,
   WIDTH_PRESETS,
+  controlMode,
   controlWidth,
   emptyView,
   isButton,
@@ -120,6 +122,7 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
       width: 'auto',
       advanced: false,
       hidden: false,
+      mode: 'live',
     }
 
     if (adding === 'button') {
@@ -199,13 +202,19 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
           const meta = kindMeta(control.kind)
           const set = (patch) => ops.update(control.id, patch)
           const cols = columnsOf(control.tab)
+          const mode = controlMode(control)
+          const fixedButDoesNothing =
+            mode === 'fixed' &&
+            (isButton(control)
+              ? !control.defaultOn
+              : control.defaultValue === undefined || control.defaultValue === null || control.defaultValue === '')
 
           return (
             <div
               key={control.id}
               className={`rounded-xl border bg-white transition-colors ${
                 open ? 'border-indigo-300 p-3 shadow-sm' : 'border-slate-200 p-2'
-              } ${control.hidden ? 'opacity-50' : ''}`}
+              } ${mode === 'off' ? 'opacity-50' : ''} ${mode === 'fixed' ? 'ring-1 ring-indigo-200' : ''}`}
             >
               <div className={`flex flex-wrap items-center gap-2 ${open ? 'mb-2' : ''}`}>
                 <button
@@ -215,6 +224,15 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                   <ChevronRight size={15} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
                 </button>
                 <span className="w-5 text-center text-sm text-slate-400">{meta.icon}</span>
+
+                {mode === 'fixed' && (
+                  <span
+                    className="flex shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-600"
+                    title="Always applied, never shown on the page"
+                  >
+                    <Lock size={9} /> fixed
+                  </span>
+                )}
 
                 {open ? (
                   <TextInput value={control.label} onChange={(v) => set({ label: v })} className="w-48" placeholder="Label" />
@@ -574,21 +592,37 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                   )}
 
                   {/* --- Placement --------------------------------------- */}
-                  <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 pt-2">
-                    <Toggle
-                      checked={!!control.advanced}
-                      onChange={(v) => set({ advanced: v })}
-                      label="Tuck behind “More”"
-                    />
-                    <Toggle checked={!control.hidden} onChange={(v) => set({ hidden: !v })} label="Visible" />
-                    {isButton(control) ? (
-                      <Toggle
-                        checked={!!control.defaultOn}
-                        onChange={(v) => set({ defaultOn: v })}
-                        label="On by default"
+                  <div className="flex flex-wrap items-end gap-4 border-t border-slate-100 pt-2">
+                    <Field label="On the page" className="w-72">
+                      <Select
+                        value={mode}
+                        onChange={(v) => set({ mode: v, hidden: v === 'off' })}
+                        options={CONTROL_MODES}
                       />
+                    </Field>
+                    {mode === 'live' && (
+                      <div className="pb-1.5">
+                        <Toggle
+                          checked={!!control.advanced}
+                          onChange={(v) => set({ advanced: v })}
+                          label="Tuck behind “More”"
+                        />
+                      </div>
+                    )}
+                    {isButton(control) ? (
+                      <div className="pb-1.5">
+                        <Toggle
+                          checked={!!control.defaultOn}
+                          onChange={(v) => set({ defaultOn: v })}
+                          label={mode === 'fixed' ? 'Applied (leave on)' : 'On by default'}
+                        />
+                      </div>
                     ) : (
-                      <Field label="Default value" className="w-48" hint="Blank opens unfiltered.">
+                      <Field
+                        label={mode === 'fixed' ? 'Fixed value' : 'Default value'}
+                        className="w-48"
+                        hint={mode === 'fixed' ? 'What the page always shows.' : 'Blank opens unfiltered.'}
+                      >
                         <TextInput
                           value={control.defaultValue ?? ''}
                           onChange={(v) => set({ defaultValue: v })}
@@ -597,6 +631,22 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                       </Field>
                     )}
                   </div>
+
+                  {mode === 'fixed' && (
+                    <p
+                      className={`rounded-lg px-2 py-1 text-[10px] ${
+                        fixedButDoesNothing
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-indigo-50/70 text-indigo-600'
+                      }`}
+                    >
+                      {fixedButDoesNothing
+                        ? isButton(control)
+                          ? 'Switch this on above, or the page rule does nothing.'
+                          : 'Give it a fixed value, or the page rule does nothing.'
+                        : 'A rule of the page, not a control on it: always applied, never shown, and untouched by Reset or a saved view. Only an admin can change it.'}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

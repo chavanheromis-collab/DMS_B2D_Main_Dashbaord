@@ -66,6 +66,46 @@ export function kindNeedsColumn(kind) {
 export const isButton = (control) => control?.kind === 'button'
 
 // ---------------------------------------------------------------------
+// What a control IS to the person looking at the page
+// ---------------------------------------------------------------------
+// Three states, not two. "Hidden" used to mean parked -- switched off
+// without being deleted -- which left no way to express the other thing an
+// admin frequently wants: a filter that is always on, applies to the whole
+// page, and that nobody can see or undo. "This page is the Pune branch."
+// "This page never shows cancelled orders."
+//
+// That is not a default value on a visible control: a default can be changed
+// and a Reset would put it back to something the admin never intended to
+// offer. It is a property of the PAGE that happens to be expressed as a
+// filter -- so it is applied like one, and shown like nothing.
+
+export const CONTROL_MODES = [
+  { value: 'live', label: 'On the page — anyone can change it' },
+  { value: 'fixed', label: 'Fixed — always applied, never shown' },
+  { value: 'off', label: 'Parked — not shown, not applied' },
+]
+
+/** `hidden` is the old spelling of "parked", and still readable. */
+export function controlMode(control) {
+  if (control?.mode === 'fixed' || control?.mode === 'off' || control?.mode === 'live') return control.mode
+  return control?.hidden ? 'off' : 'live'
+}
+
+export const isFixed = (control) => controlMode(control) === 'fixed'
+
+/**
+ * The values a fixed control forces, whatever else is in play.
+ *
+ * Applied over the user's state at filter time rather than merged into it
+ * once, so nothing downstream -- a saved view, a stale value from before the
+ * admin fixed it, a future feature nobody has written yet -- can quietly
+ * override a page's own rules.
+ */
+export function fixedValues(controls) {
+  return initialValues((controls || []).filter(isFixed), { includeFixed: true })
+}
+
+// ---------------------------------------------------------------------
 // Width
 // ---------------------------------------------------------------------
 // Controls are sized in exact pixels, set per control by the admin. A
@@ -140,7 +180,8 @@ export function partitionByProminence(controls) {
   const visible = []
   const advanced = []
   for (const control of controls || []) {
-    if (control.hidden) continue
+    // A fixed control is not "behind More" -- it is not on the page at all.
+    if (controlMode(control) !== 'live') continue
     ;(control.advanced ? advanced : visible).push(control)
   }
   return { visible, advanced }
@@ -152,9 +193,18 @@ export function controlActive(control, values, activeButtonIds) {
   return filterIsActive(control, values?.[control.id])
 }
 
-/** How many controls are doing something right now. */
+/**
+ * How many controls are doing something right now.
+ *
+ * Fixed ones are excluded deliberately: the count exists so a reader knows
+ * how much of what they see is their own doing and can undo it. Counting a
+ * rule they cannot see, cannot reach and cannot clear would send them
+ * hunting for a control that does not exist.
+ */
 export function activeCount(controls, values, activeButtonIds) {
-  return (controls || []).filter((c) => controlActive(c, values, activeButtonIds)).length
+  return (controls || [])
+    .filter((c) => controlMode(c) === 'live')
+    .filter((c) => controlActive(c, values, activeButtonIds)).length
 }
 
 // ---------------------------------------------------------------------
@@ -173,7 +223,10 @@ export function emptyView(label = 'New view') {
 
 /** Snapshots the current control state into a view definition. */
 export function captureView(values, activeButtonIds, controls) {
-  const ids = new Set((controls || []).map((c) => c.id))
+  // Fixed controls are the page's own rules, not part of any view: a view
+  // that carried them could be used to turn one off by saving it while it
+  // was momentarily absent.
+  const ids = new Set((controls || []).filter((c) => !isFixed(c)).map((c) => c.id))
   const kept = {}
   for (const [id, value] of Object.entries(values || {})) {
     // Only keep values belonging to controls that still exist, or a view
@@ -187,14 +240,19 @@ export function captureView(values, activeButtonIds, controls) {
  * Is this view the state the dashboard is currently in? Used to light up the
  * button so a user can see which view they're looking at.
  */
-export function viewIsActive(view, values, activeButtonIds) {
-  const wantButtons = [...(view.buttons || [])].sort().join(',')
-  const haveButtons = [...(activeButtonIds || [])].sort().join(',')
+export function viewIsActive(view, values, activeButtonIds, controls) {
+  // A fixed control is always on, so it is in neither answer -- comparing it
+  // would make every view look inactive forever.
+  const fixed = new Set((controls || []).filter(isFixed).map((c) => c.id))
+
+  const wantButtons = [...(view.buttons || [])].filter((id) => !fixed.has(id)).sort().join(',')
+  const haveButtons = [...(activeButtonIds || [])].filter((id) => !fixed.has(id)).sort().join(',')
   if (wantButtons !== haveButtons) return false
 
   const wanted = view.values || {}
   const keys = new Set([...Object.keys(wanted), ...Object.keys(values || {})])
   for (const key of keys) {
+    if (fixed.has(key)) continue
     // An absent value and an explicitly empty one mean the same thing to the
     // engine, so they have to compare equal here too.
     const a = JSON.stringify(wanted[key] ?? null)
@@ -204,12 +262,21 @@ export function viewIsActive(view, values, activeButtonIds) {
   return true
 }
 
-/** The values a page opens with: every control's admin-set default. */
-export function initialValues(controls) {
+/**
+ * The values a page opens with: every control's admin-set default, plus
+ * whatever the page fixes outright.
+ *
+ * This is also what Reset returns to, which is why a fixed control has to be
+ * in it: "reset" means back to the page as the admin designed it, and the
+ * page as designed includes its rules.
+ */
+export function initialValues(controls, { includeFixed = true } = {}) {
   const values = {}
   const buttons = []
   for (const control of controls || []) {
-    if (control.hidden) continue
+    const mode = controlMode(control)
+    if (mode === 'off') continue
+    if (mode === 'fixed' && !includeFixed) continue
     if (isButton(control)) {
       if (control.defaultOn) buttons.push(control.id)
       continue

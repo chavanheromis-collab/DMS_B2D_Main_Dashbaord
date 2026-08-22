@@ -385,7 +385,7 @@ export default function ControlBar({
         <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 pb-2">
           <Bookmark size={12} className="text-slate-300" />
           {views.map((view) => {
-            const on = viewIsActive(view, values, activeButtonIds)
+            const on = viewIsActive(view, values, activeButtonIds, controls)
             const color = view.color || '#4F46E5'
             return (
               <button

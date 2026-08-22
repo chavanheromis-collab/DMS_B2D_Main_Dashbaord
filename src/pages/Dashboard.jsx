@@ -17,7 +17,7 @@ import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor
 import { styleClass, styleVars } from '../lib/widgetStyle'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
-import { initialValues, normalizeControls, splitControls } from '../lib/pageControls'
+import { fixedValues, initialValues, normalizeControls, splitControls } from '../lib/pageControls'
 import { stripUndefined } from '../lib/firestoreSafe'
 import WidgetControls from '../components/WidgetControls.jsx'
 import ControlBar from '../components/ControlBar.jsx'
@@ -121,6 +121,18 @@ export default function Dashboard() {
   // evaluate differently -- see lib/pageControls.js.
   const pageControls = useMemo(() => normalizeControls(page), [page])
   const { filters, buttons } = useMemo(() => splitControls(pageControls), [pageControls])
+
+  // The page's own rules: controls the admin fixed, which are applied always
+  // and shown nowhere. Forced over the user's state at the moment of
+  // filtering rather than merged into it, so nothing -- a saved view, a value
+  // left over from before the admin fixed the control -- can quietly
+  // override what the page says it is.
+  const fixed = useMemo(() => fixedValues(pageControls), [pageControls])
+  const effectiveValues = useMemo(() => ({ ...filterValues, ...fixed.values }), [filterValues, fixed])
+  const effectiveButtonIds = useMemo(
+    () => Array.from(new Set([...activeButtonIds, ...fixed.buttons])),
+    [activeButtonIds, fixed]
+  )
   const views = useMemo(() => page?.views || [], [page])
 
   // Widget-level visibility is applied BEFORE anything is fetched, so a
@@ -226,9 +238,9 @@ export default function Dashboard() {
       first[ref] = applyFilters(data.rows || [], {
         tab: ref,
         filters,
-        values: filterValues,
+        values: effectiveValues,
         buttons,
-        activeIds: activeButtonIds,
+        activeIds: effectiveButtonIds,
         crossFilters: crossFiltersByRef,
         search,
         dateOrder,
@@ -244,7 +256,7 @@ export default function Dashboard() {
     const bridges = []
     for (const filter of filters) {
       if (filter.reach !== 'key') continue
-      if (!filterIsActive(filter, filterValues[filter.id])) continue
+      if (!filterIsActive(filter, effectiveValues[filter.id])) continue
       const bridge = buildKeyBridge({ filter, sourceRows: first[filter.tab] || [], tabColumns })
       if (bridge) bridges.push(bridge)
     }
@@ -258,9 +270,9 @@ export default function Dashboard() {
   }, [
     dataByRef,
     filters,
-    filterValues,
+    effectiveValues,
     buttons,
-    activeButtonIds,
+    effectiveButtonIds,
     crossFiltersByRef,
     search,
     dateOrder,
