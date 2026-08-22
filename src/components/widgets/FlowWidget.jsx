@@ -23,7 +23,9 @@ import {
   findFlowNode,
   flattenFlow,
   flowCrossFilter,
+  flowNodeCanDrill,
   flowNodeIsDrilled,
+  flowRootTab,
 } from '../../lib/flow.js'
 
 /**
@@ -127,14 +129,14 @@ export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilte
   // ITS level, which a hop above it may have changed -- offering the root
   // tab's columns everywhere would silently produce an empty branch.
   const changeable = useMemo(() => {
-    let tab = widget.tab
+    let tab = flowRootTab(widget)
     const out = []
     built.levels.forEach((level) => {
       if (level.kind === 'split' && level.allowChange && level.id) out.push({ level, tab })
       if (level.kind === 'hop' && level.tab) tab = level.tab
     })
     return out
-  }, [built.levels, widget.tab])
+  }, [built.levels, widget])
 
   const columnsOf = (tab) => {
     const sample = (source?.[tab] || [])[0]
@@ -306,11 +308,12 @@ function FlowNode({ node, root, flow, widget, crossFilters, onToggle, onDrill, o
   const drilled = flowNodeIsDrilled(widget, node, crossFilters)
   const color = node.color || STAGE_PALETTE[node.level % STAGE_PALETTE.length] || '#4F46E5'
   const share = flow.percentBase === 'root' ? node.shareOfRoot : node.share
+  // `null` is not 0: it means this branch is not part of its parent and has
+  // no share to show. Drawing a 0% bar would say something false.
+  const hasShare = share !== null && share !== undefined
   const pct = Math.max(0, Math.min(1, share || 0))
   const canOpen = node.hasChildren
-  // Drilling the unfiltered root would put a chip on the page that selects
-  // everything -- a filter that says nothing. Every other node narrows.
-  const canDrill = !isRoot || node.conditions.length > 0
+  const canDrill = flowNodeCanDrill(node)
 
   // A leaf has nothing to open, so the row itself is the drill -- otherwise
   // the deepest and most specific rows would be the only ones that did
@@ -326,7 +329,7 @@ function FlowNode({ node, root, flow, widget, crossFilters, onToggle, onDrill, o
         style={drilled ? { '--tw-ring-color': color, backgroundColor: `${color}0F` } : undefined}
       >
         {/* Share of parent, as the width of the row's own tint. */}
-        {flow.showBars !== false && (
+        {flow.showBars !== false && hasShare && (
           <span
             aria-hidden
             className="pointer-events-none absolute inset-y-0 left-0 rounded-lg transition-all duration-500"
@@ -362,28 +365,37 @@ function FlowNode({ node, root, flow, widget, crossFilters, onToggle, onDrill, o
             {node.label}
           </span>
 
-          {node.kind === 'hop' && (
+          {(node.kind === 'hop' || node.kind === 'table') && (
             <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-slate-500">
               {node.tab}
+            </span>
+          )}
+          {node.independent && !isRoot && (
+            <span
+              className="shrink-0 rounded-full bg-slate-100 px-1.5 py-px text-[9px] text-slate-400"
+              title="Not part of the branch above it, so it has no share of it"
+            >
+              own total
             </span>
           )}
         </button>
 
         <div className="relative flex shrink-0 items-center gap-2">
-          {flow.showDropOff !== false && !isRoot && node.dropOff > 0.001 && (
+          {flow.showDropOff !== false && !isRoot && hasShare && node.dropOff > 0.001 && (
             <span className="hidden text-[10px] font-medium text-amber-600 sm:inline" title="Lost from the branch above">
               ▼{Math.round(node.dropOff * 100)}%
             </span>
           )}
 
           <span className="w-11 text-right text-[10px] font-semibold" style={{ color }}>
-            {isRoot ? '100%' : `${(pct * 100).toFixed(pct < 0.1 ? 1 : 0)}%`}
+            {isRoot ? '100%' : hasShare ? `${(pct * 100).toFixed(pct < 0.1 ? 1 : 0)}%` : '—'}
           </span>
 
           <span
             className={`text-right tabular-nums ${isRoot ? 'text-base font-bold text-slate-800' : 'text-[12px] font-semibold text-slate-700'}`}
+            title={node.measure?.column ? `${node.measure.aggregation} of ${node.measure.column}` : node.measure?.aggregation}
           >
-            {formatNumber(node.value, flow.measure?.format || 'comma', flow.measure?.aggregation)}
+            {formatNumber(node.value, node.measure?.format || 'comma', node.measure?.aggregation)}
           </span>
 
           <span className="flex items-center gap-0.5">

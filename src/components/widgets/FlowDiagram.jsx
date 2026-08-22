@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ChevronDown, ChevronRight, Filter, Maximize2, Minus, Move, Plus, Scan } from 'lucide-react'
 import { formatNumber } from '../../lib/dataUtils.js'
 import { STAGE_PALETTE } from '../../lib/config.js'
+import { flowNodeCanDrill } from '../../lib/flow.js'
 import { fitToViewport, layoutFlow } from '../../lib/flowLayout.js'
 
 /**
@@ -191,10 +192,11 @@ function shortNumber(n) {
 function FlowCard({ node, style, flow, drilled, onToggle, onDrill, onFocus }) {
   const color = nodeColor(node)
   const share = flow.percentBase === 'root' ? node.shareOfRoot : node.share
+  const hasShare = share !== null && share !== undefined
   const pct = Math.max(0, Math.min(1, share || 0))
   const isRoot = node.level === 0
   const canOpen = node.hasChildren
-  const canDrill = !isRoot || node.conditions.length > 0
+  const canDrill = flowNodeCanDrill(node)
 
   return (
     <div
@@ -207,7 +209,7 @@ function FlowCard({ node, style, flow, drilled, onToggle, onDrill, onFocus }) {
       <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: color }} />
       {/* The share, as a wash across the card -- the same encoding the edge
           uses, so the two agree without a legend. */}
-      {flow.showBars !== false && (
+      {flow.showBars !== false && hasShare && (
         <span
           aria-hidden
           className="pointer-events-none absolute inset-y-0 left-0 transition-all duration-500"
@@ -243,16 +245,16 @@ function FlowCard({ node, style, flow, drilled, onToggle, onDrill, onFocus }) {
         </div>
 
         <div className="flex items-center gap-1.5 text-[9px]">
-          {node.kind === 'hop' ? (
-            <span className="rounded bg-slate-100 px-1 py-px font-medium uppercase tracking-wide text-slate-500">
+          {node.kind === 'hop' || node.kind === 'table' ? (
+            <span className="truncate rounded bg-slate-100 px-1 py-px font-medium uppercase tracking-wide text-slate-500">
               {node.tab}
             </span>
           ) : (
             <span className="font-semibold tabular-nums" style={{ color }}>
-              {isRoot ? '100%' : `${(pct * 100).toFixed(pct < 0.1 ? 1 : 0)}%`}
+              {isRoot ? '100%' : hasShare ? `${(pct * 100).toFixed(pct < 0.1 ? 1 : 0)}%` : '—'}
             </span>
           )}
-          {flow.showDropOff !== false && !isRoot && node.dropOff > 0.001 && (
+          {flow.showDropOff !== false && !isRoot && hasShare && node.dropOff > 0.001 && (
             <span className="text-amber-600" title="Lost from the branch above">
               ▼{Math.round(node.dropOff * 100)}%
             </span>

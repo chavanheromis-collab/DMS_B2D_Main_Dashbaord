@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ArrowDown, Layers, Plus } from 'lucide-react'
 import { AGGREGATIONS, NUMBER_FORMATS, STAGE_PALETTE, aggNeedsColumn, uid } from '../../lib/config'
 import {
@@ -6,6 +7,7 @@ import {
   FLOW_LEVEL_KINDS,
   FLOW_PERCENT_BASES,
   FLOW_SORTS,
+  flowRootTab,
 } from '../../lib/flow'
 import { FLOW_ORIENTATIONS } from '../../lib/flowLayout'
 import ConditionBuilder from './ConditionBuilder.jsx'
@@ -30,13 +32,19 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
   const metricOps = listOps(metrics, (next) => setFlow({ metrics: next }))
 
   const columnsOf = (tab) => tabHeaders?.[tab] || []
-  const rootCols = columnsOf(widget.tab)
+  const rootTab = flowRootTab(widget)
+  const rootCols = columnsOf(rootTab)
 
-  // Which tab is in play at each level: the widget's own, until a hop
+  // Which tab is in play at each level: the flow's own, until something
   // changes the subject. Every column picker below depends on this, and
   // getting it wrong is the one mistake that makes a flow silently empty.
+  //
+  // Only a hop moves the whole flow: it has one child, so everything below
+  // it is on the new tab. A "bring in other tabs" level has several, each
+  // starting its own sub-flow, so it cannot move the levels that follow --
+  // they stay on whatever tab was in play before it.
   const tabAt = (index) => {
-    let tab = widget.tab
+    let tab = rootTab
     for (let i = 0; i < index; i += 1) {
       if (levels[i]?.kind === 'hop' && levels[i]?.tab) tab = levels[i].tab
     }
@@ -45,11 +53,12 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
 
   function addLevel(kind) {
     const index = levels.length
+    const tab = tabAt(index)
     ops.add({
       ...DEFAULT_FLOW_LEVEL,
       id: uid('fl'),
       kind,
-      column: kind === 'split' ? columnsOf(tabAt(index))[0] || '' : '',
+      column: kind === 'split' ? columnsOf(tab)[0] || '' : '',
       branches:
         kind === 'rules'
           ? [
@@ -59,11 +68,16 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
                 icon: '',
                 color: STAGE_PALETTE[0],
                 match: 'all',
-                conditions: [{ tab: tabAt(index), column: '', operator: 'is_not_empty', value: '', value2: '' }],
+                conditions: [{ tab, column: '', operator: 'is_not_empty', value: '', value2: '' }],
                 stop: false,
               },
             ]
           : [],
+      measures:
+        kind === 'measures'
+          ? [{ id: uid('fn'), label: 'Rows', aggregation: 'count', column: null, format: 'comma', conditions: [] }]
+          : [],
+      sources: kind === 'tables' ? [{ id: uid('ft'), tab: '', label: '', icon: '', conditions: [], match: 'all' }] : [],
     })
   }
 
@@ -76,11 +90,19 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
         </p>
 
         <div className="flex flex-wrap items-end gap-2">
+          <Field label="Table" className="w-48" hint="The flow starts wherever you say.">
+            <Select
+              value={flow.tab || ''}
+              onChange={(v) => setFlow({ tab: v, measure: { ...flow.measure, column: null }, conditions: [] })}
+              options={tabs}
+              placeholder={`${labelFor(widget.tab) || 'this widget’s tab'} (default)`}
+            />
+          </Field>
           <Field label="Label" className="w-40">
             <TextInput
               value={flow.label || ''}
               onChange={(v) => setFlow({ label: v })}
-              placeholder={labelFor(widget.tab) || 'All rows'}
+              placeholder={labelFor(rootTab) || 'All rows'}
             />
           </Field>
           <Field label="Measure" className="w-52">
@@ -116,7 +138,7 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
           compact
           conditions={flow.conditions || []}
           match={flow.match || 'all'}
-          tabs={[widget.tab]}
+          tabs={[rootTab]}
           tabHeaders={tabHeaders}
           onChange={(next) => setFlow({ conditions: next })}
         />
@@ -170,6 +192,19 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
                 {level.kind === 'rules' && (
                   <RulesLevel level={level} tab={tab} tabHeaders={tabHeaders} setLevel={setLevel} />
                 )}
+                {level.kind === 'measures' && (
+                  <MeasuresLevel level={level} tab={tab} cols={cols} tabHeaders={tabHeaders} setLevel={setLevel} />
+                )}
+                {level.kind === 'values' && (
+                  <ValuesLevel
+                    level={level}
+                    cols={cols}
+                    tabs={tabs}
+                    tabHeaders={tabHeaders}
+                    setLevel={setLevel}
+                    labelFor={labelFor}
+                  />
+                )}
                 {level.kind === 'hop' && (
                   <HopLevel
                     level={level}
@@ -180,6 +215,13 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
                     setLevel={setLevel}
                     labelFor={labelFor}
                   />
+                )}
+                {level.kind === 'tables' && (
+                  <TablesLevel level={level} tabs={tabs} tabHeaders={tabHeaders} setLevel={setLevel} labelFor={labelFor} />
+                )}
+
+                {level.kind !== 'measures' && (
+                  <MeasureOverride level={level} cols={columnsOf(level.kind === 'hop' ? level.tab || tab : tab)} setLevel={setLevel} />
                 )}
               </div>
             )
@@ -347,6 +389,296 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
         On the dashboard: clicking a branch opens it, the funnel icon filters the whole page to that branch, and the
         zoom icon makes it the temporary top of the tree. A branch that has hopped tabs filters by its key column, so
         the rest of the page follows it across spreadsheets.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * A level may report a different number than the one above it -- rows at the
+ * top, rupees underneath. Kept out of the way, because most flows measure
+ * one thing all the way down and an extra always-visible row of controls
+ * would make the common case look harder than it is.
+ */
+function MeasureOverride({ level, cols, setLevel }) {
+  const on = Boolean(level.measure?.aggregation)
+  const measure = level.measure || {}
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-1.5">
+      <Toggle
+        checked={on}
+        onChange={(v) => setLevel({ measure: v ? { aggregation: 'sum', column: cols[0] || '', format: 'comma' } : null })}
+        label="Measure this level differently"
+      />
+      {on && (
+        <>
+          <Select
+            value={measure.aggregation || 'sum'}
+            onChange={(v) => setLevel({ measure: { ...measure, aggregation: v } })}
+            options={AGGREGATIONS}
+            className="w-52"
+          />
+          {aggNeedsColumn(measure.aggregation) && (
+            <Select
+              value={measure.column || ''}
+              onChange={(v) => setLevel({ measure: { ...measure, column: v } })}
+              options={cols}
+              placeholder="— column —"
+              className="w-40"
+            />
+          )}
+          <Select
+            value={measure.format || 'comma'}
+            onChange={(v) => setLevel({ measure: { ...measure, format: v } })}
+            options={NUMBER_FORMATS}
+            className="w-36"
+          />
+          <span className="text-[10px] text-slate-400">
+            Percentages fall back to counting rows, since two different numbers cannot be a share of each other.
+          </span>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Numbers about a branch, rather than a breakdown of it. */
+function MeasuresLevel({ level, tab, cols, tabHeaders, setLevel }) {
+  const measures = level.measures || []
+  const ops = listOps(measures, (next) => setLevel({ measures: next }))
+  const [openId, setOpenId] = useState(null)
+
+  return (
+    <div className="space-y-1.5">
+      {measures.map((m, i) => {
+        const setMeasure = (patch) => ops.update(m.id, patch)
+        const open = openId === m.id
+        const conditions = m.conditions || []
+
+        return (
+          <div key={m.id} className="rounded-lg border border-slate-100 bg-slate-50/70 p-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <TextInput
+                value={m.label}
+                onChange={(v) => setMeasure({ label: v })}
+                placeholder="Label"
+                className="w-32"
+              />
+              <TextInput value={m.icon} onChange={(v) => setMeasure({ icon: v })} placeholder="💰" className="w-14" />
+              <Select
+                value={m.aggregation || 'count'}
+                onChange={(v) => setMeasure({ aggregation: v })}
+                options={AGGREGATIONS}
+                className="w-52"
+              />
+              {aggNeedsColumn(m.aggregation) && (
+                <Select
+                  value={m.column || ''}
+                  onChange={(v) => setMeasure({ column: v })}
+                  options={cols}
+                  placeholder="— column —"
+                  className="w-40"
+                />
+              )}
+              <Select
+                value={m.format || 'comma'}
+                onChange={(v) => setMeasure({ format: v })}
+                options={NUMBER_FORMATS}
+                className="w-36"
+              />
+              <button
+                onClick={() => setOpenId(open ? null : m.id)}
+                className="text-[10px] text-indigo-600 underline"
+              >
+                {conditions.length ? `${conditions.length} condition${conditions.length > 1 ? 's' : ''}` : '+ conditions'}
+              </button>
+              <div className="ml-auto">
+                <RowControls
+                  onUp={() => ops.move(i, -1)}
+                  onDown={() => ops.move(i, 1)}
+                  onDelete={() => ops.remove(m.id)}
+                  isFirst={i === 0}
+                  isLast={i === measures.length - 1}
+                />
+              </div>
+            </div>
+
+            {open && (
+              <div className="mt-1.5">
+                <ConditionBuilder
+                  compact
+                  conditions={conditions}
+                  match={m.match || 'all'}
+                  tabs={[tab]}
+                  tabHeaders={tabHeaders}
+                  onChange={(next) => setMeasure({ conditions: next })}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      <Btn
+        onClick={() =>
+          ops.add({
+            id: uid('fn'),
+            label: `Number ${measures.length + 1}`,
+            aggregation: 'count',
+            column: null,
+            format: 'comma',
+            conditions: [],
+            match: 'all',
+          })
+        }
+      >
+        <Plus size={11} /> Add a number
+      </Btn>
+
+      <p className="text-[10px] text-slate-400">
+        Each number keeps the branch's rows (narrowed by its own conditions, if it has any), so it can still be
+        opened and drilled like anything else — it just reports something different.
+      </p>
+    </div>
+  )
+}
+
+/** Branches read off a reference tab, so a zero is still a branch. */
+function ValuesLevel({ level, cols, tabs, tabHeaders, setLevel, labelFor }) {
+  const listCols = tabHeaders?.[level.tab] || []
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="List of values lives on" className="w-48">
+          <Select
+            value={level.tab || ''}
+            onChange={(v) => setLevel({ tab: v, column: '' })}
+            options={tabs}
+            placeholder="— reference tab —"
+          />
+        </Field>
+        <Field label="The column listing them" className="w-44">
+          <Select
+            value={level.column || ''}
+            onChange={(v) => setLevel({ column: v })}
+            options={listCols}
+            placeholder={level.tab ? '— column —' : 'Pick a tab first'}
+            disabled={!level.tab}
+          />
+        </Field>
+        <Field label="Matched against" className="w-44" hint="On this branch's own rows.">
+          <Select
+            value={level.matchColumn || ''}
+            onChange={(v) => setLevel({ matchColumn: v })}
+            options={cols}
+            placeholder="— column —"
+          />
+        </Field>
+        <Field label="Order" className="w-32">
+          <Select value={level.sort || 'value_desc'} onChange={(v) => setLevel({ sort: v })} options={FLOW_SORTS} />
+        </Field>
+        <Field label="Show top" className="w-24">
+          <TextInput type="number" value={level.top ?? 6} onChange={(v) => setLevel({ top: Number(v) || 0 })} />
+        </Field>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <Toggle
+          checked={level.showZero !== false}
+          onChange={(v) => setLevel({ showZero: v })}
+          label="Keep values with no rows"
+        />
+        <Toggle
+          checked={level.unmatchedBucket !== false}
+          onChange={(v) => setLevel({ unmatchedBucket: v })}
+          label="Add a “not on the list” branch"
+        />
+      </div>
+
+      <p className="text-[10px] text-slate-400">
+        The one way to see a value with <strong>zero</strong> rows: a model nobody sold this month does not exist in
+        the sales data, so grouping that data can never reveal it. Reading the branches from{' '}
+        <strong>{labelFor(level.tab) || 'a reference tab'}</strong> instead makes the gap visible.
+      </p>
+    </div>
+  )
+}
+
+/** Other tabs, brought in whole and related to nothing. */
+function TablesLevel({ level, tabs, tabHeaders, setLevel, labelFor }) {
+  const sources = level.sources || []
+  const ops = listOps(sources, (next) => setLevel({ sources: next }))
+  const [openId, setOpenId] = useState(null)
+
+  return (
+    <div className="space-y-1.5">
+      {sources.map((src, i) => {
+        const setSource = (patch) => ops.update(src.id, patch)
+        const open = openId === src.id
+        const conditions = src.conditions || []
+
+        return (
+          <div key={src.id} className="rounded-lg border border-slate-100 bg-slate-50/70 p-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Select
+                value={src.tab || ''}
+                onChange={(v) => setSource({ tab: v, conditions: [] })}
+                options={tabs}
+                placeholder="— tab —"
+                className="w-48"
+              />
+              <TextInput
+                value={src.label}
+                onChange={(v) => setSource({ label: v })}
+                placeholder={labelFor(src.tab) || 'Label'}
+                className="w-36"
+              />
+              <TextInput value={src.icon} onChange={(v) => setSource({ icon: v })} placeholder="🗂️" className="w-14" />
+              <button
+                onClick={() => setOpenId(open ? null : src.id)}
+                className="text-[10px] text-indigo-600 underline"
+                disabled={!src.tab}
+              >
+                {conditions.length ? `${conditions.length} condition${conditions.length > 1 ? 's' : ''}` : '+ conditions'}
+              </button>
+              <div className="ml-auto">
+                <RowControls
+                  onUp={() => ops.move(i, -1)}
+                  onDown={() => ops.move(i, 1)}
+                  onDelete={() => ops.remove(src.id)}
+                  isFirst={i === 0}
+                  isLast={i === sources.length - 1}
+                />
+              </div>
+            </div>
+
+            {open && src.tab && (
+              <div className="mt-1.5">
+                <ConditionBuilder
+                  compact
+                  conditions={conditions}
+                  match={src.match || 'all'}
+                  tabs={[src.tab]}
+                  tabHeaders={tabHeaders}
+                  onChange={(next) => setSource({ conditions: next })}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      <Btn onClick={() => ops.add({ id: uid('ft'), tab: '', label: '', icon: '', conditions: [], match: 'all' })}>
+        <Plus size={11} /> Add a tab
+      </Btn>
+
+      <p className="text-[10px] text-slate-400">
+        These branches are <strong>not</strong> part of what they hang from, so they show no share and no drop-off —
+        a percentage of something they are not inside would be an invention. Use this for a flow that is a map of
+        several tables rather than the decomposition of one. Levels below still read the tab that was in play
+        <em> above</em> this one; to keep going inside a brought-in tab, give it a flow of its own.
       </p>
     </div>
   )

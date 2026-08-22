@@ -534,21 +534,51 @@ and it's enforced in the small places too: the tail beyond *show top N* rolls
 into **Other** rather than being dropped, and blanks get a branch of their own
 instead of vanishing the way a chart silently drops them.
 
-#### The three ways to go one level deeper
+#### The six ways to go one level deeper
 
 An admin describes a **path**, not a picture: each level says how to turn a
-branch into its children, and it applies at every branch. Three levels
-describe a tree of any width.
+branch into its children, and it applies at every branch. A handful of levels
+describes a tree of any width.
 
 | Level | What it does |
 |---|---|
 | **Break down by a column** | One child per value, biggest first, top N with an "Other" roll-up and a "(blank)" branch. Optionally **viewers can change the column**, which is the single most useful control here — the interesting split is rarely the one anyone predicted. |
 | **Branch on conditions** | Admin-written branches, each a label + colour + any number of column conditions (the same operator list as buttons). *First matching branch wins* by default, so the level reads as a decision tree and still adds up. |
+| **Show numbers about it** | Branches that are *numbers* rather than subsets — count here, sum of Amount there, count of the financed ones. Each keeps the branch's rows (narrowed by its own conditions if it has any), so a number can still be opened and drilled. This is how a flow stops being a census and becomes a scorecard at any depth. |
+| **Break down by a list on another tab** | Branches come from a **reference tab** — a model catalogue, a staff list — matched against a column here. |
 | **Follow a key into another tab** | The branch becomes the rows of a second tab whose key appears in the rows above it. "812 vehicles" becomes "1,940 service jobs", and every level below reads the new tab's columns. |
+| **Bring in other tabs** | One branch per tab, related to the branch above by *nothing at all*. For a flow that is a map of several tables rather than the decomposition of one. |
 
 A single branch can be marked **stop here**, which ends the flow for that
 branch alone. That's what gives a flowchart its asymmetry: lost deals rarely
 need breaking down five more ways.
+
+#### A flow is not "a widget for one table"
+
+The flow picks its own **starting table** — it needn't be the widget's — and
+three of the six levels above change tables. Only *follow a key* claims a
+relationship. *Break down by a list* borrows a list. *Bring in other tabs*
+claims nothing, and says so.
+
+Two of those earn their place by doing something no amount of grouping can:
+
+- **A value with zero rows.** A model nobody sold this month does not exist in
+  the sales data, so grouping that data will never reveal it — and "nobody
+  sold any" is usually the thing somebody needed to see. Read the branches
+  from a catalogue tab instead and the gap is visible. Rows whose value isn't
+  on the list get a *"not on the list"* branch, so the level still adds up and
+  a typo is visible from both directions.
+- **An honest non-relationship.** An independent branch shows **no share and
+  no drop-off**. Two service jobs is not "50% of four sales" — it isn't part
+  of them at all, and a percentage would be an invention. It's labelled *own
+  total*, and everything opened underneath it does have shares again, because
+  those genuinely are its subsets.
+
+Any level can also **measure differently** from the one above it — rows at the
+top, rupees underneath, inherited by everything below. Where two branches
+report different kinds of number, the percentage between them falls back to
+counting rows, which always reconciles. A sum of Amount is not a share of a
+row count, and the flow will not pretend otherwise.
 
 #### Reading one
 
@@ -615,7 +645,7 @@ stacking two contradictory filters.
 |---|---|
 | **KPI Card** | One number from a tab + column + calculation. Counts up on change; with filters active it shows the unfiltered total underneath. Can express a conversion between two tabs. Its mark can be an emoji **or an image URL**. |
 | **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and pop-up KPIs. Click a stage *or one of its KPIs* to drill in. |
-| **Flow (drill-down tree)** | One number that opens, level by level, into the branches under it — by column, by conditions, or across a **key into another tab**. See below. |
+| **Flow (drill-down tree)** | One number that opens, level by level, into the branches under it — by column, by conditions, into named numbers, by a list on a reference tab, across a **key into another tab**, or into other tabs outright. See below. |
 | **Leaderboard** | Ranks any column by any metrics you define. Click a row to drill in. |
 | **Data Table** | Sortable, reorderable, searchable grid with optional inline editing, row detail panel and per-row download actions. |
 | **Chart** | One data shape, **17 styles** — bar, horizontal bar, lollipop, line, step, area, waterfall, pareto, histogram, pie, donut, rose, radar, radial, treemap, funnel, progress list. Plus colour rules, reference lines and axis scaling. Every style is clickable to drill in. |

@@ -24,14 +24,29 @@ import { matchesConditions } from './filterEngine.js'
 // ordered list of LEVELS. Each level says how to turn a node into its
 // children, and there are only three ways to do that:
 //
-//   split  break the rows down by a column -- one child per value, top N,
-//          with an "Other" bucket so the total still reconciles.
-//   rules  branch on admin-written conditions -- the multi-column case
-//          ("Hot / Warm / Cold", "over 90 days AND unpaid"). Exclusive by
-//          default, which is what makes it read as a decision tree.
-//   hop    follow a key column into ANOTHER TAB. This is what lets one
-//          flow cross spreadsheets: the child's rows are the rows of the
-//          other tab whose key appears in the parent's rows.
+//   split     break the rows down by a column -- one child per value, top
+//             N, with an "Other" bucket so the total still reconciles.
+//   rules     branch on admin-written conditions -- the multi-column case
+//             ("Hot / Warm / Cold", "over 90 days AND unpaid"). Exclusive
+//             by default, which is what makes it read as a decision tree.
+//   measures  branch into NUMBERS rather than rows: count here, sum of
+//             Amount there, count of the ones that are financed. The rows
+//             stay the parent's (narrowed by each measure's own conditions
+//             if it has any), so a flow can stop being a census and start
+//             being a scorecard at any depth.
+//   values    branch by the values listed on a REFERENCE tab, matched
+//             against a column here. The one way to show a value with ZERO
+//             rows -- a model nobody sold this month does not exist in the
+//             sales data, so no amount of grouping will ever reveal it.
+//   hop       follow a key column into ANOTHER TAB. The child's rows are
+//             the rows of that tab whose key appears in the parent's.
+//   tables    bring in other tabs OUTRIGHT, one branch each, related to the
+//             parent by nothing at all.
+//
+// Those last three are why a flow is not "a widget for one table". Only
+// `hop` claims a relationship; `values` borrows a list; `tables` claims
+// nothing, and says so -- an independent branch reports no share of its
+// parent, because it is not part of it and a percentage would be a lie.
 //
 // Levels are the backbone, applied at every branch, so an admin describes
 // depth once instead of drawing a diagram. A single branch can opt out with
@@ -54,9 +69,24 @@ export const FLOW_LEVEL_KINDS = [
     hint: 'Admin-written branches. Exclusive by default, so it reads as a decision tree.',
   },
   {
+    value: 'measures',
+    label: 'Show numbers about it',
+    hint: 'One branch per number — count, sum, average — each with its own optional conditions.',
+  },
+  {
+    value: 'values',
+    label: 'Break down by a list on another tab',
+    hint: 'Branches come from a reference tab, so a value with zero rows is still shown.',
+  },
+  {
     value: 'hop',
     label: 'Follow a key into another tab',
     hint: 'Continue the flow on a second tab, matched on a key column.',
+  },
+  {
+    value: 'tables',
+    label: 'Bring in other tabs',
+    hint: 'One branch per tab, independent of everything above it. No shares — they are not subsets.',
   },
 ]
 
@@ -84,6 +114,9 @@ const ADDITIVE = new Set(['count', 'count_filled', 'count_empty', 'count_distinc
 
 export const DEFAULT_FLOW = {
   label: '',
+  // The flow's own starting tab. Empty means "the widget's tab", which is
+  // what every flow used before a flow could start anywhere.
+  tab: '',
   match: 'all',
   conditions: [],
   measure: { aggregation: 'count', column: null, format: 'comma' },
@@ -116,15 +149,41 @@ export const DEFAULT_FLOW_LEVEL = {
   elseBranch: true,
   elseLabel: 'Everything else',
   branches: [],
+  // measures
+  measures: [],
+  // values (a reference list on another tab)
+  matchColumn: '',
+  showZero: true,
+  unmatchedBucket: true,
+  unmatchedLabel: 'Not on the list',
+  // hop
   tab: '',
   fromKey: '',
   toKey: '',
+  // tables
+  sources: [],
   label: '',
+}
+
+/** Does this level measure its children differently from their parent? */
+function levelMeasure(level, inherited) {
+  const m = level?.measure
+  if (!m || !m.aggregation) return inherited
+  return { aggregation: m.aggregation, column: m.column ?? null, format: m.format || inherited?.format || 'comma' }
+}
+
+function sameMeasure(a, b) {
+  return (a?.aggregation || 'count') === (b?.aggregation || 'count') && (a?.column || '') === (b?.column || '')
 }
 
 /** Is this flow configured enough to draw anything? */
 export function flowIsReady(widget) {
-  return Boolean(widget?.tab)
+  return Boolean(widget?.flow?.tab || widget?.tab)
+}
+
+/** The tab a flow starts on, which need not be the widget's own. */
+export function flowRootTab(widget) {
+  return widget?.flow?.tab || widget?.tab || ''
 }
 
 const uniq = (list) => Array.from(new Set(list))
@@ -152,10 +211,26 @@ function ownConditions(conditions, tab) {
  * in filter terms -- and `mergeable` records whether that chain is still an
  * honest description. See `flowCrossFilter`.
  */
-function makeNode({ path, level, label, icon, color, kind, tab, rows, parent, ctx, conditions, mergeable, hop }) {
-  const measure = ctx.flow.measure
-  const additive = ADDITIVE.has(measure?.aggregation || 'count')
-  const value = measureOf(rows, measure)
+function makeNode({
+  path,
+  level,
+  label,
+  icon,
+  color,
+  kind,
+  tab,
+  rows,
+  parent,
+  ctx,
+  conditions,
+  mergeable,
+  hop,
+  measure,
+  independent,
+}) {
+  const own = measure || parent?.measure || ctx.flow.measure
+  const additive = ADDITIVE.has(own?.aggregation || 'count')
+  const value = measureOf(rows, own)
   const count = rows.length
 
   const node = {
@@ -169,7 +244,10 @@ function makeNode({ path, level, label, icon, color, kind, tab, rows, parent, ct
     rows,
     count,
     value,
+    measure: own,
     additive,
+    // A branch that is not part of its parent cannot own a share of it.
+    independent: Boolean(independent),
     trail: parent ? [...parent.trail, label] : [label],
     conditions,
     mergeable,
@@ -181,6 +259,7 @@ function makeNode({ path, level, label, icon, color, kind, tab, rows, parent, ct
       ? [...(parent?.keyPairs || []), { tab: parent.tab, column: hop.fromKey }, { tab: hop.tab, column: hop.toKey }]
       : parent?.keyPairs || [],
     hopped: Boolean(hop) || Boolean(parent?.hopped),
+    stop: false,
     metrics: (ctx.flow.metrics || [])
       .filter((m) => m && m.label)
       .map((m) => ({
@@ -197,21 +276,49 @@ function makeNode({ path, level, label, icon, color, kind, tab, rows, parent, ct
     truncated: false,
   }
 
-  const base = additive ? parent?.value : parent?.count
-  const mine = additive ? value : count
-  node.share = parent ? (base ? mine / base : 0) : 1
-  const rootBase = additive ? ctx.rootValue : ctx.rootCount
-  node.shareOfRoot = rootBase ? mine / rootBase : 0
-  node.dropOff = parent ? 1 - node.share : 0
+  // A share is only arithmetic when the two numbers are the same KIND of
+  // number. Comparing this branch's sum of Amount to its parent's row count
+  // would produce a percentage that means nothing, so wherever the measures
+  // differ -- or wherever they are not additive at all -- the share falls
+  // back to counting rows, which always reconciles.
+  const comparable = (a, b) => additive && sameMeasure(a, b)
+
+  if (node.independent || !parent) {
+    node.share = parent ? null : 1
+    node.shareOfRoot = null
+    node.dropOff = 0
+    return node
+  }
+
+  const byValue = comparable(own, parent.measure)
+  const base = byValue ? parent.value : parent.count
+  node.share = base ? (byValue ? value : count) / base : 0
+
+  const rootByValue = comparable(own, ctx.flow.measure)
+  const rootBase = rootByValue ? ctx.rootValue : ctx.rootCount
+  node.shareOfRoot = rootBase ? (rootByValue ? value : count) / rootBase : 0
+  node.dropOff = 1 - node.share
 
   return node
 }
 
-// --- the three ways a node becomes children ---------------------------
+// --- the ways a node becomes children ---------------------------------
+
+/** Orders a level's branches. Shared, so every kind sorts identically. */
+function sortItems(items, sort) {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+  const out = [...items]
+  if (sort === 'value_desc') out.sort((a, b) => b.value - a.value)
+  else if (sort === 'value_asc') out.sort((a, b) => a.value - b.value)
+  else if (sort === 'name_asc') out.sort((a, b) => collator.compare(a.label, b.label))
+  else if (sort === 'name_desc') out.sort((a, b) => collator.compare(b.label, a.label))
+  return out
+}
 
 function splitChildren(parent, level, ctx) {
   const column = level.column
   if (!column) return []
+  const measure = levelMeasure(level, parent.measure)
 
   const buckets = new Map()
   const blanks = []
@@ -230,15 +337,10 @@ function splitChildren(parent, level, ctx) {
   let items = Array.from(buckets.entries()).map(([label, rows]) => ({
     label,
     rows,
-    value: measureOf(rows, ctx.flow.measure),
+    value: measureOf(rows, measure),
   }))
 
-  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
-  const sort = level.sort || 'value_desc'
-  if (sort === 'value_desc') items.sort((a, b) => b.value - a.value)
-  else if (sort === 'value_asc') items.sort((a, b) => a.value - b.value)
-  else if (sort === 'name_asc') items.sort((a, b) => collator.compare(a.label, b.label))
-  else if (sort === 'name_desc') items.sort((a, b) => collator.compare(b.label, a.label))
+  items = sortItems(items, level.sort || 'value_desc')
 
   const top = Number(level.top) > 0 ? Number(level.top) : items.length
   const kept = items.slice(0, top)
@@ -256,6 +358,7 @@ function splitChildren(parent, level, ctx) {
       ctx,
       conditions: [...parent.conditions, { tab: parent.tab, column, operator: 'equals', value: item.label }],
       mergeable: parent.mergeable,
+      measure,
     })
   )
 
@@ -279,6 +382,7 @@ function splitChildren(parent, level, ctx) {
           { tab: parent.tab, column, operator: 'none_of', value: kept.map((i) => i.label).join(', ') },
         ],
         mergeable: parent.mergeable,
+        measure,
       })
     )
   }
@@ -299,6 +403,7 @@ function splitChildren(parent, level, ctx) {
         ctx,
         conditions: [...parent.conditions, { tab: parent.tab, column, operator: 'is_empty', value: '' }],
         mergeable: parent.mergeable,
+        measure,
       })
     )
   }
@@ -307,6 +412,7 @@ function splitChildren(parent, level, ctx) {
 }
 
 function ruleChildren(parent, level, ctx) {
+  const measure = levelMeasure(level, parent.measure)
   const branches = (level.branches || []).filter((b) => b && (b.conditions || []).some((c) => c.column))
   const exclusive = level.exclusive !== false
   const taken = new Set()
@@ -347,6 +453,7 @@ function ruleChildren(parent, level, ctx) {
         ctx,
         conditions: [...parent.conditions, ...conds],
         mergeable,
+        measure,
       })
     )
     children[children.length - 1].stop = Boolean(branch.stop)
@@ -367,12 +474,184 @@ function ruleChildren(parent, level, ctx) {
           ctx,
           conditions: parent.conditions,
           mergeable: false,
+          measure,
         })
       )
     }
   }
 
   return children
+}
+
+/**
+ * Numbers about the parent, rather than a breakdown of it.
+ *
+ * Each branch is a label plus its own aggregation, and optionally its own
+ * conditions -- "of these, how many were financed, and what were they
+ * worth". The rows stay a subset of the parent's, so a measure branch can
+ * still be opened, drilled, and broken down further like anything else; what
+ * changes is only which number it reports.
+ */
+function measureChildren(parent, level, ctx) {
+  const items = (level.measures || []).filter((m) => m && m.label)
+
+  return items.map((m, i) => {
+    const conds = ownConditions(m.conditions, parent.tab)
+    const rows = conds.length
+      ? parent.rows.filter((row) => matchesConditions(row, conds, m.match || 'all', ctx.dateOrder))
+      : parent.rows
+
+    return makeNode({
+      path: `${parent.path}/__m:${pathSafe(m.id || m.label || i)}`,
+      level: parent.level + 1,
+      label: m.label,
+      icon: m.icon,
+      color: m.color,
+      kind: 'measure',
+      tab: parent.tab,
+      rows,
+      parent,
+      ctx,
+      conditions: [...parent.conditions, ...conds],
+      mergeable: parent.mergeable && (m.match || 'all') === 'all',
+      measure: {
+        aggregation: m.aggregation || 'count',
+        column: m.column ?? null,
+        format: m.format || parent.measure?.format || 'comma',
+      },
+    })
+  })
+}
+
+/**
+ * Branches taken from a list that lives on another tab.
+ *
+ * The difference from a plain breakdown is the whole reason this exists: a
+ * value with no rows cannot appear in a grouping of those rows. Group this
+ * month's sales by Model and a model nobody sold is simply absent -- and
+ * "absent" is exactly the thing somebody needed to see. Reading the branches
+ * from a reference tab instead makes the zero visible.
+ *
+ * Values are matched the forgiving way keys are (case, padding, 1,001 vs
+ * 1001), because a reference list and a transaction sheet are typed by
+ * different people on different days.
+ */
+function valueChildren(parent, level, ctx) {
+  const { tab, column, matchColumn } = level
+  if (!tab || !column || !matchColumn) return []
+  const measure = levelMeasure(level, parent.measure)
+
+  // The list, de-duplicated but in the reference tab's own order.
+  const listed = new Map()
+  for (const row of ctx.rowsByTab?.[tab] || []) {
+    const raw = row[column]
+    if (isBlank(raw)) continue
+    const key = normalizeKey(raw)
+    if (key !== null && !listed.has(key)) listed.set(key, String(raw).trim())
+  }
+
+  const buckets = new Map()
+  const unmatched = []
+  for (const row of parent.rows) {
+    const key = normalizeKey(row[matchColumn])
+    if (key === null || !listed.has(key)) {
+      unmatched.push(row)
+      continue
+    }
+    const bucket = buckets.get(key)
+    if (bucket) bucket.push(row)
+    else buckets.set(key, [row])
+  }
+
+  let items = Array.from(listed.entries())
+    .map(([key, label]) => ({ label, rows: buckets.get(key) || [] }))
+    .filter((item) => item.rows.length > 0 || level.showZero !== false)
+    .map((item) => ({ ...item, value: measureOf(item.rows, measure) }))
+
+  items = sortItems(items, level.sort || 'value_desc')
+  const top = Number(level.top) > 0 ? Number(level.top) : items.length
+  items = items.slice(0, top)
+
+  const children = items.map((item) =>
+    makeNode({
+      path: `${parent.path}/__v:${pathSafe(item.label)}`,
+      level: parent.level + 1,
+      label: item.label,
+      kind: 'value',
+      tab: parent.tab,
+      rows: item.rows,
+      parent,
+      ctx,
+      conditions: [...parent.conditions, { tab: parent.tab, column: matchColumn, operator: 'equals', value: item.label }],
+      // The bucketing is more forgiving than any single condition can be, so
+      // the chain stops being an exact description here and the branch
+      // drills by row identity instead.
+      mergeable: false,
+      measure,
+    })
+  )
+
+  // What the list does not account for. Without it the level would not add
+  // up, and a typo'd model would be invisible in both directions.
+  if (unmatched.length && level.unmatchedBucket !== false) {
+    children.push(
+      makeNode({
+        path: `${parent.path}/__unlisted`,
+        level: parent.level + 1,
+        label: level.unmatchedLabel || 'Not on the list',
+        kind: 'other',
+        tab: parent.tab,
+        rows: unmatched,
+        parent,
+        ctx,
+        conditions: parent.conditions,
+        mergeable: false,
+        measure,
+      })
+    )
+  }
+
+  return children
+}
+
+/**
+ * Other tabs, brought in whole.
+ *
+ * Nothing relates these to the branch above them, and the model says so:
+ * they carry no share and no drop-off, because a percentage of something
+ * they are not part of would be an invention. What they are for is the
+ * flow that is a MAP rather than a decomposition -- sales, then service,
+ * then reviews, each opening into its own levels underneath.
+ */
+function tableChildren(parent, level, ctx) {
+  const sources = (level.sources || []).filter((src) => src && src.tab)
+
+  return sources.map((src, i) => {
+    const all = ctx.rowsByTab?.[src.tab] || []
+    const conds = ownConditions(src.conditions, src.tab)
+    const rows = conds.length
+      ? all.filter((row) => matchesConditions(row, conds, src.match || 'all', ctx.dateOrder))
+      : all
+
+    return makeNode({
+      path: `${parent.path}/__t:${pathSafe(src.id || src.tab || i)}`,
+      level: parent.level + 1,
+      label: src.label || src.tab,
+      icon: src.icon || '🗂️',
+      color: src.color,
+      kind: 'table',
+      tab: src.tab,
+      rows,
+      parent,
+      ctx,
+      // Its conditions are the whole truth about it -- there is no chain to
+      // inherit, because there is no relationship to inherit it through.
+      conditions: conds,
+      mergeable: true,
+      measure: levelMeasure(level, parent.measure),
+      independent: true,
+    })
+  })
 }
 
 function hopChildren(parent, level, ctx) {
@@ -403,6 +682,7 @@ function hopChildren(parent, level, ctx) {
       // which of their rows the branch is. Both halves travel together.
       conditions: [],
       mergeable: true,
+      measure: levelMeasure(level, parent.measure),
       hop: { tab, fromKey, toKey },
     }),
   ]
@@ -410,7 +690,10 @@ function hopChildren(parent, level, ctx) {
 
 function childrenOf(parent, level, ctx) {
   if (level.kind === 'rules') return ruleChildren(parent, level, ctx)
+  if (level.kind === 'measures') return measureChildren(parent, level, ctx)
+  if (level.kind === 'values') return valueChildren(parent, level, ctx)
   if (level.kind === 'hop') return hopChildren(parent, level, ctx)
+  if (level.kind === 'tables') return tableChildren(parent, level, ctx)
   return splitChildren(parent, level, ctx)
 }
 
@@ -421,7 +704,10 @@ function childrenOf(parent, level, ctx) {
 function levelIsConfigured(level) {
   if (!level) return false
   if (level.kind === 'rules') return (level.branches || []).some((b) => (b.conditions || []).some((c) => c.column))
+  if (level.kind === 'measures') return (level.measures || []).some((m) => m && m.label)
+  if (level.kind === 'values') return Boolean(level.tab && level.column && level.matchColumn)
   if (level.kind === 'hop') return Boolean(level.tab && level.fromKey && level.toKey)
+  if (level.kind === 'tables') return (level.sources || []).some((src) => src && src.tab)
   return Boolean(level.column)
 }
 
@@ -451,7 +737,7 @@ export function buildFlow({
     .filter(Boolean)
     .map((l) => ({ ...DEFAULT_FLOW_LEVEL, ...l, ...(levelOverrides[l.id] || {}) }))
 
-  const rootTab = widget?.tab || ''
+  const rootTab = flowRootTab(widget)
   const all = rowsByTab?.[rootTab] || []
   const rootConditions = ownConditions(flow.conditions, rootTab)
   const rows = rootConditions.length
@@ -481,6 +767,7 @@ export function buildFlow({
     ctx,
     conditions: rootConditions,
     mergeable: true,
+    measure: flow.measure,
   })
 
   const depth = autoExpand === undefined ? Number(flow.autoExpand) || 0 : autoExpand
@@ -514,7 +801,11 @@ export function buildFlow({
     depth: levels.length,
     truncated: ctx.truncated,
     total: root.value,
-    tabs: uniq([rootTab, ...levels.filter((l) => l.kind === 'hop' && l.tab).map((l) => l.tab)]),
+    tabs: uniq([
+      rootTab,
+      ...levels.filter((l) => (l.kind === 'hop' || l.kind === 'values') && l.tab).map((l) => l.tab),
+      ...levels.flatMap((l) => (l.sources || []).map((src) => src.tab)),
+    ]).filter(Boolean),
   }
 }
 
@@ -561,8 +852,18 @@ export function flattenFlow(node, into = []) {
  * conditions say which of those rows the branch is, and apply only on the
  * tab they were written against.
  */
+export function flowNodeCanDrill(node) {
+  if (!node) return false
+  if (node.hopped) return true
+  if (node.conditions?.length) return true
+  // Left: the untouched root, and a whole tab brought in with no conditions
+  // on it. Filtering the page to "everything" is not a filter, so neither
+  // offers the button rather than offering one that does nothing.
+  return node.level > 0 && !node.independent
+}
+
 export function flowCrossFilter(widget, node) {
-  if (!node) return null
+  if (!node || !flowNodeCanDrill(node)) return null
   const label = node.trail.slice(1).join(' → ') || node.label
 
   if (node.hopped) {
@@ -628,11 +929,28 @@ export function flowNodeIsDrilled(widget, node, crossFilters) {
  */
 export function describeFlow(widget, labelFor = (t) => t) {
   const flow = { ...DEFAULT_FLOW, ...(widget?.flow || {}) }
-  const parts = [labelFor(widget?.tab) || 'root']
+  const parts = [labelFor(flowRootTab(widget)) || 'root']
+
   for (const level of flow.levels || []) {
-    if (level.kind === 'hop') parts.push(`🔗 ${labelFor(level.tab) || 'another tab'}`)
-    else if (level.kind === 'rules') parts.push(`${(level.branches || []).length} branches`)
-    else if (level.column) parts.push(level.column)
+    switch (level.kind) {
+      case 'hop':
+        parts.push(`🔗 ${labelFor(level.tab) || 'another tab'}`)
+        break
+      case 'tables':
+        parts.push(`🗂️ ${(level.sources || []).map((s) => labelFor(s.tab)).filter(Boolean).join(' + ') || 'other tabs'}`)
+        break
+      case 'rules':
+        parts.push(`${(level.branches || []).length} branches`)
+        break
+      case 'measures':
+        parts.push(`${(level.measures || []).length} numbers`)
+        break
+      case 'values':
+        parts.push(`${level.matchColumn || 'values'} from ${labelFor(level.tab) || 'a list'}`)
+        break
+      default:
+        if (level.column) parts.push(level.column)
+    }
   }
   return parts.join(' → ')
 }
