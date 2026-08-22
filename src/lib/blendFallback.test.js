@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { backupColumnValue, blendRows, parseBackupColumn } from './blend.js'
+import { blendRows, fallbackTargetColumn, parseBackupColumn, parseFallbackTarget, sidedColumn } from './blend.js'
 import { groupRows } from './dataUtils.js'
 
 const STOCK = [
@@ -125,14 +125,14 @@ const zoned = (extra) =>
   blendRows(STOCK, YARD_WITH_ZONE, { ...base, ...extra }, ['Chassis No', 'Location', 'Zone'])
 
 test('a backup column can be another column of the blended tab', () => {
-  const out = zoned({ fallbacks: [{ column: 'Location', from: backupColumnValue('right', 'Zone') }] })
+  const out = zoned({ fallbacks: [{ column: 'Location', from: sidedColumn('right', 'Zone') }] })
   assert.deepEqual(locations(out), ['Pune Yard', 'Zone 3', ''])
 })
 
 test('a right-side backup has nothing to give an unmatched row, so the text catches it', () => {
   // V3 has no row on the yard tab at all -- no cell of any column to borrow.
   const out = zoned({
-    fallbacks: [{ column: 'Location', from: backupColumnValue('right', 'Zone'), text: 'Not allocated' }],
+    fallbacks: [{ column: 'Location', from: sidedColumn('right', 'Zone'), text: 'Not allocated' }],
   })
   assert.deepEqual(locations(out), ['Pune Yard', 'Zone 3', 'Not allocated'])
 })
@@ -149,8 +149,8 @@ test('the side is what separates two columns sharing a name', () => {
       'Zone',
     ])[0]['Yard.Location']
 
-  assert.equal(run(backupColumnValue('left', 'Location')), 'Main Store')
-  assert.equal(run(backupColumnValue('right', 'Zone')), 'Zone 7')
+  assert.equal(run(sidedColumn('left', 'Location')), 'Main Store')
+  assert.equal(run(sidedColumn('right', 'Zone')), 'Zone 7')
 })
 
 test('a right-side backup collapses several matches the same way the value would', () => {
@@ -162,7 +162,7 @@ test('a right-side backup collapses several matches the same way the value would
     blendRows(
       [{ VIN: 'V1' }],
       yard,
-      { ...base, multi, fallbacks: [{ column: 'Location', from: backupColumnValue('right', 'Zone') }] },
+      { ...base, multi, fallbacks: [{ column: 'Location', from: sidedColumn('right', 'Zone') }] },
       ['Chassis No', 'Location', 'Zone']
     )[0]['Yard.Location']
 
@@ -177,7 +177,7 @@ test('a right-side backup reaches the expand join, row by row', () => {
       { 'Chassis No': 'V1', Location: '', Zone: 'Zone 1' },
       { 'Chassis No': 'V1', Location: 'Pune Yard', Zone: 'Zone 9' },
     ],
-    { ...base, type: 'expand', fallbacks: [{ column: 'Location', from: backupColumnValue('right', 'Zone') }] },
+    { ...base, type: 'expand', fallbacks: [{ column: 'Location', from: sidedColumn('right', 'Zone') }] },
     ['Chassis No', 'Location', 'Zone']
   )
   // Each emitted row falls back from its OWN matched row, not from the group.
@@ -196,8 +196,163 @@ test('a bare column name still means the main tab', () => {
 test('a column name containing a colon is not mistaken for a side', () => {
   assert.deepEqual(parseBackupColumn('Ref: Yard'), { side: 'left', column: 'Ref: Yard' })
   // ...and the round trip through the picker keeps it addressable.
-  assert.deepEqual(parseBackupColumn(backupColumnValue('right', 'Ref: Yard')), {
+  assert.deepEqual(parseBackupColumn(sidedColumn('right', 'Ref: Yard')), {
     side: 'right',
     column: 'Ref: Yard',
   })
+})
+
+// --- the trigger is a condition, not just "is it blank" ------------------
+
+const LEAD = [
+  { VIN: 'V1', Model: 'SPLENDOR +', 'Default Yard': 'Main Store' },
+  { VIN: 'V2', Model: 'HF DELUXE', 'Default Yard': 'Overflow' },
+  { VIN: 'V3', Model: 'PASSION +', 'Default Yard': 'Main Store' },
+]
+
+const AGEING = [
+  { 'Chassis No': 'V1', Location: 'Pune Yard', Days: '12' },
+  { 'Chassis No': 'V2', Location: 'TBD', Days: '140' },
+  { 'Chassis No': 'V3', Location: 'Nashik Yard', Days: '0' },
+]
+
+const aged = (fallbacks, extra) =>
+  blendRows(LEAD, AGEING, { ...base, columns: ['Location', 'Days'], fallbacks, ...extra }, [
+    'Chassis No',
+    'Location',
+    'Days',
+  ])
+
+test('a rule can fire on a placeholder value, not only on a blank', () => {
+  // "TBD" is the shape a missing value actually takes in most sheets.
+  const out = aged([
+    { column: sidedColumn('right', 'Location'), operator: 'equals', value: 'TBD', from: sidedColumn('left', 'Default Yard') },
+  ])
+  assert.deepEqual(locations(out), ['Pune Yard', 'Overflow', 'Nashik Yard'])
+})
+
+test('a numeric check replaces a value that is present but wrong', () => {
+  const out = aged([
+    { column: sidedColumn('right', 'Days'), operator: 'gt', value: '90', text: 'Over 90 days' },
+  ])
+  assert.deepEqual(out.map((r) => r['Yard.Days']), ['12', 'Over 90 days', '0'])
+})
+
+test('“is not empty” inverts the rule into an override', () => {
+  const out = aged([
+    { column: sidedColumn('right', 'Location'), operator: 'is_not_empty', text: 'Allocated' },
+  ])
+  assert.deepEqual(locations(out), ['Allocated', 'Allocated', 'Allocated'])
+})
+
+test('a rule that does not fire leaves the value exactly as it was', () => {
+  const out = aged([
+    { column: sidedColumn('right', 'Location'), operator: 'contains', value: 'zzz', text: 'X' },
+  ])
+  assert.deepEqual(locations(out), ['Pune Yard', 'TBD', 'Nashik Yard'])
+})
+
+test('the default operator is still “is empty”, so old rules behave the same', () => {
+  const withOp = aged([{ column: 'Location', operator: 'is_empty', text: 'X' }])
+  const without = aged([{ column: 'Location', text: 'X' }])
+  assert.deepEqual(locations(withOp), locations(without))
+})
+
+test('a rule can target a column of the widget’s OWN tab', () => {
+  // The gap is on the main tab and the blended tab is what fills it -- the
+  // mirror image of the usual case, and just as common.
+  const stock = [
+    { VIN: 'V1', 'Default Yard': '' },
+    { VIN: 'V2', 'Default Yard': 'Overflow' },
+  ]
+  const out = blendRows(
+    stock,
+    AGEING,
+    {
+      ...base,
+      fallbacks: [
+        { column: sidedColumn('left', 'Default Yard'), operator: 'is_empty', from: sidedColumn('right', 'Location') },
+      ],
+    },
+    ['Chassis No', 'Location', 'Days']
+  )
+  assert.deepEqual(out.map((r) => r['Default Yard']), ['Pune Yard', 'Overflow'])
+})
+
+test('a backup can read a column that was never brought across', () => {
+  // The backup is looked up on the MATCHED ROWS, not on the merged row, so
+  // it does not first have to be added to "columns to bring across".
+  const out = aged([
+    { column: sidedColumn('right', 'Location'), operator: 'equals', value: 'TBD', from: sidedColumn('right', 'Days') },
+  ], { columns: ['Location'] })
+  assert.deepEqual(locations(out), ['Pune Yard', '140', 'Nashik Yard'])
+  assert.equal('Yard.Days' in out[0], false, 'and reading it did not add it to the widget')
+})
+
+test('a blend-side backup reads the roll-up, not a half-finished row', () => {
+  const out = blendRows(
+    [{ VIN: 'V1', Note: '' }],
+    [
+      { 'Chassis No': 'V1', Location: '', Days: '10' },
+      { 'Chassis No': 'V1', Location: '', Days: '30' },
+    ],
+    {
+      ...base,
+      rollups: [{ id: 'r1', column: 'Days', aggregation: 'sum', as: 'Total days' }],
+      fallbacks: [
+        { column: sidedColumn('left', 'Note'), operator: 'is_empty', from: sidedColumn('blend', 'Total days') },
+      ],
+    },
+    ['Chassis No', 'Location', 'Days']
+  )
+  assert.equal(out[0].Note, 40)
+})
+
+test('rules never chain, so the order they were added in cannot matter', () => {
+  const rules = [
+    { column: sidedColumn('right', 'Location'), operator: 'is_empty', from: sidedColumn('left', 'Default Yard') },
+    // Reads Location as the JOIN left it (blank), not as the rule above set it.
+    { column: sidedColumn('left', 'Model'), operator: 'is_empty', from: sidedColumn('right', 'Location') },
+  ]
+  const rows = [{ VIN: 'V1', Model: '', 'Default Yard': 'Main Store' }]
+  const right = [{ 'Chassis No': 'V1', Location: '' }]
+  const run = (order) => blendRows(rows, right, { ...base, fallbacks: order }, ['Chassis No', 'Location'])[0]
+
+  const a = run(rules)
+  const b = run([...rules].reverse())
+  assert.equal(a['Yard.Location'], 'Main Store')
+  assert.equal(a.Model, '', 'the second rule saw the blank Location, not the filled one')
+  assert.deepEqual(b, a)
+})
+
+test('a rule naming a column the blend no longer brings across is ignored', () => {
+  const out = aged([{ column: sidedColumn('right', 'Deleted Column'), operator: 'is_empty', text: 'X' }])
+  assert.deepEqual(locations(out), ['Pune Yard', 'TBD', 'Nashik Yard'])
+  assert.equal('Yard.Deleted Column' in out[0], false, 'and it does not invent the column either')
+})
+
+test('a date rule is read in the page’s date order', () => {
+  const rows = [{ VIN: 'V1' }]
+  const right = [{ 'Chassis No': 'V1', Due: '03/12/2025' }]
+  const rule = { column: sidedColumn('right', 'Due'), operator: 'date_after', value: '2025-06-01', text: 'Overdue' }
+  const run = (order) => blendRows(rows, right, { ...base, columns: ['Due'], fallbacks: [rule] }, ['Chassis No', 'Due'], order)[0]
+
+  assert.equal(run('DMY')['Yard.Due'], 'Overdue', '3 December is after June')
+  assert.equal(run('MDY')['Yard.Due'], '03/12/2025', '12 March is not')
+})
+
+test('sides round-trip, and each field keeps its own default', () => {
+  // The target defaults to the blended tab, the backup to the main one --
+  // which is what a bare name meant in each field before sides existed.
+  assert.deepEqual(parseFallbackTarget('Location'), { side: 'right', column: 'Location' })
+  assert.deepEqual(parseBackupColumn('Default Yard'), { side: 'left', column: 'Default Yard' })
+  assert.deepEqual(parseFallbackTarget(sidedColumn('blend', 'Total days')), { side: 'blend', column: 'Total days' })
+})
+
+test('a target resolves to the name the widget will actually see', () => {
+  const b = { ...base, prefix: 'Yard.' }
+  assert.equal(fallbackTargetColumn(b, { column: 'Location' }), 'Yard.Location')
+  assert.equal(fallbackTargetColumn(b, { column: sidedColumn('right', 'Location') }), 'Yard.Location')
+  assert.equal(fallbackTargetColumn(b, { column: sidedColumn('left', 'Location') }), 'Location')
+  assert.equal(fallbackTargetColumn(b, { column: '' }), null)
 })

@@ -3,6 +3,50 @@ import { OPERATORS, operatorMeta } from '../../lib/config'
 import { Select, TextInput, optValue, toTabOptions, useWorkspaceCtx } from './ui.jsx'
 
 /**
+ * The operator and its value box(es) -- how many, and whether they are date
+ * pickers, is the operator's own business (`arity`, `date`).
+ *
+ * Extracted because the blend editor asks the same question about a blended
+ * column ("if it is blank / over 90 / contains TBD, show this instead"), and
+ * two lists of operators that drift apart would be two dialects of the same
+ * language.
+ */
+export function OperatorValue({ operator, value, value2, onChange, className = 'w-44' }) {
+  const meta = operatorMeta(operator)
+  return (
+    <>
+      <Select
+        value={operator}
+        onChange={(v) => onChange({ operator: v })}
+        options={OPERATORS}
+        className={className}
+      />
+      {meta.arity >= 1 && (
+        <TextInput
+          type={meta.date ? 'date' : 'text'}
+          value={value}
+          onChange={(v) => onChange({ value: v })}
+          placeholder="value"
+          className="w-28"
+        />
+      )}
+      {meta.arity === 2 && (
+        <>
+          <span className="text-[10px] text-slate-400">and</span>
+          <TextInput
+            type={meta.date ? 'date' : 'text'}
+            value={value2}
+            onChange={(v) => onChange({ value2: v })}
+            placeholder="value"
+            className="w-28"
+          />
+        </>
+      )}
+    </>
+  )
+}
+
+/**
  * The tab + column + operator + value editor, shared by condition buttons
  * and pipeline stages -- both are "a set of conditions", so they get the
  * exact same builder and the exact same evaluator at runtime.
@@ -35,7 +79,6 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
     <div>
       <div className="space-y-1.5">
         {conditions.map((cond, ci) => {
-          const meta = operatorMeta(cond.operator)
           return (
             <div key={ci} className="flex flex-wrap items-center gap-1.5">
               <span className="w-9 shrink-0 text-[10px] font-semibold uppercase text-slate-400">
@@ -54,33 +97,13 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
                 placeholder="— column —"
                 className={compact ? 'w-44' : 'w-52'}
               />
-              <Select
-                value={cond.operator}
-                onChange={(v) => setCondition(ci, { operator: v })}
-                options={OPERATORS}
+              <OperatorValue
+                operator={cond.operator}
+                value={cond.value}
+                value2={cond.value2}
+                onChange={(patch) => setCondition(ci, patch)}
                 className={compact ? 'w-40' : 'w-48'}
               />
-              {meta.arity >= 1 && (
-                <TextInput
-                  type={meta.date ? 'date' : 'text'}
-                  value={cond.value}
-                  onChange={(v) => setCondition(ci, { value: v })}
-                  placeholder="value"
-                  className="w-28"
-                />
-              )}
-              {meta.arity === 2 && (
-                <>
-                  <span className="text-[10px] text-slate-400">and</span>
-                  <TextInput
-                    type={meta.date ? 'date' : 'text'}
-                    value={cond.value2}
-                    onChange={(v) => setCondition(ci, { value2: v })}
-                    placeholder="value"
-                    className="w-28"
-                  />
-                </>
-              )}
               <button
                 onClick={() => removeCondition(ci)}
                 className="text-slate-300 hover:text-rose-500"

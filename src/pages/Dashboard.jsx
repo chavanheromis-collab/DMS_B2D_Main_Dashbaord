@@ -271,7 +271,7 @@ export default function Dashboard() {
       const left = filteredByRef[w.tab] || []
       const right = filteredByRef[w.blend.ref] || []
       out[w.id] = {
-        rows: blendRows(left, right, w.blend, dataByRef[w.blend.ref]?.headers || []),
+        rows: blendRows(left, right, w.blend, dataByRef[w.blend.ref]?.headers || [], dateOrder),
         headers: blendedHeaders(
           dataByRef[w.tab]?.headers || [],
           dataByRef[w.blend.ref]?.headers || [],
@@ -281,12 +281,13 @@ export default function Dashboard() {
           dataByRef[w.tab]?.rows || [],
           dataByRef[w.blend.ref]?.rows || [],
           w.blend,
-          dataByRef[w.blend.ref]?.headers || []
+          dataByRef[w.blend.ref]?.headers || [],
+          dateOrder
         ),
       }
     }
     return out
-  }, [allowedWidgets, filteredByRef, dataByRef])
+  }, [allowedWidgets, filteredByRef, dataByRef, dateOrder])
 
   // --- Interaction -------------------------------------------------------
   /**

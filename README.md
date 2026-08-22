@@ -399,39 +399,58 @@ formatting, so `SO-1001`, ` so-1001 ` and `1,001` vs `1001` all behave.
 | **Prefix** | Namespaces incoming columns so `Status` from the other tab can't overwrite your own `Status`. |
 | **Columns** | Which columns come across. |
 | **Roll-ups** | Summarise the matched rows — "sum of Amount across every quotation for this order". A match-count column is always added. |
-| **If blank** | A backup column, from either tab, for when the blended cell comes back empty. |
+| **Fill-in rules** | Swap in another column wherever a value is missing — or fails any check. |
 
-**Backup columns are worth setting.** A blended cell ends up empty two ways —
-the key matched nothing, or it matched a row whose cell is blank — and they
-look identical on screen. Either way a chart grouped by that column **skips
-blanks**, so those rows quietly disappear and the totals stop adding up. Five
-vehicles in stock, four bars, no explanation.
+### Fill-in rules
 
-Per blended column, pick one backup column and/or a literal:
+**Worth setting.** A blended cell ends up empty two ways — the key matched
+nothing, or it matched a row whose cell is blank — and they look identical on
+screen. Either way a chart grouped by that column **skips blanks**, so those
+rows quietly disappear and the totals stop adding up. Five vehicles in stock,
+four bars, no explanation.
+
+Empty is only the most common hole, though. A `TBD`, a zero standing in for
+"unknown", a lead time past 90 days — all are values you'd rather replace.
+So a rule is a condition, not a blank test:
 
 ```
-if  Location  is blank, use  Stock · Default Yard  or  "Not allocated"
+if    Yard · Location   is empty        show  Stock · Default Yard  or  "Not allocated"
+if    Yard · Location   is exactly TBD  show  Stock · Default Yard  or  "Not allocated"
+if    Yard · Days       > 90            show  —                     or  "Over 90 days"
 ```
 
-The backup can be **any column from either tab** — the widget's own, or
-another column of the tab being blended in. The picker names the tab beside
-each column, because both tabs having a `Status` is normal and the side is
-what tells them apart.
+The operator list is the same one the condition buttons use — `is empty`,
+`is not empty`, `contains`, `is exactly`, `is one of`, `>` `≥` `<` `≤`,
+`between`, the date operators, `within last N days` — one vocabulary, one
+evaluator, nothing new to learn. Dates are read in the source's own
+day-first or month-first order, exactly as everywhere else.
 
-Tried in order: the real value, then the backup column, then the text. A real
-value is never overwritten, and the match-count column still tells the truth
-— a backup fills the display, it doesn't pretend a match happened. When
-several rows match, a backup from the blended tab is collapsed the same way
-the value it replaces would have been, so *last match* means one thing.
+Both column boxes list **every column, from either tab**, plus what the blend
+itself adds (the match count and any roll-ups). The picker names the tab
+beside each column, because both tabs having a `Status` is normal and the
+side is what tells them apart. That means a rule can run either direction:
+fill a hole in the blended column from your own tab, or fill a hole in **your
+own** column from the blended tab. The backup is read off the matched rows,
+so it works whether or not that column was brought across.
 
-Two cases where a backup appears not to work, both of them the row already
-being past saving:
+Order of preference: the backup column, then the text. A rule only fires
+where its check holds, so a value you're happy with is never touched, and the
+match-count column still tells the truth — a fill-in changes the display, it
+doesn't pretend a match happened. When several rows match, a backup from the
+blended tab is collapsed the same way the value it replaces would have been,
+so *last match* means one thing.
+
+Every rule reads the row **as the join left it**, so rules can't chain off one
+another and the order you add them in never changes the answer.
+
+Two cases where a rule appears not to work, both of them the row already being
+past saving:
 
 - A backup from the **blended tab** is empty for a row that matched nothing —
   there is no matched row to read any column from. That falls through to the
   text, which is where a caption like "Not allocated" earns its place.
 - **"Only matching rows"** drops unmatched rows before any of this runs. A
-  matched-but-blank cell still falls back; a row with no match at all is
+  matched-but-blank cell still gets filled; a row with no match at all is
   already gone.
 
 Blended columns behave like any other column: sort them, chart them, put them

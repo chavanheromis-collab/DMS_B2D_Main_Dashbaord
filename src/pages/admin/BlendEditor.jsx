@@ -4,10 +4,12 @@ import {
   BLEND_MULTI,
   BLEND_TYPES,
   DEFAULT_BLEND,
-  backupColumnValue,
+  blendExtraColumns,
   blendIsReady,
   blendedColumnName,
+  sidedColumn,
 } from '../../lib/blend'
+import { OperatorValue } from './ConditionBuilder.jsx'
 import { Btn, Field, Select, TextInput, Toggle, useWorkspaceCtx } from './ui.jsx'
 
 /**
@@ -60,13 +62,36 @@ export default function BlendEditor({ widget, set }) {
   const setRollups = (next) => setBlend({ rollups: next })
   const fallbacks = blend.fallbacks || []
 
-  // One picker, both tabs. Each option carries its side because the two tabs
-  // very often share a column name -- "Status" on either would otherwise be
-  // indistinguishable once saved.
+  // Both pickers list every column the widget will have, from either tab.
+  // Each option carries its side because the two tabs very often share a
+  // column name -- "Status" on either would be indistinguishable once saved.
+  const leftName = labelFor(widget.tab) || 'this tab'
+  const rightName = labelFor(blend.ref) || 'blended tab'
+  const extras = blendExtraColumns(blend)
+
+  const leftOptions = leftCols.map((c) => ({ value: sidedColumn('left', c), label: `${leftName} · ${c}` }))
+  const extraOptions = extras.map((c) => ({ value: sidedColumn('blend', c), label: `Blend · ${c}` }))
+
+  // A rule WRITES to the merged row, so its target is named the way the
+  // widget will see it -- the incoming columns under their prefix.
+  const targetOptions = [
+    { value: '', label: '— pick a column —' },
+    ...rightCols.map((c) => ({
+      value: sidedColumn('right', c),
+      label: `${rightName} · ${blendedColumnName(blend, c)}`,
+    })),
+    ...leftOptions,
+    ...extraOptions,
+  ]
+
+  // A rule READS its replacement, so the other tab's columns appear under
+  // their own names -- they are looked up on the matched rows, not on the
+  // merged row, and so are available whether or not they were brought across.
   const backupOptions = [
     { value: '', label: '— pick a backup column —' },
-    ...leftCols.map((c) => ({ value: backupColumnValue('left', c), label: `${labelFor(widget.tab)} · ${c}` })),
-    ...rightCols.map((c) => ({ value: backupColumnValue('right', c), label: `${labelFor(blend.ref)} · ${c}` })),
+    ...leftOptions,
+    ...rightCols.map((c) => ({ value: sidedColumn('right', c), label: `${rightName} · ${c}` })),
+    ...extraOptions,
   ]
 
   return (
@@ -269,13 +294,24 @@ export default function BlendEditor({ widget, set }) {
             <div className="rounded-lg border border-slate-100 bg-white p-2">
               <div className="mb-1 flex items-center justify-between">
                 <p className="text-[11px] font-medium text-slate-500">
-                  When the other tab is blank{' '}
-                  <span className="font-normal text-slate-400">(show this instead)</span>
+                  Fill-in rules{' '}
+                  <span className="font-normal text-slate-400">(when a value is missing or fails a check)</span>
                 </p>
                 <Btn
                   onClick={() =>
                     setBlend({
-                      fallbacks: [...fallbacks, { id: uid('fb'), column: rightCols[0] || '', from: '', text: '' }],
+                      fallbacks: [
+                        ...fallbacks,
+                        {
+                          id: uid('fb'),
+                          column: rightCols[0] ? sidedColumn('right', rightCols[0]) : '',
+                          operator: 'is_empty',
+                          value: '',
+                          value2: '',
+                          from: '',
+                          text: '',
+                        },
+                      ],
                     })
                   }
                 >
@@ -287,7 +323,8 @@ export default function BlendEditor({ widget, set }) {
                 <p className="py-1 text-[10px] text-slate-400">
                   None. A row with no match — or a match whose cell is empty — leaves the blended column blank, and a
                   chart grouped by it <strong>skips blanks</strong>, so those rows quietly vanish and the totals stop
-                  adding up. A backup column — from either tab — keeps them visible.
+                  adding up. A rule swaps in another column — from either tab — whenever a value is missing, or
+                  whenever it fails any check you can put on a button.
                 </p>
               )}
 
@@ -296,36 +333,46 @@ export default function BlendEditor({ widget, set }) {
                   const setRule = (patch) =>
                     setBlend({ fallbacks: fallbacks.map((r, i) => (i === fi ? { ...r, ...patch } : r)) })
                   return (
-                    <div key={rule.id || fi} className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] text-slate-400">if</span>
-                      <Select
-                        value={rule.column || ''}
-                        onChange={(v) => setRule({ column: v })}
-                        options={rightCols}
-                        placeholder="— blended column —"
-                        className="w-40"
-                      />
-                      <span className="text-[10px] text-slate-400">is blank, use</span>
-                      <Select
-                        value={rule.from || ''}
-                        onChange={(v) => setRule({ from: v })}
-                        options={backupOptions}
-                        className="w-56"
-                      />
-                      <span className="text-[10px] text-slate-400">or</span>
-                      <TextInput
-                        value={rule.text || ''}
-                        onChange={(v) => setRule({ text: v })}
-                        placeholder="Not allocated"
-                        className="w-32"
-                      />
-                      <button
-                        onClick={() => setBlend({ fallbacks: fallbacks.filter((_, i) => i !== fi) })}
-                        className="text-slate-300 hover:text-rose-500"
-                        title="Remove backup"
-                      >
-                        <X size={14} />
-                      </button>
+                    <div key={rule.id || fi} className="rounded-md border border-slate-100 bg-slate-50/70 p-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="w-8 shrink-0 text-[10px] font-semibold uppercase text-slate-400">if</span>
+                        <Select
+                          value={rule.column || ''}
+                          onChange={(v) => setRule({ column: v })}
+                          options={targetOptions}
+                          className="w-52"
+                        />
+                        <OperatorValue
+                          operator={rule.operator || 'is_empty'}
+                          value={rule.value}
+                          value2={rule.value2}
+                          onChange={setRule}
+                          className="w-44"
+                        />
+                        <button
+                          onClick={() => setBlend({ fallbacks: fallbacks.filter((_, i) => i !== fi) })}
+                          className="ml-auto text-slate-300 hover:text-rose-500"
+                          title="Remove rule"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <span className="w-8 shrink-0 text-[10px] font-semibold uppercase text-slate-400">show</span>
+                        <Select
+                          value={rule.from || ''}
+                          onChange={(v) => setRule({ from: v })}
+                          options={backupOptions}
+                          className="w-52"
+                        />
+                        <span className="text-[10px] text-slate-400">or</span>
+                        <TextInput
+                          value={rule.text || ''}
+                          onChange={(v) => setRule({ text: v })}
+                          placeholder="Not allocated"
+                          className="w-32"
+                        />
+                      </div>
                     </div>
                   )
                 })}
@@ -333,11 +380,12 @@ export default function BlendEditor({ widget, set }) {
 
               {fallbacks.length > 0 && (
                 <p className="mt-1 text-[10px] text-slate-400">
-                  Tried in order: the real value, then the backup column, then the text. The backup can come from
-                  either tab — a <strong>{labelFor(blend.ref)}</strong> backup is empty for a row that matched nothing,
-                  so it falls through to the text.
+                  Tried in order: the backup column, then the text — and only where the check holds, so a value you
+                  are happy with is never overwritten. Every rule reads the row as the blend left it, so the order you
+                  add them in makes no difference. A <strong>{rightName}</strong> backup is empty for a row that
+                  matched nothing, and falls through to the text.
                   {blend.type === 'inner' &&
-                    ' “Only matching rows” drops unmatched rows before any of this runs — they never reach a fallback.'}
+                    ' “Only matching rows” drops unmatched rows before any of this runs — they never reach a rule.'}
                 </p>
               )}
             </div>
