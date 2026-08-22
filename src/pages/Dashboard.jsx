@@ -629,6 +629,9 @@ export default function Dashboard() {
                 return {
                   id: widget.id,
                   width: widget.width,
+                  // An exact 1-12 span the admin set, which overrides the
+                  // named preset when present.
+                  widthUnits: widget.widthUnits,
                   estimatedHeight: estimateWidgetHeight(widget.type),
                   content: (
                     // The wrapper publishes this widget's appearance as CSS

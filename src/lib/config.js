@@ -76,15 +76,45 @@ export const STAGE_PALETTE = [
 ]
 
 export const WIDTHS = [
-  { value: 'quarter', label: '1/4', css: 'lg:col-span-3 md:col-span-6 col-span-12' },
-  { value: 'third', label: '1/3', css: 'lg:col-span-4 md:col-span-6 col-span-12' },
-  { value: 'half', label: '1/2', css: 'lg:col-span-6 md:col-span-6 col-span-12' },
-  { value: 'twothird', label: '2/3', css: 'lg:col-span-8 col-span-12' },
-  { value: 'full', label: 'Full', css: 'col-span-12' },
+  { value: 'quarter', label: '1/4', units: 3, css: 'lg:col-span-3 md:col-span-6 col-span-12' },
+  { value: 'third', label: '1/3', units: 4, css: 'lg:col-span-4 md:col-span-6 col-span-12' },
+  { value: 'half', label: '1/2', units: 6, css: 'lg:col-span-6 md:col-span-6 col-span-12' },
+  { value: 'twothird', label: '2/3', units: 8, css: 'lg:col-span-8 col-span-12' },
+  { value: 'full', label: 'Full', units: 12, css: 'col-span-12' },
 ]
 
 export function widthClass(w) {
   return (WIDTHS.find((x) => x.value === w) || WIDTHS[4]).css
+}
+
+// ---------------------------------------------------------------------
+// Exact widget width
+// ---------------------------------------------------------------------
+// The canvas is a 12-column masonry, so width is measured in COLUMNS rather
+// than pixels: a fixed pixel width can't stay right across a phone, a
+// laptop with the sidebar open, and a 4K monitor. Twelve units gives every
+// useful fraction -- a sixth, a quarter, a third, five twelfths -- which is
+// finer than the five named presets could offer.
+export const WIDTH_UNITS = 12
+
+/** The exact column span for a widget, from `widthUnits` or its preset. */
+export function widthUnitsFor(widget) {
+  const units = Number(widget?.widthUnits)
+  if (Number.isFinite(units) && units >= 1) return Math.min(WIDTH_UNITS, Math.round(units))
+  return WIDTHS.find((w) => w.value === widget?.width)?.units ?? WIDTH_UNITS
+}
+
+/** "1/4", "5/12" — how a span reads to a person. */
+export function widthUnitsLabel(units) {
+  const n = Math.min(WIDTH_UNITS, Math.max(1, Math.round(units || WIDTH_UNITS)))
+  if (n === WIDTH_UNITS) return 'Full width'
+  const divisor = [2, 3, 4, 6, 12].find((d) => (WIDTH_UNITS / d) * Math.round(n / (WIDTH_UNITS / d)) === n && n % (WIDTH_UNITS / d) === 0)
+  if (divisor) {
+    const numerator = n / (WIDTH_UNITS / divisor)
+    if (numerator === 1) return `1/${divisor}`
+    return `${numerator}/${divisor}`
+  }
+  return `${n}/12`
 }
 
 // ---------------------------------------------------------------------

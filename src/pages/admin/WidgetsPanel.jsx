@@ -8,9 +8,11 @@ import {
   PALETTE,
   STAGE_PALETTE,
   WIDGET_TYPES,
-  WIDTHS,
+  WIDTH_UNITS,
   aggNeedsColumn,
   uid,
+  widthUnitsFor,
+  widthUnitsLabel,
 } from '../../lib/config'
 import { looksLikeDateColumn } from '../../lib/dataUtils'
 import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
@@ -468,7 +470,25 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) 
                         each stage picks its own tab
                       </span>
                     )}
-                    <Select value={widget.width} onChange={(v) => set({ width: v })} options={WIDTHS} className="w-24" />
+                    {/* Width in COLUMNS of the 12-wide canvas. A slider
+                        rather than five presets, because "a bit narrower
+                        than a third" is a real thing to want and the grid
+                        can express it exactly. */}
+                    <span className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1">
+                      <span className="whitespace-nowrap text-[10px] font-medium text-slate-500">Width</span>
+                      <input
+                        type="range"
+                        min={1}
+                        max={WIDTH_UNITS}
+                        value={widthUnitsFor(widget)}
+                        onChange={(e) => set({ widthUnits: Number(e.target.value), width: null })}
+                        className="h-1 w-24 accent-indigo-500"
+                        aria-label="Widget width in columns"
+                      />
+                      <span className="w-12 whitespace-nowrap text-right text-[10px] tabular-nums text-slate-600">
+                        {widthUnitsLabel(widthUnitsFor(widget))}
+                      </span>
+                    </span>
 
                     {/* The DEFAULT position for everyone. A user can override
                         it from the dashboard's arrange mode, and an admin can

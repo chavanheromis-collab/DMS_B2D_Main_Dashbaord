@@ -1,42 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-// Mirrors WIDTHS in lib/config.js -- keep these two in sync if that ever
-// changes. This is the same quarter/third/half/twothird/full system used
-// everywhere else on the dashboard, just expressed as a unit count (out of
-// 12) per breakpoint so the packing algorithm can reason about it in JS.
-const SPAN_MAP = {
-  quarter: { base: 12, md: 6, lg: 3 },
-  third: { base: 12, md: 6, lg: 4 },
-  half: { base: 12, md: 6, lg: 6 },
-  twothird: { base: 12, md: 12, lg: 8 },
-  full: { base: 12, md: 12, lg: 12 },
-}
+// The span maths lives in lib/gridSpan.js so it can be tested without a DOM
+// -- Node cannot import a .jsx file. Re-exported because callers (and its
+// own tests) have long imported `spanForWidth` from here.
+import { COLUMNS, breakpointFor, spanForWidth } from '../lib/gridSpan'
 
-const BREAKPOINTS = { md: 768, lg: 1024 } // matches Tailwind's defaults, which this project doesn't override
+export { spanForWidth }
 
-/**
- * Which breakpoint the GRID is at -- measured from the space the grid
- * actually has, not from the window.
- *
- * Those stopped being the same thing once a sidebar was added: on a 1200px
- * window with the sidebar expanded the grid only gets ~930px, and sizing
- * four "quarter" widgets as if it had 1200 crushes them. Falling back to the
- * window width keeps the very first frame (before the container has been
- * measured) sensible.
- */
-function breakpointFor(width) {
-  const w = width || (typeof window === 'undefined' ? 1280 : window.innerWidth)
-  if (w >= BREAKPOINTS.lg) return 'lg'
-  if (w >= BREAKPOINTS.md) return 'md'
-  return 'base'
-}
-
-export function spanForWidth(width, breakpoint) {
-  const m = SPAN_MAP[width] || SPAN_MAP.full
-  return m[breakpoint] ?? m.base
-}
-
-const COLUMNS = 12
 const FALLBACK_HEIGHT = 220 // used only when an item has no estimatedHeight and hasn't been measured yet
 
 /**
@@ -58,7 +28,7 @@ export function assignColumns(items, breakpoint, columns = COLUMNS) {
   const colHeights = new Array(columns).fill(0)
   const slots = {}
   for (const item of items) {
-    const span = Math.min(columns, Math.max(1, spanForWidth(item.width, breakpoint)))
+    const span = Math.min(columns, Math.max(1, spanForWidth(item.width, breakpoint, item.widthUnits)))
     let best = { col: 0, y: Infinity }
     for (let c = 0; c <= columns - span; c++) {
       const y = Math.max(...colHeights.slice(c, c + span))
@@ -126,7 +96,7 @@ export default function MasonryGrid({ items, gap = 12, className = '' }) {
   // Column assignment only depends on WHICH widgets exist, in what order,
   // at what width -- not on anything about their live content -- so this
   // key deliberately excludes `heights`.
-  const slotKey = items.map((i) => `${i.id}:${i.width}`).join('|')
+  const slotKey = items.map((i) => `${i.id}:${i.width}:${i.widthUnits ?? ''}`).join('|')
 
   // Exact column pixel width, and the breakpoint that follows from it.
   //

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Download, GripVertical, Rows3, Search, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Download, Filter, GripVertical, Rows3, Search, X } from 'lucide-react'
 import { badgeColor } from '../../lib/dataUtils'
 import { fetchDownloadMeta, getDownloadActions, triggerDownload } from '../../lib/downloadActions.js'
 import RowDetailPanel from '../RowDetailPanel.jsx'
+import ColumnFilterMenu from '../ColumnFilterMenu.jsx'
+import { activeFilterColumns, applyColumnFilters, columnIsFiltered } from '../../lib/columnFilters'
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
@@ -50,6 +52,10 @@ export default function TableWidget({
   const [savedOrder, setSavedOrder] = useState(false)
   const [downloadMenuRow, setDownloadMenuRow] = useState(null)
   const [downloadSizes, setDownloadSizes] = useState({})
+  // Spreadsheet-style per-column filters: { [column]: { exclude, text } }.
+  const [colFilters, setColFilters] = useState({})
+  const [menuCol, setMenuCol] = useState(null)
+  const [menuRect, setMenuRect] = useState(null)
 
   const pageSize = widget.pageSize || 25
 
@@ -77,11 +83,39 @@ export default function TableWidget({
 
   const badgeCols = widget.badgeColumns || []
 
+  // Column filters run FIRST, then the table's own search box narrows what
+  // they left -- the same order a spreadsheet uses.
+  const columnFiltered = useMemo(() => applyColumnFilters(rows, colFilters), [rows, colFilters])
+
   const searched = useMemo(() => {
     const q = localSearch.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) => columns.some((c) => String(r[c] ?? '').toLowerCase().includes(q)))
-  }, [rows, localSearch, columns])
+    if (!q) return columnFiltered
+    return columnFiltered.filter((r) => columns.some((c) => String(r[c] ?? '').toLowerCase().includes(q)))
+  }, [columnFiltered, localSearch, columns])
+
+  const filteredColumns = activeFilterColumns(colFilters)
+
+  // A filter on a column the admin has since removed would narrow the table
+  // with no visible way to clear it.
+  useEffect(() => {
+    const stale = filteredColumns.filter((c) => !columns.includes(c))
+    if (stale.length === 0) return
+    setColFilters((current) => {
+      const next = { ...current }
+      for (const c of stale) delete next[c]
+      return next
+    })
+  }, [columns, filteredColumns])
+
+  function setColumnFilter(column, filter) {
+    setColFilters((current) => ({ ...current, [column]: filter }))
+    setPage(0)
+  }
+
+  function sortFromMenu(column, dir) {
+    setSorts([{ column, dir }])
+    setPage(0)
+  }
 
   const isDefaultSort = useMemo(
     () =>
@@ -234,12 +268,36 @@ export default function TableWidget({
           </div>
           <p className="text-[11px] text-slate-400">
             {widget.tab} · {sorted.length.toLocaleString('en-IN')} rows
+            {/* How many the column filters removed. Without this the table
+                just looks short, and there is no clue why. */}
+            {filteredColumns.length > 0 && (
+              <span className="text-indigo-600">
+                {' '}
+                · filtered from {rows.length.toLocaleString('en-IN')}
+              </span>
+            )}
             {saving && ' · saving…'}
             {widget.rowDetail && ' · click a row for details'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {filteredColumns.length > 0 && (
+            <button
+              onClick={() => {
+                setColFilters({})
+                setPage(0)
+              }}
+              title={`Clear filters on ${filteredColumns.join(', ')}`}
+              className="flex items-center gap-1 rounded-lg border border-rose-300 bg-rose-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-rose-600"
+            >
+              <Filter size={11} />
+              Clear
+              <span className="rounded-full bg-white/25 px-1.5 text-[10px] font-bold tabular-nums">
+                {filteredColumns.length}
+              </span>
+            </button>
+          )}
           <div className="relative">
             <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-300" />
             <input
@@ -376,6 +434,25 @@ export default function TableWidget({
                               {sort.dir === 'asc' ? <ArrowUp size={9} /> : <ArrowDown size={9} />}
                             </span>
                           )}
+                          {/* The funnel. Always rendered once a column IS
+                              filtered, so a narrowed table can never hide the
+                              fact -- only the idle ones wait for a hover. */}
+                          <button
+                            onClick={(e) => {
+                              // The header itself sorts; the funnel must not.
+                              e.stopPropagation()
+                              setMenuRect(e.currentTarget.getBoundingClientRect())
+                              setMenuCol(menuCol === col ? null : col)
+                            }}
+                            title={`Filter ${col}`}
+                            className={`rounded p-0.5 transition-opacity ${
+                              columnIsFiltered(colFilters[col])
+                                ? 'bg-indigo-100 text-indigo-700 opacity-100'
+                                : 'text-slate-400 opacity-0 hover:bg-slate-200 group-hover:opacity-100'
+                            }`}
+                          >
+                            <Filter size={10} />
+                          </button>
                         </span>
                       </th>
                     )
@@ -520,6 +597,21 @@ export default function TableWidget({
             </div>
           </div>
         </>
+      )}
+
+      {menuCol && (
+        <ColumnFilterMenu
+          column={menuCol}
+          anchorRect={menuRect}
+          // Options come from the rows BEFORE column filters, so a menu can
+          // always offer back a value its own filter is currently hiding.
+          rows={rows}
+          filters={colFilters}
+          sort={sorts.find((s) => s.column === menuCol)}
+          onSort={sortFromMenu}
+          onChange={setColumnFilter}
+          onClose={() => setMenuCol(null)}
+        />
       )}
 
       <RowDetailPanel

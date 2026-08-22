@@ -106,7 +106,13 @@ Reload — the ⚙️ admin panel appears in the sidebar.
 2. **📄 Pages** — *New dashboard page*. Name it, give it an icon and a sidebar
    group, and tick the spreadsheets it may draw on. Click **Build**.
 3. **🧱 Widgets** — add a table from MASTER, a KPI from Quotations, a chart
-   from a completely different sheet. Set widths, then *Publish to dashboard*.
+   from a completely different sheet, then *Publish to dashboard*.
+   **Width** is a slider from 1 to 12 columns of the canvas, reading back as
+   the fraction it makes (`1/6`, `1/4`, `5/12`, `Full width`). Columns rather
+   than pixels because a fixed pixel width can't stay right across a phone, a
+   laptop with the sidebar open and a 4K monitor at once — and 12 units gives
+   finer control than the five old presets could. Narrow widgets still go full
+   width on a phone, where a 1/6 card would be an unreadable sliver.
    Widget cards stay collapsed to one row until you open them, and there's a
    search box once a page has more than three — a page with a dozen widgets
    stays scannable instead of running to thousands of pixels.
@@ -610,6 +616,31 @@ A **stage KPI** drill combines the stage's conditions with the KPI's own —
 on the card and the rows the dashboard then shows agree. A stage KPI with no
 conditions of its own stays inert, since filtering by it would be identical to
 clicking the stage.
+
+### Column filters (Excel / Sheets style)
+
+Every column header has a **funnel**. It opens a searchable list of the values
+actually in that column, each with a count, everything ticked until you untick
+something — plus A→Z / Z→A sorting and a *contains* box.
+
+Two details that make it behave the way a spreadsheet does:
+
+- **A column's options respect the *other* columns' filters.** Filter Model to
+  `SPLENDOR +` and the SKU menu offers Splendor SKUs only. Otherwise you'd be
+  choosing between options that return nothing. A column never narrows its
+  *own* option list, or you could untick a value and have no way to tick it
+  back.
+- **Filters store what's excluded, not what's included.** A value added to the
+  sheet tomorrow shows up rather than being silently hidden — which is what
+  someone who left "select all" ticked actually meant.
+
+The *contains* box doubles as a numeric test: type `>100`, `<=5`, `=85`.
+Matching that as literal text would never find anything, so it's taken as the
+comparison it obviously is.
+
+The funnel stays lit on any filtered column, the caption reads
+*"filtered from 1,240"*, and a red **Clear** button with a count appears in the
+toolbar — a narrowed table can never quietly look like a short one.
 
 ### The data table
 
