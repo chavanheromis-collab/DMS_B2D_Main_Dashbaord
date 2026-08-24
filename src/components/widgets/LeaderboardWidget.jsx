@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import ExportButton from '../ExportButton.jsx'
-import { aggregate, formatNumber } from '../../lib/dataUtils'
+import { aggregate, formatNumber, groupKey } from '../../lib/dataUtils'
 
 const MEDALS = ['🥇', '🥈', '🥉']
 
