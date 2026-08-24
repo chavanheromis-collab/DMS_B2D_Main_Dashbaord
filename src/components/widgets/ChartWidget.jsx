@@ -33,7 +33,7 @@ import { PALETTE } from '../../lib/config'
 import ExportButton from '../ExportButton.jsx'
 import PiePanel from './PiePanel.jsx'
 import { arrowRightPath, arrowUpPath, cylinderCapRadius, nestedCircles } from '../../lib/chartShapes.js'
-import { chartExtent, legendHeight } from '../../lib/chartScroll.js'
+import { chartExtent, legendStyle } from '../../lib/chartScroll.js'
 import {
   axisTicks,
   chartCaps,
@@ -461,14 +461,13 @@ export default function ChartWidget({
     count: data.length,
     horizontal: HORIZONTAL_TYPES.has(type),
     frame: height,
+    size: widget.categorySize,
+    enabled: widget.scrollChart !== false,
   })
-  const legendStyle = {
-    fontSize: 11,
-    maxHeight: legendHeight(data.length),
-    overflowY: 'auto',
-    // The legend keeps its own scrollbar off the plot area.
-    paddingLeft: 4,
-  }
+  const legendBox = legendStyle(data.length, {
+    enabled: widget.scrollLegend !== false,
+    max: widget.legendMax,
+  })
   const topMargin = showLabels ? 20 : 6
   const cursorProp = onCrossFilter ? { cursor: 'pointer' } : {}
 
@@ -482,7 +481,7 @@ export default function ChartWidget({
             <PolarAngleAxis dataKey="name" tick={{ fontSize: 10 }} />
             <PolarRadiusAxis tick={{ fontSize: 9 }} {...(scale ? { domain: scale.domain, ticks: scale.ticks } : {})} />
             <Tooltip {...tooltipStyle} />
-            {showLegend && <Legend wrapperStyle={legendStyle} />}
+            {showLegend && <Legend wrapperStyle={legendBox} />}
             <Radar
               name={widget.valueLabel || 'Value'}
               dataKey="value"
@@ -510,7 +509,7 @@ export default function ChartWidget({
             {...cursorProp}
           >
             <Tooltip {...tooltipStyle} />
-            {showLegend && <Legend wrapperStyle={legendStyle} />}
+            {showLegend && <Legend wrapperStyle={legendBox} />}
             <RadialBar
               dataKey="value"
               background
@@ -587,7 +586,7 @@ export default function ChartWidget({
               unit="%"
             />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
-            {showLegend && <Legend wrapperStyle={legendStyle} />}
+            {showLegend && <Legend wrapperStyle={legendBox} />}
             {refLines('y')}
             {widget.showPareto80 !== false && (
               <ReferenceLine
@@ -707,7 +706,7 @@ export default function ChartWidget({
             <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
             <Tooltip {...tooltipStyle} />
-            {showLegend && <Legend wrapperStyle={legendStyle} />}
+            {showLegend && <Legend wrapperStyle={legendBox} />}
             {refLines('y')}
             <Line
               type={type === 'step' ? 'stepAfter' : 'monotone'}
@@ -740,7 +739,7 @@ export default function ChartWidget({
             <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
             <Tooltip {...tooltipStyle} />
-            {showLegend && <Legend wrapperStyle={legendStyle} />}
+            {showLegend && <Legend wrapperStyle={legendBox} />}
             {refLines('y')}
             <Area
               type="monotone"

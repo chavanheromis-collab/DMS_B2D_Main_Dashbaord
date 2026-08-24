@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { CHART_SCROLL, chartExtent, labelEveryCategory, legendHeight } from './chartScroll.js'
+import { CHART_SCROLL, chartExtent, labelEveryCategory, legendHeight, legendStyle } from './chartScroll.js'
 
 // --- a chart that fits is left alone --------------------------------------
 
@@ -64,4 +64,47 @@ test('a legend grows with its series, up to a point', () => {
   assert.ok(legendHeight(2) < legendHeight(4))
   assert.equal(legendHeight(40), 84, 'capped, because a legend is a key and not the chart')
   assert.equal(legendHeight(0), 18)
+})
+
+// --- the admin's say ------------------------------------------------------
+
+test('scrolling can be switched off outright', () => {
+  // A bad default, but a legitimate choice: a wall display nobody can scroll
+  // would rather have the shape than the detail.
+  const out = chartExtent({ count: 40, horizontal: true, frame: 260, enabled: false })
+  assert.equal(out.height, 260)
+  assert.equal(out.scrolls, false)
+  assert.equal(chartExtent({ count: 40, enabled: false }).minWidth, 0)
+})
+
+test('the room per category is the lever that makes twelve bars scroll', () => {
+  // Twelve categories at the built-in width fit any normal card. The admin
+  // asking for wider bars is what pushes them past it.
+  const narrow = chartExtent({ count: 12 })
+  const wide = chartExtent({ count: 12, size: 120 })
+  assert.equal(narrow.minWidth, 12 * CHART_SCROLL.colWidth)
+  assert.equal(wide.minWidth, 12 * 120)
+})
+
+test('a custom row height drives a horizontal chart the same way', () => {
+  const out = chartExtent({ count: 10, horizontal: true, frame: 200, size: 60 })
+  assert.equal(out.height, 600)
+  assert.equal(out.scrolls, true)
+})
+
+test('a nonsense size falls back to the built-in rather than collapsing', () => {
+  assert.equal(chartExtent({ count: 10, size: 0 }).minWidth, 10 * CHART_SCROLL.colWidth)
+  assert.equal(chartExtent({ count: 10, size: -5 }).minWidth, 10 * CHART_SCROLL.colWidth)
+})
+
+test('a legend that may not scroll is given no ceiling at all', () => {
+  assert.deepEqual(legendStyle(40, { enabled: false }), { fontSize: 11 })
+  const on = legendStyle(40, { enabled: true })
+  assert.equal(on.overflowY, 'auto')
+  assert.ok(on.maxHeight > 0)
+})
+
+test('the admin can raise the legend ceiling', () => {
+  assert.equal(legendStyle(40, { max: 200 }).maxHeight, 200)
+  assert.equal(legendStyle(2, { max: 200 }).maxHeight, 36, 'but a short legend still only takes what it needs')
 })

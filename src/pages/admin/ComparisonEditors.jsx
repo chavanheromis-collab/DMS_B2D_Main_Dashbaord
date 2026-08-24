@@ -1,6 +1,6 @@
 import { AGGREGATIONS, HEAT_SCALES, NUMBER_FORMATS, PALETTE, aggNeedsColumn } from '../../lib/config'
 import { SERIES_PALETTES } from '../../lib/seriesData'
-import { SeriesColorEditor } from './WidgetEditors.jsx'
+import { ScrollEditor, SeriesColorEditor } from './WidgetEditors.jsx'
 import { Field, Select, TextInput, Toggle } from './ui.jsx'
 
 const SORTS = [
@@ -85,6 +85,8 @@ export function StackedEditor({ widget, cols, set }) {
           <Toggle checked={widget.showLegend !== false} onChange={(v) => set({ showLegend: v })} label="Show legend" />
         </div>
       </div>
+      <ScrollEditor widget={widget} set={set} />
+
     </div>
   )
 }
@@ -180,6 +182,8 @@ export function ComboEditor({ widget, cols, set }) {
       <p className="text-[10px] text-slate-400">
         Sorting always follows the bars, since they’re what the chart is “about”.
       </p>
+      <ScrollEditor widget={widget} set={set} />
+
     </div>
   )
 }

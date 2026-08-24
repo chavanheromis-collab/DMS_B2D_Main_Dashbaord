@@ -34,13 +34,23 @@ export const CHART_SCROLL = {
  * (and the frame scrolls horizontally), which is why only one of the two
  * numbers can ever exceed the frame.
  */
-export function chartExtent({ count, horizontal = false, frame = 260, options = {} } = {}) {
+export function chartExtent({ count, horizontal = false, frame = 260, size = 0, enabled = true, options = {} } = {}) {
   const o = { ...CHART_SCROLL, ...options }
   const n = Math.max(0, Number(count) || 0)
   const box = Math.max(o.minSize, Number(frame) || CHART_SCROLL.minSize)
 
+  // An admin can turn it off. Squashing forty bars into the height of twelve
+  // is a bad default, but it is a legitimate CHOICE -- a wall display nobody
+  // can scroll would rather have the shape than the detail.
+  if (!enabled) return { height: box, minWidth: 0, scrolls: false, axis: horizontal ? 'y' : 'x' }
+
+  // How much room one category gets. The admin's number, when they gave one:
+  // it is the only lever that makes a chart of twelve categories scroll, and
+  // "make each bar wider" is how somebody actually thinks about that.
+  const room = Number(size) > 0 ? Number(size) : horizontal ? o.rowHeight : o.colWidth
+
   if (horizontal) {
-    const wanted = n * o.rowHeight
+    const wanted = n * room
     const height = Math.max(box, wanted)
     return { height, minWidth: 0, scrolls: height > box, axis: 'y' }
   }
@@ -51,7 +61,7 @@ export function chartExtent({ count, horizontal = false, frame = 260, options = 
   //
   // `scrolls` is therefore false: whether it actually does is the browser's
   // business, and claiming to know would be worse than admitting we cannot.
-  const minWidth = n * o.colWidth
+  const minWidth = n * room
   return { height: box, minWidth, scrolls: false, axis: 'x' }
 }
 
@@ -62,8 +72,8 @@ export function chartExtent({ count, horizontal = false, frame = 260, options = 
  * fixed frame and wrong once the chart has been given room for all of them --
  * there, a dropped label is a category the reader cannot name.
  */
-export function labelEveryCategory(count, { horizontal = false, frame = 260, options = {} } = {}) {
-  return chartExtent({ count, horizontal, frame, options }).scrolls
+export function labelEveryCategory(count, opts = {}) {
+  return chartExtent({ count, ...opts }).scrolls
 }
 
 /**
@@ -75,6 +85,19 @@ export function labelEveryCategory(count, { horizontal = false, frame = 260, opt
  */
 export function legendHeight(count, { rowHeight = 18, max = 84, min = 18 } = {}) {
   const n = Math.max(0, Number(count) || 0)
+  const ceiling = Number(max) > 0 ? Number(max) : 84
   if (n === 0) return min
-  return Math.max(min, Math.min(max, n * rowHeight))
+  return Math.max(min, Math.min(ceiling, n * rowHeight))
+}
+
+/**
+ * The wrapper style for a chart legend.
+ *
+ * One function rather than the same object literal in eight places, because
+ * the eight places had already drifted -- and a legend that scrolls on one
+ * chart and clips on another is worse than either.
+ */
+export function legendStyle(count, { enabled = true, max } = {}) {
+  if (!enabled) return { fontSize: 11 }
+  return { fontSize: 11, maxHeight: legendHeight(count, { max }), overflowY: 'auto', paddingLeft: 4 }
 }

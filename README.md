@@ -869,9 +869,18 @@ room for every bar, **every bar is labelled**: Recharts thins axis labels when
 they collide, which is right inside a fixed frame and wrong once the room
 exists, where a dropped label is a category nobody can name.
 
-Set **Max bars/slices** to `0` for every category. Legends scroll too, capped
-at a few rows — a legend is a key, not the chart, and forty series would push
-the plot off the bottom of the card.
+**The admin decides.** Each chart, stacked chart, combo and trend has a
+**Scrolling** block:
+
+| | |
+|---|---|
+| **Chart scrolls** | On by default. Off squeezes every category into the card however many there are — a bad default, but a legitimate choice for a wall display nobody can walk up to. |
+| **Width / height per bar** | The lever that actually makes a chart scroll. A chart only outgrows its card when its categories need more room than there is, so twelve categories on a wide card will never scroll until you ask for wider bars. |
+| **Legend scrolls** | On by default, with its own height. |
+
+If a bar chart isn't scrolling, it's one of two things and the editor says
+so: either there are few enough categories to fit — raise *width per bar* —
+or **Max bars/slices** is hiding the rest. Set it to `0` for every category.
 
 ### Clicking a chart
 

@@ -700,6 +700,8 @@ export function TrendEditor({ widget, cols, set }) {
 
       {breakdown && <SeriesColorEditor widget={widget} set={set} />}
 
+      <ScrollEditor widget={widget} set={set} hasLegend={Boolean(breakdown)} />
+
       {/* --- readings ----------------------------------------------------- */}
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
         <div className="pb-1.5">
@@ -738,6 +740,80 @@ export function TrendEditor({ widget, cols, set }) {
           once one series is showing — six smoothed lines on top of six real ones is not a chart.
         </p>
       </div>
+    </div>
+  )
+}
+
+/**
+ * What may scroll, and how much room a category gets.
+ *
+ * Both halves are the admin's call. Squashing forty bars into the height of
+ * twelve is a bad default but a legitimate choice -- a wall display nobody
+ * can walk up to would rather have the shape than the detail -- and a chart
+ * of twelve categories only ever scrolls because somebody asked for wider
+ * bars, which is the lever this exposes.
+ */
+export function ScrollEditor({ widget, set, horizontal = false, hasLegend = true }) {
+  const chartOn = widget.scrollChart !== false
+  const legendOn = widget.scrollLegend !== false
+
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+      <p className="mb-1 text-[11px] font-medium text-slate-500">
+        Scrolling <span className="font-normal text-slate-400">(when there is more than fits)</span>
+      </p>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="pb-1.5">
+          <Toggle
+            checked={chartOn}
+            onChange={(v) => set({ scrollChart: v })}
+            label={horizontal ? 'Chart scrolls down' : 'Chart scrolls across'}
+          />
+        </div>
+        {chartOn && (
+          <Field
+            label={horizontal ? 'Height per bar' : 'Width per bar'}
+            className="w-36"
+            hint="Pixels. Blank uses the default."
+          >
+            <TextInput
+              type="number"
+              value={widget.categorySize ?? ''}
+              onChange={(v) => set({ categorySize: Number(v) || null })}
+            />
+          </Field>
+        )}
+        {hasLegend && (
+          <>
+            <div className="pb-1.5">
+              <Toggle checked={legendOn} onChange={(v) => set({ scrollLegend: v })} label="Legend scrolls" />
+            </div>
+            {legendOn && (
+              <Field label="Legend height" className="w-32" hint="Pixels.">
+                <TextInput
+                  type="number"
+                  value={widget.legendMax ?? ''}
+                  onChange={(v) => set({ legendMax: Number(v) || null })}
+                />
+              </Field>
+            )}
+          </>
+        )}
+      </div>
+
+      <p className="mt-1 text-[10px] text-slate-400">
+        {chartOn ? (
+          <>
+            A chart only outgrows its card when its categories need more room than there is — so if it is not
+            scrolling, either there are few enough to fit (raise <strong>{horizontal ? 'height' : 'width'} per bar
+            </strong>) or the cap is hiding the rest (<strong>Max bars/slices</strong> above — set it to 0 for every
+            category). Given the room, every bar is also labelled.
+          </>
+        ) : (
+          <>Off: every category is squeezed into the card, however many there are.</>
+        )}
+      </p>
     </div>
   )
 }

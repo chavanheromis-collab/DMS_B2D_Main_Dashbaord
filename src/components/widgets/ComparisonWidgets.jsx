@@ -18,7 +18,7 @@ import {
 import { formatNumber, groupSeries, groupStacked, pivot, scatterPoints } from '../../lib/dataUtils'
 import { HEAT_SCALES, PALETTE } from '../../lib/config'
 import { seriesColor } from '../../lib/seriesData.js'
-import { chartExtent, legendHeight } from '../../lib/chartScroll.js'
+import { chartExtent, legendStyle } from '../../lib/chartScroll.js'
 
 const tooltipBox = { borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }
 
@@ -114,7 +114,8 @@ export function StackedWidget({ widget, rows, unfilteredRows, tabError, crossFil
       {data.length === 0 ? (
         <p className="empty-state">No data to chart</p>
       ) : (
-        <div className="min-h-[240px] flex-1">
+        <div className="min-h-[240px] flex-1 overflow-x-auto overflow-y-hidden">
+          <div style={{ minWidth: chartExtent({ count: data.length, size: widget.categorySize, enabled: widget.scrollChart !== false }).minWidth }}>
           <ResponsiveContainer width="100%" height={widget.height || 280}>
             <BarChart
               data={data}
@@ -130,7 +131,12 @@ export function StackedWidget({ widget, rows, unfilteredRows, tabError, crossFil
                 cursor={{ fill: '#f8fafc' }}
                 formatter={(v, n) => [formatNumber(v, widget.format, widget.aggregation), n]}
               />
-              {widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11, maxHeight: legendHeight(series.length), overflowY: 'auto' }} />}
+              {widget.showLegend !== false && <Legend
+                  wrapperStyle={legendStyle(series.length, {
+                    enabled: widget.scrollLegend !== false,
+                    max: widget.legendMax,
+                  })}
+                />}
               {series.map((key, i) => (
                 <Bar
                   key={key}
@@ -150,6 +156,7 @@ export function StackedWidget({ widget, rows, unfilteredRows, tabError, crossFil
               ))}
             </BarChart>
           </ResponsiveContainer>
+          </div>
         </div>
       )}
     </Shell>
@@ -211,7 +218,8 @@ export function ComboWidget({ widget, rows, unfilteredRows, tabError, crossFilte
       {data.length === 0 ? (
         <p className="empty-state">No data to chart</p>
       ) : (
-        <div className="min-h-[240px] flex-1">
+        <div className="min-h-[240px] flex-1 overflow-x-auto overflow-y-hidden">
+          <div style={{ minWidth: chartExtent({ count: data.length, size: widget.categorySize, enabled: widget.scrollChart !== false }).minWidth }}>
           <ResponsiveContainer width="100%" height={widget.height || 280}>
             <ComposedChart
               data={data}
@@ -258,6 +266,7 @@ export function ComboWidget({ widget, rows, unfilteredRows, tabError, crossFilte
               />
             </ComposedChart>
           </ResponsiveContainer>
+          </div>
         </div>
       )}
     </Shell>
@@ -321,7 +330,12 @@ export function ScatterWidget({ widget, rows, unfilteredRows, tabError }) {
                 cursor={{ strokeDasharray: '3 3' }}
                 formatter={(v, n) => [formatNumber(v, widget.format), n]}
               />
-              {series.length > 1 && widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11, maxHeight: legendHeight(series.length), overflowY: 'auto' }} />}
+              {series.length > 1 && widget.showLegend !== false && <Legend
+                  wrapperStyle={legendStyle(series.length, {
+                    enabled: widget.scrollLegend !== false,
+                    max: widget.legendMax,
+                  })}
+                />}
               {series.map((s, i) => (
                 <Scatter
                   key={s.name}

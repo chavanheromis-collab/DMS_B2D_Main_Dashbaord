@@ -398,6 +398,8 @@ export function TrendWidget({
               colorOf={colorOf}
               onHover={setHover}
               onToggle={toggleSeries}
+              scrolls={widget.scrollLegend !== false}
+              max={widget.legendMax}
             />
           )}
 
@@ -465,9 +467,12 @@ function TrendTooltip({ active, payload, label, single, valueLabel, percentMode,
  * and the alternative -- editing the widget, or filtering the whole page --
  * costs far more than the question is worth.
  */
-function SeriesLegend({ series, hidden, hover, colorOf, onHover, onToggle }) {
+function SeriesLegend({ series, hidden, hover, colorOf, onHover, onToggle, scrolls = true, max }) {
   return (
-    <div className="mt-1 flex max-h-[76px] flex-wrap gap-1 overflow-y-auto">
+    <div
+      className={`mt-1 flex flex-wrap gap-1 ${scrolls ? 'overflow-y-auto' : ''}`}
+      style={scrolls ? { maxHeight: Number(max) > 0 ? Number(max) : 76 } : undefined}
+    >
       {series.map((name, i) => {
         const off = hidden.has(name)
         return (

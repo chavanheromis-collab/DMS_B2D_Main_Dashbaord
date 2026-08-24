@@ -32,6 +32,7 @@ import StyleEditor from './StyleEditor.jsx'
 import WidgetControlsEditor from './WidgetControlsEditor.jsx'
 import { ComboEditor, HeatmapEditor, ScatterEditor, StackedEditor } from './ComparisonEditors.jsx'
 import {
+  ScrollEditor,
   PipelineEditor,
   LeaderboardEditor,
   TrendEditor,
@@ -1238,6 +1239,8 @@ function ChartEditor({ widget, cols, set }) {
           Clicking a bar filters the dashboard to that numeric <strong>range</strong> — “120–140” isn’t a value any row
           actually holds.
         </p>
+        <ScrollEditor widget={widget} set={set} hasLegend={!!caps.legend} />
+
         <ChartAdvanced widget={widget} set={set} />
       </>
     )
@@ -1424,6 +1427,13 @@ function ChartEditor({ widget, cols, set }) {
         </p>
       </div>
     )}
+
+    <ScrollEditor
+      widget={widget}
+      set={set}
+      horizontal={['hbar', 'arrowRow'].includes(type)}
+      hasLegend={!!caps.legend}
+    />
 
     <ChartAdvanced widget={widget} set={set} />
     </>
