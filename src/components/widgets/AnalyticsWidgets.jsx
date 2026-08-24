@@ -212,7 +212,6 @@ export function TrendWidget({
     keys.forEach((name, i) => {
       const color = colorOf(name, built.series.indexOf(name) === -1 ? i : built.series.indexOf(name))
       const common = {
-        key: name,
         dataKey: name,
         name: single ? widget.valueLabel || 'Value' : name,
         stackId,
@@ -221,7 +220,7 @@ export function TrendWidget({
 
       if (mode === 'bar' || mode === 'group') {
         out.push(
-          <Bar {...common} fill={color} fillOpacity={fade(name)} radius={stackId ? 0 : [4, 4, 0, 0]}>
+          <Bar key={name} {...common} fill={color} fillOpacity={fade(name)} radius={stackId ? 0 : [4, 4, 0, 0]}>
             {single &&
               data.map((entry) => (
                 <Cell
@@ -239,6 +238,7 @@ export function TrendWidget({
       if (mode === 'line') {
         out.push(
           <Line
+            key={name}
             {...common}
             type="monotone"
             stroke={color}
@@ -265,6 +265,7 @@ export function TrendWidget({
 
       out.push(
         <Area
+          key={name}
           {...common}
           type="monotone"
           stroke={color}

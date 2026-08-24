@@ -232,7 +232,8 @@ export function ComboWidget({ widget, rows, unfilteredRows, tabError, crossFilte
                     : [formatNumber(v, widget.lineFormat, widget.lineAggregation), widget.lineLabel || 'Line']
                 }
               />
-              {widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11, maxHeight: legendHeight(series.length), overflowY: 'auto' }} />}
+              {/* Two entries, always: a bar and a line. Nothing to scroll. */}
+              {widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11 }} />}
               <Bar
                 yAxisId="left"
                 dataKey="barValue"
