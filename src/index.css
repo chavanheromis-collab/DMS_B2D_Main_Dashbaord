@@ -358,6 +358,28 @@ aside.fixed.right-0 {
   border-color: rgb(71 85 105 / 0.7);
 }
 
+/* A widget an admin gave a fixed height.
+ *
+ * Setting a height on the wrapper alone only reserved the space -- the card
+ * inside kept its own natural height, so the canvas grew and the widget did
+ * not, which is exactly backwards. The wrapper is a column, the card is the
+ * part that stretches, and anything too tall to fit scrolls inside the card
+ * rather than spilling out of it. */
+.widget-sized {
+  display: flex;
+  flex-direction: column;
+}
+.widget-sized > .card {
+  flex: 1 1 auto;
+  /* Some widgets pin their own height (a leaderboard is 480px). An admin's
+     number is the more specific instruction, so it wins. */
+  height: auto;
+  /* Without this a flex child refuses to shrink below its content, and the
+     card would push straight back out to its natural height. */
+  min-height: 0;
+  overflow: auto;
+}
+
 /* ------------------------------------------------------------------ */
 /* Flow diagram canvas                                                 */
 /* ------------------------------------------------------------------ */

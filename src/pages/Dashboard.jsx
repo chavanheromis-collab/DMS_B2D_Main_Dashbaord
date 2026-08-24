@@ -851,14 +851,19 @@ export default function Dashboard() {
                   widthUnits: widget.widthUnits,
                   // ...unless the admin chose pixels, which overrides both.
                   widthPx: widgetUsesPx(widget) ? widgetWidthPx(widget) : null,
-                  estimatedHeight: estimateWidgetHeight(widget.type),
+                  // A pinned height is a better guess than the type's, and
+                  // using it here means the column packing is right on the
+                  // first frame rather than after the widget measures.
+                  estimatedHeight: Number(widget.heightPx) > 0 ? Number(widget.heightPx) : estimateWidgetHeight(widget.type),
                   content: (
                     // The wrapper publishes this widget's appearance as CSS
                     // custom properties, which `.card` reads (see index.css).
                     // An unstyled widget emits none and looks exactly as it
                     // always did -- no widget component knows about theming.
                     <div
-                      className={`rise-in relative ${styleClass(themed)}`}
+                      className={`rise-in relative ${styleClass(themed)} ${
+                        Number(widget.heightPx) > 0 ? 'widget-sized' : ''
+                      }`}
                       style={{
                         animationDelay: `${Math.min(index * 45, 360)}ms`,
                         ...(styleVars(themed) || {}),

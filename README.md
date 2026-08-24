@@ -308,8 +308,12 @@ promise a phone cannot keep:
   it re-flows at every breakpoint exactly as a named width does.
 - A **height** is written as `min(<your px>, 82vh)` — it never outgrows the
   viewport, and it is floored at something readable so a mistyped `2` doesn't
-  produce a widget two pixels tall. Blank clears the pin and lets the masonry
-  size the widget from its content, which is what most widgets want.
+  produce a widget two pixels tall. The **card stretches to fill it** and
+  anything too tall scrolls inside the card, so the widget changes rather
+  than the space around it. It beats a height the widget sets for itself (a
+  leaderboard is 480px by default) — your number is the more specific
+  instruction. Blank clears the pin and lets the masonry size the widget from
+  its content, which is what most widgets want.
 
 Only admins see the button, and the Firestore rules say the same thing
 independently — so the missing button is a convenience, not the security.
