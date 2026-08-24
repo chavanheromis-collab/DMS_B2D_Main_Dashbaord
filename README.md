@@ -1365,6 +1365,64 @@ In **👥 Users & Access**, expand a user to get a card per page:
 Plus *Grant all pages*, *Revoke all*, and **Copy permissions from…** another
 user — the fast path for onboarding someone into an existing role.
 
+### Only these rows — a per-user page filter
+
+Page access is all-or-nothing: you can open the Sales page or you can't. That's
+the wrong shape for the request that comes up most — *"Ravi should see the
+Sales page, but only the west"* — which until now meant building a second page
+with a filter baked in, then a third, then keeping all of them in step for
+ever.
+
+On every access card there's now **Only these rows**. One line, because one
+line is the whole request nine times in ten:
+
+> `Region` **is** `West`
+
+A column and a value. Pick the tab first if the page reads more than one. Click
+**more conditions** for the full builder — every operator, several conditions,
+**ALL** or **ANY** — and **simple** to come back.
+
+**It is not a control.** It runs before anything on the page, it isn't in the
+filter bar, no chip dismisses it, **Reset** doesn't touch it, and no saved view
+restores past it. It is the extent of their data, not a filter they applied.
+It's applied at the *source*, too, so a widget set to *ignore filters*, a blend
+reading its raw side, a control building its dropdown, the *showing X of Y*
+count and the Flow widget all see a sheet that never contained the other rows.
+
+**One rule can serve everybody.** Instead of typing a value, click a token:
+
+| Token | Stands for |
+|---|---|
+| `{{email}}` | their email |
+| `{{name}}` | their name |
+| `{{jobRole}}` | their work role |
+| `{{uid}}` | their account id |
+
+`DSE Email` **is** `{{email}}` set once means forty reps each see their own
+rows — and the forty-first sees theirs the day they're granted the page, with
+nothing left to remember. Tokens can sit inside other text (`branch-{{jobRole}}`).
+
+**It fails closed.** A rule whose value can't be worked out — a user with no
+work role, a rule written before that field existed — shows them **nothing**,
+not everything. Row-level security that degrades into *all rows* on a missing
+field is how a leak happens quietly. Only the tabs the rule actually named go
+empty; a tab it says nothing about is left alone, as everywhere else here.
+
+**Two things make it bearable to administer.** *Apply to every page* writes the
+same rule onto every page that user can already open — *"Ravi only ever sees the
+west"* is a fact about Ravi, not about one page, and setting it eleven times is
+how the twelfth gets missed. It only narrows, never grants, and skips pages
+that don't read the tab the rule names. And the user list marks anyone who is
+scoped with a **⌗ n row-limited** badge, listing each page and its rule on
+hover — so a restriction somebody set in March is visible without opening
+thirty cards.
+
+**Admins are never scoped.** Somebody has to be able to see the whole sheet to
+know whether a rule is doing what they meant.
+
+Only an admin can write it: the `access` document lives behind admin-only write
+rules, so it isn't something a reader can edit their way out of.
+
 ---
 
 ## Environment
@@ -1393,7 +1451,7 @@ Anything prefixed `VITE_` is bundled into the browser. Never prefix a secret.
 | `users` | `{uid}` | `email`, `name`, `status` (`pending`/`active`/`removed`), `role` (`user`/`admin`) |
 | `dataSources` | `{sourceId}` | `name`, `sheetId`, `tabs[]`, `tabHeaders{tab: columns[]}`, `dateOrder`, `lastSyncedAt` |
 | `dashboards` | `{pageId}` | `name`, `navLabel`, `icon`, `iconUrl`, `group`, `order`, `showInSidebar`, `parentId`, `tabUsesPageName`, `background`, `hideSearch`, `sourceIds[]`, `widgets[]`, `controls[]`, `views[]` |
-| `access` | `{uid}_{pageId}` | `canView`, `hiddenWidgets[]`, `widgetOrder{}`, `editable{ref: columns[]}`, `downloadable{ref: columns[]}` |
+| `access` | `{uid}_{pageId}` | `canView`, `hiddenWidgets[]`, `widgetOrder{}`, `editable{ref: columns[]}`, `downloadable{ref: columns[]}`, `scope{match, conditions[]}` |
 | `userPrefs` | `{uid}_{pageId}` | `widgetOrder{widgetId: number}` — one user's own widget arrangement |
 | `settings` | `entrance` | `brandName`, `tagline`, `logoUrl`, `enabled`, `durationMs`, `items[]` — the entrance animation |
 

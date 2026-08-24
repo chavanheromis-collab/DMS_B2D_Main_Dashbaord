@@ -19,6 +19,7 @@ import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
 import { fixedValues, initialValues, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
+import { scopeFilter } from '../lib/userScope'
 import { stripUndefined } from '../lib/firestoreSafe'
 import WidgetControls from '../components/WidgetControls.jsx'
 import ControlBar from '../components/ControlBar.jsx'
@@ -72,7 +73,7 @@ function estimateWidgetHeight(type) {
 export default function Dashboard() {
   const { pageId } = useParams()
   const navigate = useNavigate()
-  const { user, isAdmin, getIdToken } = useAuth()
+  const { user, userDoc, isAdmin, getIdToken } = useAuth()
 
   const { pages, sourcesById, sources, loading: wsLoading } = useWorkspace()
   const { accessByPage } = useMyAccess(user?.uid, pages.map((p) => p.id))
@@ -85,6 +86,24 @@ export default function Dashboard() {
   const [editError, setEditError] = useState(null)
   const [arranging, setArranging] = useState(false)
   const [savingLayout, setSavingLayout] = useState(false)
+
+  /**
+   * The rows this person is allowed to see on this page at all.
+   *
+   * Applied with the drills rather than with the controls, because it is
+   * not a control: nothing on the page clears it, no saved view restores
+   * past it, and Reset does not touch it. It is the extent of their data.
+   *
+   * Admins are not scoped -- somebody has to be able to see the whole sheet
+   * to know whether a scope is doing what they meant.
+   */
+  const scope = useMemo(
+    () =>
+      isAdmin
+        ? null
+        : scopeFilter(access?.scope, { ...(userDoc || {}), uid: user?.uid }, `scope_${pageId}`),
+    [isAdmin, access, userDoc, user, pageId]
+  )
   // What each widget currently measures, so the size boxes can show the
   // number a widget IS rather than an empty box.
   //
@@ -253,9 +272,24 @@ export default function Dashboard() {
     return out
   }, [dataByRef])
 
+  // The scope is applied HERE, at the source, and not alongside the drills.
+  // A widget set to ignore filters reads the raw rows, a blend reads them,
+  // and a control builds its dropdown from them -- so a scope that only
+  // narrowed the filtered pass would be handing back through three doors
+  // exactly what it closed at the front. Everything below this line sees a
+  // sheet that has never contained the other rows.
+  const scopedByRef = useMemo(() => {
+    if (!scope) return dataByRef
+    const out = {}
+    for (const [ref, data] of Object.entries(dataByRef)) {
+      out[ref] = { ...data, rows: applyFilters(data.rows || [], { tab: ref, crossFilters: [scope], dateOrder, tabColumns }) }
+    }
+    return out
+  }, [dataByRef, scope, dateOrder, tabColumns])
+
   const filteredByRef = useMemo(() => {
     const first = {}
-    for (const [ref, data] of Object.entries(dataByRef)) {
+    for (const [ref, data] of Object.entries(scopedByRef)) {
       first[ref] = applyFilters(data.rows || [], {
         tab: ref,
         filters,
@@ -289,7 +323,7 @@ export default function Dashboard() {
     }
     return out
   }, [
-    dataByRef,
+    scopedByRef,
     filters,
     effectiveValues,
     buttons,
@@ -303,9 +337,9 @@ export default function Dashboard() {
   // --- Re-key everything by human label ---------------------------------
   const headersByLabel = useMemo(() => {
     const out = {}
-    for (const [ref, data] of Object.entries(dataByRef)) out[labelFor(ref)] = data.headers || []
+    for (const [ref, data] of Object.entries(scopedByRef)) out[labelFor(ref)] = data.headers || []
     return out
-  }, [dataByRef, labelFor])
+  }, [scopedByRef, labelFor])
 
   const rowsByLabel = useMemo(() => {
     const out = {}
@@ -315,17 +349,17 @@ export default function Dashboard() {
 
   const rawRowsByLabel = useMemo(() => {
     const out = {}
-    for (const [ref, d] of Object.entries(dataByRef)) out[labelFor(ref)] = d.rows || []
+    for (const [ref, d] of Object.entries(scopedByRef)) out[labelFor(ref)] = d.rows || []
     return out
-  }, [dataByRef, labelFor])
+  }, [scopedByRef, labelFor])
 
   // The label-keyed equivalent of `dataByRef`, for FilterBar (which reads a
   // filter's own tab to build its dropdown options) and for header lookups.
   const dataByLabel = useMemo(() => {
     const out = {}
-    for (const [ref, d] of Object.entries(dataByRef)) out[labelFor(ref)] = d
+    for (const [ref, d] of Object.entries(scopedByRef)) out[labelFor(ref)] = d
     return out
-  }, [dataByRef, labelFor])
+  }, [scopedByRef, labelFor])
 
   // The layout, rewritten so every `tab` / `secondaryTab` holds a label.
   // From here down, nothing knows refs exist.
@@ -387,9 +421,11 @@ export default function Dashboard() {
           dataByRef[w.blend.ref]?.headers || [],
           w.blend
         ),
+        // Scoped, not raw: `unfiltered` means "before the page's filters",
+        // never "before this reader's row limit".
         unfiltered: blendRows(
-          dataByRef[w.tab]?.rows || [],
-          dataByRef[w.blend.ref]?.rows || [],
+          scopedByRef[w.tab]?.rows || [],
+          scopedByRef[w.blend.ref]?.rows || [],
           w.blend,
           dataByRef[w.blend.ref]?.headers || [],
           dateOrder
@@ -397,7 +433,7 @@ export default function Dashboard() {
       }
     }
     return out
-  }, [allowedWidgets, filteredByRef, dataByRef, dateOrder])
+  }, [allowedWidgets, filteredByRef, dataByRef, scopedByRef, dateOrder])
 
   // --- Interaction -------------------------------------------------------
   /**

@@ -1,10 +1,13 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, ChevronDown, Copy, Eye, EyeOff, Search, ShieldCheck } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, Copy, Eye, EyeOff, Filter, Search, ShieldCheck, X } from 'lucide-react'
 import { db } from '../../firebase'
 import { accessId } from '../../lib/workspace'
+import { DEFAULT_SCOPE, SCOPE_TOKENS, describeScope } from '../../lib/userScope'
+import { collectTabRefs } from '../../lib/refs'
+import ConditionBuilder from './ConditionBuilder.jsx'
 import { stripUndefined } from '../../lib/firestoreSafe'
-import { Btn, Select, Toggle, stableEqual, useWorkspaceCtx } from './ui.jsx'
+import { Btn, Select, TextInput, Toggle, stableEqual, useWorkspaceCtx } from './ui.jsx'
 
 /**
  * Who can see what, across every page in the workspace.
@@ -25,6 +28,9 @@ import { Btn, Select, Toggle, stableEqual, useWorkspaceCtx } from './ui.jsx'
 /** A user with no status yet has not been looked at, which is pending. */
 const statusOf = (u) => u?.status || 'pending'
 
+/** Tooltips list one page per line. */
+const SCOPE_SEPARATOR = String.fromCharCode(10)
+
 const STATUS_TABS = [
   { value: 'all', label: 'All', on: 'border-slate-300 bg-slate-100 text-slate-700' },
   { value: 'pending', label: 'Pending', on: 'border-amber-300 bg-amber-50 text-amber-700' },
@@ -32,7 +38,7 @@ const STATUS_TABS = [
   { value: 'removed', label: 'Removed', on: 'border-rose-300 bg-rose-50 text-rose-700' },
 ]
 
-export default function UsersPanel({ pages }) {
+export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
   const [users, setUsers] = useState([])
   const [accessMap, setAccessMap] = useState({})
   const [expanded, setExpanded] = useState(null)
@@ -116,6 +122,28 @@ export default function UsersPanel({ pages }) {
       const to = accessMap[accessId(targetUid, page.id)]
       if (!from?.widgetOrder || Object.keys(from.widgetOrder).length === 0) return
       saveAccess(targetUid, page.id, { ...(to || { canView: false }), widgetOrder: from.widgetOrder })
+    })
+  }
+
+  /**
+   * The same row restriction on every page this user can open.
+   *
+   * "Ravi only ever sees the west" is a statement about Ravi, not about one
+   * page, and setting it eleven times is how the twelfth page gets missed.
+   * Only pages they can already view are touched -- this narrows access, it
+   * never grants it -- and only where the condition's tab actually appears
+   * on that page, since a rule naming a tab the page never reads would sit
+   * there doing nothing.
+   */
+  function applyScopeEverywhere(uid, scope) {
+    const named = new Set((scope?.conditions || []).map((c) => c?.tab).filter(Boolean))
+    pages.forEach((page) => {
+      const current = accessMap[accessId(uid, page.id)]
+      if (!current?.canView) return
+      const refs = collectTabRefs(page.widgets || [])
+      const conditions = (scope?.conditions || []).filter((c) => refs.has(c.tab))
+      if (named.size > 0 && conditions.length === 0) return
+      saveAccess(uid, page.id, { ...current, scope: { match: scope?.match || 'all', conditions } })
     })
   }
 
@@ -243,6 +271,25 @@ export default function UsersPanel({ pages }) {
                       ) : (
                         `${granted.length} of ${pages.length}`
                       )}
+                      {(() => {
+                        // A row restriction is the kind of thing somebody
+                        // forgets they set, so it is visible without opening
+                        // anything.
+                        const scoped = pages.filter((p) =>
+                          (accessMap[accessId(u.id, p.id)]?.scope?.conditions || []).some((c) => c?.column)
+                        )
+                        if (u.role === 'admin' || scoped.length === 0) return null
+                        return (
+                          <span
+                            className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+                            title={scoped
+                              .map((p) => `${p.name}: ${describeScope(accessMap[accessId(u.id, p.id)]?.scope, labelFor)}`)
+                              .join(SCOPE_SEPARATOR)}
+                          >
+                            <Filter size={10} /> {scoped.length} row-limited
+                          </span>
+                        )
+                      })()}
                     </td>
                     <td className="py-2 text-right">
                       <Btn onClick={() => setExpanded(open ? null : u.id)}>
@@ -310,9 +357,13 @@ export default function UsersPanel({ pages }) {
                                     page={page}
                                     value={accessMap[accessId(u.id, page.id)]}
                                     onSave={(next) => saveAccess(u.id, page.id, next)}
+                                    onApplyScopeToAll={(scope) => applyScopeEverywhere(u.id, scope)}
                                     // Whose order could be copied onto this
                                     // one. Admins included: theirs is usually
                                     // the arrangement worth spreading.
+                                    tabs={Array.from(collectTabRefs(page.widgets || []))}
+                                    tabHeaders={tabHeaders}
+                                    labelFor={labelFor}
                                     others={users
                                       .filter((other) => other.id !== u.id)
                                       .map((other) => ({
@@ -350,13 +401,119 @@ export default function UsersPanel({ pages }) {
   )
 }
 
-function AccessCard({ page, value, onSave, others = [] }) {
+/**
+ * The rows one person may see on one page.
+ *
+ * Deliberately one line to start with -- a column, and a value -- because
+ * "Ravi sees the west" is the whole request nine times in ten, and a full
+ * condition builder is a lot of screen for it. More conditions, other
+ * operators and ANY/ALL are one click away for the tenth.
+ */
+function ScopeEditor({ tabs, tabHeaders, scope, onChange, labelFor, onApplyAll }) {
+  const conditions = scope?.conditions || []
+  const first = conditions[0] || {}
+  const [advanced, setAdvanced] = useState(
+    conditions.length > 1 || (!!first.operator && first.operator !== 'equals')
+  )
+
+  const setFirst = (patch) => {
+    const next = [{ tab: tabs[0] || '', operator: 'equals', value: '', ...first, ...patch }]
+    onChange({ match: scope?.match || 'all', conditions: next })
+  }
+  const setAll = (next) => onChange({ match: scope?.match || 'all', conditions: next })
+
+  const columns = tabHeaders?.[first.tab || tabs[0]] || []
+
+  return (
+    <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50/40 p-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1 text-[11px] font-medium text-amber-800">
+          <Filter size={11} /> Only these rows <span className="font-normal text-amber-700/70">(optional)</span>
+        </p>
+        <div className="flex items-center gap-2">
+          {onApplyAll && conditions.some((c) => c?.column) && (
+            <button onClick={onApplyAll} className="text-[10px] text-amber-700 underline" title="Save this rule on every page this user can open">
+              apply to every page
+            </button>
+          )}
+          <button onClick={() => setAdvanced((a) => !a)} className="text-[10px] text-amber-700 underline">
+            {advanced ? 'simple' : 'more conditions'}
+          </button>
+        </div>
+      </div>
+
+      {advanced ? (
+        <ConditionBuilder
+          compact
+          conditions={conditions}
+          match={scope?.match || 'all'}
+          tabs={tabs}
+          tabHeaders={tabHeaders}
+          onChange={setAll}
+        />
+      ) : (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {tabs.length > 1 && (
+            <Select
+              value={first.tab || tabs[0] || ''}
+              onChange={(v) => setFirst({ tab: v, column: '' })}
+              options={tabs.map((t) => ({ value: t, label: labelFor(t) }))}
+              className="w-40"
+            />
+          )}
+          <Select
+            value={first.column || ''}
+            onChange={(v) => setFirst({ tab: first.tab || tabs[0] || '', column: v })}
+            options={columns}
+            placeholder="— column —"
+            className="w-44"
+          />
+          <span className="text-[10px] text-amber-800">is</span>
+          <TextInput
+            value={first.value ?? ''}
+            onChange={(v) => setFirst({ value: v })}
+            placeholder="the value"
+            className="w-40"
+          />
+          {conditions.length > 0 && (
+            <button onClick={() => setAll([])} className="text-amber-500 hover:text-rose-500" title="Remove this restriction">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+        <span className="text-[10px] text-amber-700/80">Or match them:</span>
+        {SCOPE_TOKENS.map((t) => (
+          <button
+            key={t.token}
+            onClick={() => setFirst({ value: t.token })}
+            className="rounded-full border border-amber-200 bg-white px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100"
+            title={`Matches ${t.label}, so one rule serves everybody`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <p className="mt-1 text-[10px] leading-relaxed text-amber-700/80">
+        Runs before anything on the page. They cannot clear it, a saved view cannot restore past it, and Reset does
+        not touch it. A rule whose value cannot be worked out shows them <strong>nothing</strong> rather than
+        everything.
+      </p>
+    </div>
+  )
+}
+
+function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs = [] }) {
   const { tabHeaders, labelFor } = useWorkspaceCtx()
   const [canView, setCanView] = useState(false)
   const [hidden, setHidden] = useState([])
   const [editable, setEditable] = useState({})
   const [downloadable, setDownloadable] = useState({})
   const [widgetOrder, setWidgetOrder] = useState({})
+  const [scope, setScope] = useState(DEFAULT_SCOPE)
   const [openRef, setOpenRef] = useState('')
   const [mode, setMode] = useState('editable')
   const [ordering, setOrdering] = useState(false)
@@ -367,6 +524,7 @@ function AccessCard({ page, value, onSave, others = [] }) {
     setEditable(value?.editable || {})
     setDownloadable(value?.downloadable || {})
     setWidgetOrder(value?.widgetOrder || {})
+    setScope(value?.scope || DEFAULT_SCOPE)
   }, [value])
 
   const widgets = page.widgets || []
@@ -399,7 +557,8 @@ function AccessCard({ page, value, onSave, others = [] }) {
     !stableEqual(hidden, value?.hiddenWidgets || []) ||
     !stableEqual(editable, value?.editable || {}) ||
     !stableEqual(downloadable, value?.downloadable || {}) ||
-    !stableEqual(widgetOrder, value?.widgetOrder || {})
+    !stableEqual(widgetOrder, value?.widgetOrder || {}) ||
+    !stableEqual(scope, value?.scope || DEFAULT_SCOPE)
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -574,11 +733,22 @@ function AccessCard({ page, value, onSave, others = [] }) {
         </>
       )}
 
-      <div className="flex items-center gap-2">
+      {canView && (
+        <ScopeEditor
+          tabs={tabs}
+          tabHeaders={tabHeaders}
+          scope={scope}
+          onChange={setScope}
+          labelFor={labelFor}
+          onApplyAll={onApplyScopeToAll ? () => onApplyScopeToAll(scope) : undefined}
+        />
+      )}
+
+      <div className="mt-2 flex items-center gap-2">
         <Btn
           variant="primary"
           disabled={!dirty}
-          onClick={() => onSave({ canView, hiddenWidgets: hidden, editable, downloadable, widgetOrder })}
+          onClick={() => onSave({ canView, hiddenWidgets: hidden, editable, downloadable, widgetOrder, scope })}
         >
           Save access
         </Btn>

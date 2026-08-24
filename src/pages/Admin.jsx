@@ -275,7 +275,7 @@ export default function Admin() {
             />
           )}
 
-          {section === 'users' && <UsersPanel pages={pages} />}
+          {section === 'users' && <UsersPanel pages={pages} tabHeaders={tabHeaders} labelFor={labelFor} />}
 
           {section === 'entrance' && <EntrancePanel />}
         </div>
