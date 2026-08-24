@@ -368,6 +368,17 @@ aside.fixed.right-0 {
 .widget-sized {
   display: flex;
   flex-direction: column;
+  /* Exactly what was typed. A page taller than the window is a page you
+     scroll, which is normal; a number that quietly does nothing is not. */
+  height: var(--widget-h);
+}
+/* On a phone a fixed height stops being a layout decision and becomes a
+   trap -- a widget taller than the device with the rest of the page below
+   it. There, and only there, the viewport wins. */
+@media (max-width: 767px) {
+  .widget-sized {
+    height: min(var(--widget-h), 80vh);
+  }
 }
 .widget-sized > .card {
   flex: 1 1 auto;

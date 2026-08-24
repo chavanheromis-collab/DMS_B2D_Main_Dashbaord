@@ -714,8 +714,9 @@ export default function Dashboard() {
             <ArrowUpDown size={13} />
             <span>
               <strong>#</strong> is the position — lower first, blank leaves it where it is, and it is yours alone.{' '}
-              <strong>W</strong> and <strong>H</strong> are pixels and belong to the page: a width becomes whole
-              columns of the grid, a height never outgrows the viewport, so both still fold on a phone.
+              <strong>W</strong> and <strong>H</strong> are pixels and belong to the page. A height is drawn exactly
+              as typed and only gives way on a phone; a width is capped at the canvas, so a number wider than the
+              page draws full width and anything larger looks the same.
             </span>
             {savingLayout && <span className="text-[10px] font-medium text-indigo-500">saving…</span>}
             <div className="ml-auto flex gap-2">

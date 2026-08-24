@@ -65,23 +65,28 @@ export function spanForPixels(widthPx, colWidth, gap = 12, columns = COLUMNS) {
  * widget claims.
  */
 /**
- * The height an admin pinned, expressed so it survives a small screen.
+ * The height an admin pinned.
  *
- * A hard `height: 640px` is a promise a phone cannot keep: it either
- * overflows the viewport or leaves a widget taller than the device. So the
- * number is a CEILING that yields -- `min()` against the viewport -- and
- * only below the widest breakpoint, where a fixed height stops being a
- * layout decision and starts being a trap.
+ * The number is honoured as typed. An earlier version capped it against the
+ * viewport, which meant every value past about 650px drew the same height --
+ * the admin typed 700, then 800, then 900, and nothing moved. A control that
+ * silently ignores its input is worse than one that is not there.
+ *
+ * So the number is published as a custom property and the STYLESHEET decides
+ * what to do with it: honoured exactly on a real screen, and capped only on
+ * a phone, where a widget taller than the device is a trap rather than a
+ * layout. That is a media query's job, and a media query cannot live in an
+ * inline style.
  *
  * Returns null for "no opinion", which is what most widgets should have:
  * the masonry already sizes them from their content.
  */
-export function heightStyle(px, { max = 82 } = {}) {
+export function heightStyle(px, { min = 60 } = {}) {
   const n = Number(px)
   if (!Number.isFinite(n) || n <= 0) return null
-  // Never taller than the viewport, whatever was typed, and never shorter
-  // than something you can actually read.
-  return { height: `min(${Math.max(120, Math.round(n))}px, ${max}vh)` }
+  // A floor, because a widget forty pixels tall is a mistake rather than a
+  // decision -- but a low one, since a thin strip of a KPI is legitimate.
+  return { '--widget-h': `${Math.max(min, Math.round(n))}px` }
 }
 
 export function spanForItem(item, breakpoint, colWidth, gap = 12, columns = COLUMNS) {

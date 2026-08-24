@@ -208,10 +208,13 @@ test('slider and chips reuse their siblings’ value shapes', () => {
 
 // --- a pinned height that a phone can still keep --------------------------
 
-test('a pinned height yields to the viewport', () => {
-  // A hard 640px is a promise a phone cannot keep: it either overflows the
-  // screen or leaves a widget taller than the device.
-  assert.deepEqual(heightStyle(640), { height: 'min(640px, 82vh)' })
+test('a pinned height is honoured as typed', () => {
+  // An earlier version capped this against the viewport, so every value past
+  // about 650px drew the same height: the admin typed 700, then 800, then
+  // 900, and nothing moved. The stylesheet caps it on a phone instead.
+  assert.deepEqual(heightStyle(640), { '--widget-h': '640px' })
+  assert.deepEqual(heightStyle(1200), { '--widget-h': '1200px' })
+  assert.notDeepEqual(heightStyle(700), heightStyle(900), 'a bigger number is a bigger widget')
 })
 
 test('no pin means no opinion, which is what most widgets want', () => {
@@ -222,10 +225,12 @@ test('no pin means no opinion, which is what most widgets want', () => {
   assert.equal(heightStyle(-10), null)
 })
 
-test('a height too small to read is raised to something that is', () => {
-  assert.deepEqual(heightStyle(20), { height: 'min(120px, 82vh)' })
+test('a height too small to be a decision is raised to a floor', () => {
+  // Low, though: a thin strip of a KPI is a legitimate thing to want.
+  assert.deepEqual(heightStyle(20), { '--widget-h': '60px' })
+  assert.deepEqual(heightStyle(90), { '--widget-h': '90px' })
 })
 
 test('fractions are rounded rather than written into the stylesheet', () => {
-  assert.deepEqual(heightStyle(300.6), { height: 'min(301px, 82vh)' })
+  assert.deepEqual(heightStyle(300.6), { '--widget-h': '301px' })
 })
