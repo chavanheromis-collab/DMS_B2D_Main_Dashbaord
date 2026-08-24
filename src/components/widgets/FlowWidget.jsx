@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { formatNumber } from '../../lib/dataUtils.js'
 import { STAGE_PALETTE } from '../../lib/config.js'
+import ExportButton from '../ExportButton.jsx'
 import FlowDiagram from './FlowDiagram.jsx'
 import {
   DEFAULT_FLOW,
@@ -59,6 +60,7 @@ export default function FlowWidget({
   crossFilters,
   onCrossFilter,
   dateOrder,
+  canExport = false,
 }) {
   const flow = { ...DEFAULT_FLOW, ...(widget.flow || {}) }
   const source = widget.ignoreFilters ? rawRowsByTab : rowsByTab
@@ -170,6 +172,24 @@ export default function FlowWidget({
 
   const openCount = forest.trees.reduce((sum, one) => sum + flattenFlow(one.root).filter((n) => n.open).length, 0)
 
+  const exportRows = useCallback(
+    () =>
+      forest.trees.flatMap((one) =>
+        flattenFlow(one.root).map((node) => ({
+          Tree: one.tree.label || one.tree.tab,
+          Level: node.level,
+          Branch: node.label,
+          Path: node.trail.join(' → '),
+          Table: node.tab,
+          Value: node.value,
+          Rows: node.count,
+          'Share of parent %': node.share === null ? '' : Math.round(node.share * 1000) / 10,
+          'Share of total %': node.shareOfRoot === null ? '' : Math.round(node.shareOfRoot * 1000) / 10,
+        }))
+      ),
+    [forest]
+  )
+
   // A viewer-changeable split has to offer the columns of the tab in play at
   // ITS level, which a hop above it may have changed -- offering the root
   // tab's columns everywhere would silently produce an empty branch.
@@ -258,6 +278,27 @@ export default function FlowWidget({
           >
             <Minus size={11} /> Collapse
           </button>
+          {canExport && (
+            <ExportButton
+              name={widget.title || 'flow'}
+              // Only what is open: a flow's whole premise is that you choose
+              // the depth, and an export that quietly walked past that
+              // choice would not be the thing on screen.
+              rows={exportRows}
+              columns={() => [
+                'Tree',
+                'Level',
+                'Branch',
+                'Path',
+                'Table',
+                'Value',
+                'Rows',
+                'Share of parent %',
+                'Share of total %',
+              ]}
+              count={exportRows().length}
+            />
+          )}
           <button
             onClick={() => setFullscreen((f) => !f)}
             className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium ${

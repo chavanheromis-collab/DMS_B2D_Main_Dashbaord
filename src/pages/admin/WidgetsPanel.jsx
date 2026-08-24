@@ -565,11 +565,16 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) 
               {BLENDABLE.has(widget.type) && <BlendEditor widget={widget} set={set} />}
               <StyleEditor widget={widget} set={set} />
 
-              <div className="mt-2 border-t border-slate-100 pt-2">
+              <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
                 <Toggle
                   checked={widget.ignoreFilters}
                   onChange={(v) => set({ ignoreFilters: v })}
                   label="Ignore page filters & buttons (always show the full, unfiltered figure)"
+                />
+                <Toggle
+                  checked={widget.allowExport !== false}
+                  onChange={(v) => set({ allowExport: v })}
+                  label="Let viewers download this as CSV (admins always can)"
                 />
               </div>
                 </>

@@ -755,6 +755,10 @@ export default function Dashboard() {
                 // click narrows the whole page instead of nothing.
                 const drill = crossFilterHandlerFor(widget, blended, tabData?.headers || [])
 
+                // Exporting is on unless an admin turned it off -- and an
+                // admin can always take the data they administer.
+                const canExport = isAdmin || widget.allowExport !== false
+
                 const common = { widget, rows, unfilteredRows: unfiltered, tabError: tabData?.error }
 
                 return {
@@ -816,7 +820,7 @@ export default function Dashboard() {
                         />
                       )}
                       {widget.type === 'chart' && (
-                        <ChartWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
+                        <ChartWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} canExport={canExport} />
                       )}
                       {widget.type === 'trend' && (
                         <TrendWidget
@@ -833,7 +837,9 @@ export default function Dashboard() {
                           isDrilled={crossFilters.some((c) => c.id === `gauge_${widget.id}`)}
                         />
                       )}
-                      {widget.type === 'pivot' && <PivotWidget {...common} onCrossFilter={drill} />}
+                      {widget.type === 'pivot' && (
+                        <PivotWidget {...common} onCrossFilter={drill} canExport={canExport} />
+                      )}
                       {widget.type === 'heatmap' && <HeatmapWidget {...common} onCrossFilter={drill} />}
                       {widget.type === 'stacked' && (
                         <StackedWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
@@ -863,10 +869,16 @@ export default function Dashboard() {
                           crossFilters={crossFilters}
                           onCrossFilter={toggleCrossFilter}
                           dateOrder={dateOrder}
+                          canExport={canExport}
                         />
                       )}
                       {widget.type === 'leaderboard' && (
-                        <LeaderboardWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
+                        <LeaderboardWidget
+                          {...common}
+                          crossFilters={crossFilters}
+                          onCrossFilter={drill}
+                          canExport={canExport}
+                        />
                       )}
                       {widget.type === 'table' && (
                         <TableWidget
@@ -890,7 +902,7 @@ export default function Dashboard() {
                           onEditCell={handleEditCell}
                           saving={saving}
                           dateOrder={dateOrder}
-                          canDownloadCsv={isAdmin}
+                          canExport={canExport}
                           canPersistLayout={isAdmin}
                           onSaveColumnOrder={(cols) => saveColumnOrder(widget.id, cols)}
                         />

@@ -28,7 +28,7 @@ export default function TableWidget({
   tabError,
   editableColumns = [],
   downloadableColumns = [],
-  canDownloadCsv = false,
+  canExport = false,
   onEditCell,
   saving,
   dateOrder = 'DMY',
@@ -184,18 +184,6 @@ export default function TableWidget({
     if (draft !== (row[col] ?? '')) await onEditCell?.(widget.tab, row, col, draft)
   }
 
-  function exportCsv() {
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`
-    const lines = [columns.map(esc).join(','), ...sorted.map((r) => columns.map((c) => esc(r[c])).join(','))]
-    const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${widget.title || widget.tab}.csv`.replace(/[^\w.-]+/g, '_')
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
   const detailColumns = widget.detailColumns?.length ? widget.detailColumns : tabHeaders || []
   const titleColumn = widget.detailTitleColumn || columns[0]
   const allDownloadColumns = widget.downloadButtons ? widget.downloadColumns || [] : []
@@ -328,14 +316,16 @@ export default function TableWidget({
           >
             <Rows3 size={12} />
           </button>
-          {canDownloadCsv && (
-            <button
-              onClick={exportCsv}
-              className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
-              title="Download the filtered rows as CSV"
-            >
-              <Download size={12} /> CSV
-            </button>
+          {canExport && (
+            <ExportButton
+              name={widget.title || widget.tab}
+              // Every row the filters left, in the column order and sort
+              // currently on screen -- not just the page being looked at,
+              // which is a paging artefact and not a fact about the data.
+              rows={() => sorted}
+              columns={() => columns}
+              count={sorted.length}
+            />
           )}
         </div>
       </div>

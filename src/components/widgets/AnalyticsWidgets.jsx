@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import ExportButton from '../ExportButton.jsx'
 import {
   Area,
   AreaChart,
@@ -209,7 +210,7 @@ export function TrendWidget({ widget, rows, unfilteredRows, tabError, dateOrder,
  * data is visible at a glance, and clicking one drills the dashboard into
  * that exact combination.
  */
-export function PivotWidget({ widget, rows, unfilteredRows, tabError, onCrossFilter }) {
+export function PivotWidget({ widget, rows, unfilteredRows, tabError, onCrossFilter, canExport = false }) {
   const source = widget.ignoreFilters ? unfilteredRows : rows
 
   // Back-compat: the original single-column props are the one-element case.
@@ -304,13 +305,39 @@ export function PivotWidget({ widget, rows, unfilteredRows, tabError, onCrossFil
 
   return (
     <div className="card">
-      <div className="mb-2">
-        <h2 className="widget-title">🧮 {widget.title}</h2>
-        <p className="text-[11px] text-slate-400">
-          {widget.tab} · {rowHeading}
-          {!totalsOnly && colCols.length > 0 && ` × ${colCols.join(' / ')}`}
-          {totalsOnly && ' · totals only'}
-        </p>
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="widget-title">🧮 {widget.title}</h2>
+          <p className="text-[11px] text-slate-400">
+            {widget.tab} · {rowHeading}
+            {!totalsOnly && colCols.length > 0 && ` × ${colCols.join(' / ')}`}
+            {totalsOnly && ' · totals only'}
+          </p>
+        </div>
+        {canExport && (
+          <ExportButton
+            name={widget.title || widget.tab}
+            // A pivot exports as the grid it is: one column per row
+            // dimension, one per column heading, and the totals -- so it
+            // lands in a spreadsheet looking like what was on screen.
+            rows={() =>
+              rowLabels.map((rowLabel, r) => {
+                const parts = splitPivotLabel(rowLabel)
+                const out = {}
+                rowCols.forEach((c, i) => {
+                  out[c] = parts[i] ?? ''
+                })
+                if (!totalsOnly) colLabels.forEach((colLabel, c) => {
+                  out[colLabel] = matrix[r]?.[c] ?? 0
+                })
+                out.Total = rowTotals[r]
+                return out
+              })
+            }
+            columns={() => [...rowCols, ...(totalsOnly ? [] : colLabels), 'Total']}
+            count={rowLabels.length}
+          />
+        )}
       </div>
 
       {tabError ? (

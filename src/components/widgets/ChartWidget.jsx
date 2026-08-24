@@ -164,7 +164,8 @@ function TreemapCell(props) {
  * styles. It only ever knows a tab name and column names, so it works on
  * whatever tab the admin points it at.
  */
-export default function ChartWidget({ widget, rows, unfilteredRows, tabError, crossFilters = [], onCrossFilter }) {
+export default function ChartWidget({
+  canExport = false, widget, rows, unfilteredRows, tabError, crossFilters = [], onCrossFilter }) {
   const type = widget.chartType || 'bar'
   const caps = chartCaps(type)
   const source = widget.ignoreFilters ? unfilteredRows : rows
@@ -695,13 +696,26 @@ export default function ChartWidget({ widget, rows, unfilteredRows, tabError, cr
 
   return (
     <div className="card flex h-full flex-col">
-      <div className="mb-2">
-        <h2 className="widget-title">📈 {widget.title}</h2>
-        <p className="text-[11px] text-slate-400">
-          {widget.tab} · {caps.binned ? 'distribution of' : 'by'} {subject || '—'}
-          {widget.ignoreFilters && ' · unfiltered'}
-          {onCrossFilter && ' · click to drill in'}
-        </p>
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="widget-title">📈 {widget.title}</h2>
+          <p className="text-[11px] text-slate-400">
+            {widget.tab} · {caps.binned ? 'distribution of' : 'by'} {subject || '—'}
+            {widget.ignoreFilters && ' · unfiltered'}
+            {onCrossFilter && ' · click to drill in'}
+          </p>
+        </div>
+        {canExport && (
+          <ExportButton
+            name={widget.title || widget.tab}
+            // What is plotted, not the rows behind it: the whole point of a
+            // chart is the aggregate, and that is the number people want to
+            // paste into a deck.
+            rows={() => data.map((d) => ({ [subject || 'Group']: d.name, [widget.valueLabel || 'Value']: d.value }))}
+            columns={() => [subject || 'Group', widget.valueLabel || 'Value']}
+            count={data.length}
+          />
+        )}
       </div>
 
       {tabError ? (

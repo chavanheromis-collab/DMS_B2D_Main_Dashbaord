@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import ExportButton from '../ExportButton.jsx'
 import { aggregate, formatNumber } from '../../lib/dataUtils'
 
 const MEDALS = ['🥇', '🥈', '🥉']
@@ -11,7 +12,15 @@ const MEDALS = ['🥇', '🥈', '🥉']
  *
  * Clicking a row cross-filters the dashboard to that value.
  */
-export default function LeaderboardWidget({ widget, rows, unfilteredRows, tabError, crossFilters, onCrossFilter }) {
+export default function LeaderboardWidget({
+  widget,
+  rows,
+  unfilteredRows,
+  tabError,
+  crossFilters,
+  onCrossFilter,
+  canExport = false,
+}) {
   const metrics = widget.metrics || []
 
   const ranked = useMemo(() => {
@@ -46,10 +55,28 @@ export default function LeaderboardWidget({ widget, rows, unfilteredRows, tabErr
     <div className="card flex h-[480px] flex-col overflow-hidden">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h2 className="widget-title">🏆 {widget.title}</h2>
-        <p className="text-[11px] text-slate-400">
-          {widget.tab} · by {widget.groupBy || '—'}
-          {widget.ignoreFilters && ' · unfiltered'}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-[11px] text-slate-400">
+            {widget.tab} · by {widget.groupBy || '—'}
+            {widget.ignoreFilters && ' · unfiltered'}
+          </p>
+          {canExport && (
+            <ExportButton
+              name={widget.title || widget.tab}
+              rows={() =>
+                ranked.map((r) => {
+                  const out = { [widget.groupBy || 'Group']: r.name }
+                  metrics.forEach((m, i) => {
+                    out[m.label || m.aggregation] = r.values[i]
+                  })
+                  return out
+                })
+              }
+              columns={() => [widget.groupBy || 'Group', ...metrics.map((m) => m.label || m.aggregation)]}
+              count={ranked.length}
+            />
+          )}
+        </div>
       </div>
 
       {tabError ? (

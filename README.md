@@ -954,6 +954,32 @@ on the card and the rows the dashboard then shows agree. A stage KPI with no
 conditions of its own stays inert, since filtering by it would be identical to
 clicking the stage.
 
+### Exporting to CSV
+
+Every widget that holds numbers worth taking away has a **CSV** button, and
+what it gives you is **exactly what is on screen** — not the tab as it exists
+in Google Sheets. A file that disagrees with the screen is worse than no file,
+because the disagreement is invisible until somebody acts on it.
+
+| Widget | What comes out |
+|---|---|
+| **Data Table** | Every row the filters left — not just the page you're looking at, which is a paging artefact — in your current column order and sort. |
+| **Chart** | The plotted series: one row per bar/slice, with its label and value. The aggregate is the point of a chart, and it's what people paste into a deck. |
+| **Leaderboard** | The ranking, with a column per metric. |
+| **Pivot Table** | The grid as a grid: one column per row dimension, one per column heading, plus totals. |
+| **Flow** | The branches you have **opened** — tree, level, branch, full path, table, value, rows, share of parent, share of total. A flow's premise is that you choose the depth, so an export that walked past that choice would not be the thing on screen. |
+
+Details that matter once a month and ruin your day when they're missing: a
+UTF-8 **BOM**, so Excel on Windows renders ₹ and accented names instead of
+mojibake; **CRLF** line endings per RFC 4180; quotes doubled (never
+backslash-escaped) and fields quoted only when they contain a delimiter,
+quote, newline or edge whitespace; and a **dated file name** (`Stock-ageing_2026-08-24.csv`),
+because the same export run twice a week apart is two different files.
+
+Admins get a per-widget **"Let viewers download this as CSV"** toggle, on by
+default. Switching it off hides the button for everyone but admins, who can
+always take the data they administer.
+
 ### Column filters (Excel / Sheets style)
 
 Every column header has a **funnel**. It opens a searchable list of the values
@@ -1183,6 +1209,7 @@ src/
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties
   lib/pageBackground.js   Per-page canvas backdrop + automatic text contrast
   lib/widgetControls.js   Per-widget dropdowns, buttons and sliders
+  lib/csv.js              CSV export: escaping, file names, the download
   lib/imageUrl.js         Drive-link rewriting + the image URL allow-list
   lib/pageControls.js     The unified page control list + saved views
   lib/chartOptions.js     Colour rules, reference lines, axis scaling
