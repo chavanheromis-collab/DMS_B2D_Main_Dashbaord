@@ -17,7 +17,7 @@ import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor
 import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
-import { fixedValues, initialValues, normalizeControls, splitControls } from '../lib/pageControls'
+import { fixedValues, initialValues, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
 import { stripUndefined } from '../lib/firestoreSafe'
 import WidgetControls from '../components/WidgetControls.jsx'
 import ControlBar from '../components/ControlBar.jsx'
@@ -314,6 +314,39 @@ export default function Dashboard() {
     () => mapTabFields({ widgets: allowedWidgets, controls: pageControls }, labelFor),
     [allowedWidgets, pageControls, labelFor]
   )
+
+  /**
+   * The rows each control reads its OPTIONS from: the page as everything
+   * ELSE has narrowed it.
+   *
+   * Without this a Region of "West" still lists every DSE in the sheet, and
+   * every name that does not sell in the west is a trap -- pick one and the
+   * dashboard empties with nothing to explain why. Computed in label space,
+   * because that is the space the control bar and the filter panel work in.
+   *
+   * One pass per listing control over one tab, memoised on the filter state,
+   * so it costs nothing until something actually changes.
+   */
+  const optionRowsByControl = useMemo(() => {
+    const { filters: viewFilters, buttons: viewButtons } = splitControls(view.controls)
+    const listing = viewFilters.filter((c) => ['select', 'multi', 'chips'].includes(c.kind))
+    const out = {}
+
+    for (const control of listing) {
+      out[control.id] = optionRows(control, {
+        rows: dataByLabel[control.tab]?.rows || [],
+        tab: control.tab,
+        filters: viewFilters,
+        values: effectiveValues,
+        buttons: viewButtons,
+        activeIds: effectiveButtonIds,
+        crossFilters,
+        search,
+        dateOrder,
+      })
+    }
+    return out
+  }, [view.controls, dataByLabel, effectiveValues, effectiveButtonIds, crossFilters, search, dateOrder])
 
   // --- Blending ----------------------------------------------------------
   // Per widget, and only for widgets that asked for it. The join runs on
@@ -716,6 +749,7 @@ export default function Dashboard() {
               views={views}
               onApplyView={applyView}
               tabsData={dataByLabel}
+              optionRows={optionRowsByControl}
               totalLabel={totalLabel}
               dateOrder={dateOrder}
             />
@@ -885,6 +919,7 @@ export default function Dashboard() {
                           values={filterValues}
                           onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
                           tabsData={dataByLabel}
+                          optionRows={optionRowsByControl}
                           dateOrder={dateOrder}
                         />
                       )}

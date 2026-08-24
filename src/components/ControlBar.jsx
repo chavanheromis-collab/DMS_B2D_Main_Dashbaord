@@ -95,7 +95,7 @@ function MultiSelect({ control, value, options, onChange, fill = '' }) {
  * -- a `min-w-[220px]` baked into a slider would otherwise silently override
  * an admin who asked for 150px, and the number they typed would be a lie.
  */
-function Control({ control, value, rows, onChange, isOn, onToggleButton, sized, dateOrder }) {
+function Control({ control, value, rows, optionRows, onChange, isOn, onToggleButton, sized, dateOrder }) {
   const active = isButton(control) ? isOn : filterIsActive(control, value)
   const fmt = sliderFormat(control.format)
 
@@ -220,7 +220,7 @@ function Control({ control, value, rows, onChange, isOn, onToggleButton, sized, 
       <MultiSelect
         control={control}
         value={value}
-        options={controlOptions(control, rows, dateOrder)}
+        options={controlOptions(control, optionRows ?? rows, dateOrder, value)}
         onChange={onChange}
         fill={fill}
       />
@@ -229,7 +229,7 @@ function Control({ control, value, rows, onChange, isOn, onToggleButton, sized, 
 
   if (control.kind === 'chips') {
     const selected = value || []
-    const { shown, hidden } = visibleChips(controlOptions(control, rows, dateOrder), control.maxChips)
+    const { shown, hidden } = visibleChips(controlOptions(control, optionRows ?? rows, dateOrder, value), control.maxChips)
     return (
       // Every value, and the row scrolls rather than pushing the rest of the
       // bar off the page. A control with ninety values is a real thing; a
@@ -320,7 +320,7 @@ function Control({ control, value, rows, onChange, isOn, onToggleButton, sized, 
       }`}
     >
       <option value="__ALL__">{control.label}: All</option>
-      {controlOptions(control, rows, dateOrder).map((opt) => (
+      {controlOptions(control, optionRows ?? rows, dateOrder, value).map((opt) => (
         <option key={opt} value={opt}>
           {opt}
         </option>
@@ -352,6 +352,7 @@ export default function ControlBar({
   views = [],
   onApplyView,
   tabsData,
+  optionRows,
   totalLabel,
   dateOrder = 'DMY',
 }) {
@@ -380,6 +381,7 @@ export default function ControlBar({
           control={control}
           value={values?.[control.id]}
           rows={rowsFor(control)}
+          optionRows={optionRows?.[control.id]}
           onChange={(v) => onChange(control.id, v)}
           isOn={(activeButtonIds || []).includes(control.id)}
           onToggleButton={() => onToggleButton(control)}

@@ -288,6 +288,15 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         />
                       </Field>
                     )}
+                    {['select', 'multi', 'chips'].includes(control.kind) && (
+                      <div className="pb-1.5">
+                        <Toggle
+                          checked={!control.independent}
+                          onChange={(v) => set({ independent: !v })}
+                          label="Narrow its values to what the page shows"
+                        />
+                      </div>
+                    )}
                     {control.kind === 'chips' && (
                       <Field label="Max chips" hint="0 shows every value.">
                         <TextInput

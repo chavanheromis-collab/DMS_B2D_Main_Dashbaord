@@ -738,6 +738,16 @@ Each control also has:
 - **Default value** (or *On by default* for a button) — the page opens with it
   applied. **Reset** returns to *these* defaults, not to blank: a control the
   admin meant to be on shouldn't be switched off by a reset.
+- **Narrow its values to what the page shows** — on by default. A Region of
+  *West* leaves the DSE list showing only DSEs who sell in the west; without
+  it, every other name is a trap that empties the dashboard with nothing to
+  explain why. Two rules keep it from becoming a dead end: a control never
+  narrows **its own** list (or picking *West* would leave *West* as the only
+  region on offer), and a **currently selected value always stays listed**
+  even once nothing matches it — otherwise it vanishes while still filtering,
+  and there is no way to undo what emptied the page. Switch it off for a list
+  that is a *reference* — every branch you have, whether or not it sold
+  anything — where shrinking hides the zeroes that matter.
 - **Max chips** — `0`, the default, shows **every value**. Chips used to cap
   themselves at twelve and say nothing about the rest; now a cap is something
   an admin chooses, and a capped list says `+N more` rather than pretending

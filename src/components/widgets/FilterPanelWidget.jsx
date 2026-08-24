@@ -22,6 +22,7 @@ export default function FilterPanelWidget({
   values,
   onChange,
   tabsData,
+  optionRows,
   onReset,
   dateOrder = 'DMY',
 }) {
@@ -71,7 +72,7 @@ export default function FilterPanelWidget({
               key={control.id}
               control={control}
               value={values?.[control.id]}
-              rows={tabsData?.[control.tab]?.rows || []}
+              rows={optionRows?.[control.id] ?? tabsData?.[control.tab]?.rows ?? []}
               columns={Number(widget.buttonColumns) > 0 ? Number(widget.buttonColumns) : 0}
               showSelectAll={widget.showSelectAll !== false}
               dateOrder={dateOrder}
@@ -97,7 +98,10 @@ function FilterGroup({ control, value, rows, columns, showSelectAll, onChange, d
   const multi = control.kind !== 'select'
   // The panel scrolls as a whole, so a group with ninety values costs the
   // reader a scroll rather than eighty missing options.
-  const { shown: options, hidden } = visibleChips(controlOptions(control, rows, dateOrder), control.maxChips)
+  const { shown: options, hidden } = visibleChips(
+    controlOptions(control, rows, dateOrder, value),
+    control.maxChips
+  )
   const selected = multi ? value || [] : value ? [value] : []
   const all = selected.length > 0 && multi && selected.length >= options.length
 

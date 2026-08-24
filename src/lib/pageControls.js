@@ -1,6 +1,6 @@
 import { uid } from './config.js'
 import { bucketedValues } from './dataUtils.js'
-import { filterIsActive } from './filterEngine.js'
+import { applyFilters, filterIsActive } from './filterEngine.js'
 
 // ---------------------------------------------------------------------
 // Page controls — one list, every kind
@@ -73,8 +73,37 @@ export const isButton = (control) => control?.kind === 'button'
  * cannot list months in one place and days in the other -- and neither has
  * to know what bucketing is.
  */
-export function controlOptions(control, rows, dateOrder = 'DMY') {
-  return bucketedValues(rows, control?.column, control?.bucket, dateOrder)
+export function controlOptions(control, rows, dateOrder = 'DMY', selected) {
+  const options = bucketedValues(rows, control?.column, control?.bucket, dateOrder)
+
+  // A value that is CURRENTLY SELECTED always stays on the list, even after
+  // the other filters have narrowed it out of existence. Without this rule,
+  // picking two things that do not overlap makes one of them vanish while it
+  // is still filtering the page -- the reader can see an empty dashboard and
+  // no way to undo what emptied it.
+  const kept = (Array.isArray(selected) ? selected : selected ? [selected] : [])
+    .map((v) => String(v).trim())
+    .filter((v) => v && !options.includes(v))
+
+  return kept.length ? [...options, ...kept] : options
+}
+
+/**
+ * The rows a control should read its OPTIONS from.
+ *
+ * Everything the page is filtered by, except this control itself. A Region
+ * of "West" should leave the DSE list showing only DSEs who sell in the
+ * west -- otherwise every other name on that list is a trap that empties
+ * the dashboard. But it must not narrow ITS OWN list, or picking West would
+ * leave "West" as the only region on offer and no way back.
+ *
+ * `independent` opts a control out: some lists are a reference (every branch
+ * we have, whether or not it sold anything this month) and shrinking them
+ * hides the zeroes that matter.
+ */
+export function optionRows(control, { rows, filters, ...rest }) {
+  if (!control || control.independent) return rows
+  return applyFilters(rows, { ...rest, filters: (filters || []).filter((f) => f.id !== control.id) })
 }
 
 /**

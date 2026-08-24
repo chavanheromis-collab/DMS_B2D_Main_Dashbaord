@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { bucketedCell, bucketedValues, dateBucket } from './dataUtils.js'
-import { controlOptions, visibleChips } from './pageControls.js'
+import { controlOptions, optionRows, visibleChips } from './pageControls.js'
 import { applyFilters } from './filterEngine.js'
 
 const ROWS = [
@@ -124,4 +124,56 @@ test('a cap bigger than the list is not a cap', () => {
 test('nothing to show is not an error', () => {
   assert.deepEqual(visibleChips(null, 5), { shown: [], hidden: 0 })
   assert.deepEqual(visibleChips([], 5), { shown: [], hidden: 0 })
+})
+
+// --- controls narrowing each other ---------------------------------------
+
+const SALES = [
+  { _row: 2, Region: 'West', DSE: 'Ravi' },
+  { _row: 3, Region: 'West', DSE: 'Sunil' },
+  { _row: 4, Region: 'East', DSE: 'Asha' },
+]
+
+const region = { id: 'r', kind: 'select', tab: 'T', column: 'Region' }
+const dse = { id: 'd', kind: 'select', tab: 'T', column: 'DSE' }
+
+const rowsFor = (control, values) =>
+  optionRows(control, { rows: SALES, tab: 'T', filters: [region, dse], values })
+
+test('a control lists only what the rest of the page still shows', () => {
+  // Otherwise every name that does not sell in the west is a trap: pick one
+  // and the dashboard empties with nothing to explain why.
+  const rows = rowsFor(dse, { r: 'West' })
+  assert.deepEqual(controlOptions(dse, rows), ['Ravi', 'Sunil'])
+})
+
+test('...but never narrows its own list', () => {
+  // Otherwise picking West leaves West as the only region on offer, and
+  // there is no way back to East.
+  const rows = rowsFor(region, { r: 'West' })
+  assert.deepEqual(controlOptions(region, rows), ['East', 'West'])
+})
+
+test('a selected value stays listed even once nothing matches it', () => {
+  // Pick two things that do not overlap and one of them would vanish while
+  // still filtering the page -- an empty dashboard and no way to undo it.
+  const rows = rowsFor(dse, { r: 'East' })
+  assert.deepEqual(controlOptions(dse, rows), ['Asha'])
+  assert.deepEqual(controlOptions(dse, rows, 'DMY', 'Ravi'), ['Asha', 'Ravi'])
+})
+
+test('a multi-choice control keeps all of its selections listed', () => {
+  const rows = rowsFor(dse, { r: 'East' })
+  assert.deepEqual(controlOptions(dse, rows, 'DMY', ['Ravi', 'Sunil']), ['Asha', 'Ravi', 'Sunil'])
+})
+
+test('an independent control lists everything, whatever else is on', () => {
+  // Some lists are a reference -- every branch we have, whether or not it
+  // sold anything -- and shrinking them hides the zeroes that matter.
+  const rows = rowsFor({ ...dse, independent: true }, { r: 'West' })
+  assert.deepEqual(controlOptions(dse, rows), ['Asha', 'Ravi', 'Sunil'])
+})
+
+test('with nothing else on, the list is simply everything', () => {
+  assert.deepEqual(controlOptions(dse, rowsFor(dse, {})), ['Asha', 'Ravi', 'Sunil'])
 })
