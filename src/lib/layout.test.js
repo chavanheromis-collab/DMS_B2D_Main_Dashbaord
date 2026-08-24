@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { orderWidgets } from './widgetOrder.js'
+import { heightStyle } from './gridSpan.js'
 import { groupStacked, groupSeries, scatterPoints } from './dataUtils.js'
 import { resolveStyle, styleVars, styleClass } from './widgetStyle.js'
 import { canvasFor, childPages, navLabelFor, sidebarPages } from './workspace.js'
@@ -203,4 +204,28 @@ test('slider and chips reuse their siblings’ value shapes', () => {
   assert.equal(filterIsActive({ kind: 'slider' }, {}), false)
   assert.equal(filterIsActive({ kind: 'chips' }, ['a']), true)
   assert.equal(filterIsActive({ kind: 'chips' }, []), false)
+})
+
+// --- a pinned height that a phone can still keep --------------------------
+
+test('a pinned height yields to the viewport', () => {
+  // A hard 640px is a promise a phone cannot keep: it either overflows the
+  // screen or leaves a widget taller than the device.
+  assert.deepEqual(heightStyle(640), { height: 'min(640px, 82vh)' })
+})
+
+test('no pin means no opinion, which is what most widgets want', () => {
+  assert.equal(heightStyle(null), null)
+  assert.equal(heightStyle(0), null)
+  assert.equal(heightStyle(''), null)
+  assert.equal(heightStyle('abc'), null)
+  assert.equal(heightStyle(-10), null)
+})
+
+test('a height too small to read is raised to something that is', () => {
+  assert.deepEqual(heightStyle(20), { height: 'min(120px, 82vh)' })
+})
+
+test('fractions are rounded rather than written into the stylesheet', () => {
+  assert.deepEqual(heightStyle(300.6), { height: 'min(301px, 82vh)' })
 })

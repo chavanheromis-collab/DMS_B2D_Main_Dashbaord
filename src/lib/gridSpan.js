@@ -64,6 +64,26 @@ export function spanForPixels(widthPx, colWidth, gap = 12, columns = COLUMNS) {
  * (which needs a pixel width) can never disagree about how much room a
  * widget claims.
  */
+/**
+ * The height an admin pinned, expressed so it survives a small screen.
+ *
+ * A hard `height: 640px` is a promise a phone cannot keep: it either
+ * overflows the viewport or leaves a widget taller than the device. So the
+ * number is a CEILING that yields -- `min()` against the viewport -- and
+ * only below the widest breakpoint, where a fixed height stops being a
+ * layout decision and starts being a trap.
+ *
+ * Returns null for "no opinion", which is what most widgets should have:
+ * the masonry already sizes them from their content.
+ */
+export function heightStyle(px, { max = 82 } = {}) {
+  const n = Number(px)
+  if (!Number.isFinite(n) || n <= 0) return null
+  // Never taller than the viewport, whatever was typed, and never shorter
+  // than something you can actually read.
+  return { height: `min(${Math.max(120, Math.round(n))}px, ${max}vh)` }
+}
+
 export function spanForItem(item, breakpoint, colWidth, gap = 12, columns = COLUMNS) {
   if (item?.widthPx > 0) {
     const fromPx = spanForPixels(item.widthPx, colWidth, gap, columns)

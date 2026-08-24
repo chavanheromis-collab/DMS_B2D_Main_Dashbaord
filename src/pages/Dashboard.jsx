@@ -10,6 +10,7 @@ import { useUserPrefs, orderWidgets } from '../hooks/useUserPrefs'
 import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
 import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from '../lib/filterEngine'
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
+import { heightStyle } from '../lib/gridSpan'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
 import { normalizeKey } from '../lib/dataUtils'
@@ -83,6 +84,7 @@ export default function Dashboard() {
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState(null)
   const [arranging, setArranging] = useState(false)
+  const [savingLayout, setSavingLayout] = useState(false)
   // Per-widget control values, keyed by widget id then control id. Held here
   // rather than inside each widget so the rows a widget receives are already
   // narrowed and no widget type needs to know controls exist.
@@ -502,6 +504,48 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId, pageControlsKey])
 
+  /**
+   * A widget's size, saved to the page.
+   *
+   * Order is a personal preference and lives in the reader's own document.
+   * SIZE is a layout decision and lives in the page: a canvas where one
+   * widget is 640px for one reader and 300px for another is not a canvas
+   * anybody designed. Only an admin reaches this -- the arrange button is
+   * theirs alone -- and the Firestore rules say so independently, so a
+   * hand-made request cannot get round the missing button.
+   *
+   * Blank clears the pin rather than storing a zero, which would be a widget
+   * one pixel tall.
+   */
+  async function saveWidgetSize(widgetId, patch) {
+    if (!isAdmin || !page?.id) return
+
+    const clean = {}
+    for (const [key, value] of Object.entries(patch)) {
+      const n = Number(value)
+      clean[key] = value === '' || !Number.isFinite(n) || n <= 0 ? null : Math.round(n)
+    }
+
+    const widgets = (page.widgets || []).map((w) =>
+      w.id === widgetId
+        ? {
+            ...w,
+            ...clean,
+            // A pinned width is only honoured in pixel mode, and typing one
+            // here is how somebody says that is what they want.
+            ...(clean.widthPx ? { widthMode: 'px' } : null),
+          }
+        : w
+    )
+
+    setSavingLayout(true)
+    try {
+      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets }), { merge: true })
+    } finally {
+      setSavingLayout(false)
+    }
+  }
+
   // Saving a dragged column order writes back to this page's document, so it
   // applies to every user rather than living in one browser session.
   async function saveColumnOrder(widgetId, columns) {
@@ -563,7 +607,7 @@ export default function Dashboard() {
 
   const headerActions = (
     <>
-      {allowedWidgets.length > 1 && (
+      {isAdmin && allowedWidgets.length > 1 && (
         <button
           onClick={() => setArranging((a) => !a)}
           className={`rounded-lg border p-2 transition-colors ${
@@ -571,7 +615,7 @@ export default function Dashboard() {
               ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
               : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
           }`}
-          title="Arrange widgets — your own order, nobody else's"
+          title="Arrange widgets — order, width and height"
         >
           <ArrowUpDown size={15} />
         </button>
@@ -669,11 +713,11 @@ export default function Dashboard() {
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-800">
             <ArrowUpDown size={13} />
             <span>
-              Type a position number on any widget. Lower numbers come first; blank means “leave where it is”.
+              <strong>#</strong> is the position — lower first, blank leaves it where it is, and it is yours alone.{' '}
+              <strong>W</strong> and <strong>H</strong> are pixels and belong to the page: a width becomes whole
+              columns of the grid, a height never outgrows the viewport, so both still fold on a phone.
             </span>
-            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium">
-              Only you see this order
-            </span>
+            {savingLayout && <span className="text-[10px] font-medium text-indigo-500">saving…</span>}
             <div className="ml-auto flex gap-2">
               <button
                 onClick={clearOrder}
@@ -815,7 +859,13 @@ export default function Dashboard() {
                     // always did -- no widget component knows about theming.
                     <div
                       className={`rise-in relative ${styleClass(themed)}`}
-                      style={{ animationDelay: `${Math.min(index * 45, 360)}ms`, ...(styleVars(themed) || {}) }}
+                      style={{
+                        animationDelay: `${Math.min(index * 45, 360)}ms`,
+                        ...(styleVars(themed) || {}),
+                        // A pinned height, expressed so a phone can still
+                        // keep the promise -- see lib/gridSpan.js.
+                        ...(heightStyle(widget.heightPx) || {}),
+                      }}
                     >
                       {arranging && (
                         <div className="absolute -left-1 -top-1 z-20 flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-1.5 py-1 shadow-md">
@@ -824,8 +874,26 @@ export default function Dashboard() {
                             value={widgetOrder[widget.id] ?? ''}
                             onChange={(e) => setWidgetOrder(widget.id, e.target.value)}
                             placeholder={String(index + 1)}
-                            className="w-12 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
+                            className="w-11 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
                             aria-label={`Position of ${widget.title}`}
+                          />
+                          <span className="text-[10px] font-semibold text-slate-400">W</span>
+                          <input
+                            type="number"
+                            value={widget.widthPx ?? ''}
+                            onChange={(e) => saveWidgetSize(widget.id, { widthPx: e.target.value })}
+                            placeholder="auto"
+                            className="w-14 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
+                            aria-label={`Width of ${widget.title} in pixels`}
+                          />
+                          <span className="text-[10px] font-semibold text-slate-400">H</span>
+                          <input
+                            type="number"
+                            value={widget.heightPx ?? ''}
+                            onChange={(e) => saveWidgetSize(widget.id, { heightPx: e.target.value })}
+                            placeholder="auto"
+                            className="w-14 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
+                            aria-label={`Height of ${widget.title} in pixels`}
                           />
                         </div>
                       )}

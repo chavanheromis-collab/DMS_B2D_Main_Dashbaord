@@ -291,6 +291,29 @@ value, so anything that isn't plainly an image location is dropped rather than
 escaped. A rejected URL falls back to the app default rather than painting a
 blank slab.
 
+### Sizing a widget on the page
+
+An admin on the dashboard itself gets **⇅ Arrange**, and every widget grows a
+small toolbar: **#** for its position, **W** and **H** in pixels.
+
+Size belongs to the **page**, not to the reader. A canvas where one widget is
+640px for one person and 300px for another is not a canvas anybody designed,
+so W and H save to the page document and everyone sees them. Order stays
+personal — see below.
+
+Both pixel numbers stay **responsive**, because a hard pixel size is a
+promise a phone cannot keep:
+
+- A **width** becomes a whole number of the 12 grid columns, rounded up, so
+  it re-flows at every breakpoint exactly as a named width does.
+- A **height** is written as `min(<your px>, 82vh)` — it never outgrows the
+  viewport, and it is floored at something readable so a mistyped `2` doesn't
+  produce a widget two pixels tall. Blank clears the pin and lets the masonry
+  size the widget from its content, which is what most widgets want.
+
+Only admins see the button, and the Firestore rules say the same thing
+independently — so the missing button is a convenience, not the security.
+
 ### Widget order — three levels
 
 Widgets are ordered by the most specific instruction available:
@@ -305,7 +328,15 @@ Widgets are ordered by the most specific instruction available:
 The precedence is deliberate. An admin deciding a salesperson should see the
 pipeline first is a legitimate instruction, so it beats the page default — but
 a person rearranging their own screen isn't overriding policy, it's a
-preference about their own eyes, so it still comes first. Nothing here decides
+preference about their own eyes, so it still comes first.
+
+**Arranging is now an admin's tool.** A reader with a saved order keeps it,
+but the ⇅ button is admin-only, so the way somebody gets a layout that suits
+their job is for an admin to give them one. In **Admin → Users**, beside
+*Copy permissions from…*, there is **Copy widget layout from…** — it takes
+one user's ordering and gives it to another across every page, and touches
+nothing else. Copying the whole permission set to achieve that would hand
+over page access nobody asked to change. Nothing here decides
 what a user may *see*; that's `hiddenWidgets`, enforced separately and not
 reachable from the dashboard.
 

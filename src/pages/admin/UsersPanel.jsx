@@ -84,6 +84,25 @@ export default function UsersPanel({ pages }) {
     })
   }
 
+  /**
+   * Copies only the widget ORDER, leaving every permission alone.
+   *
+   * Ordering is the one thing an ordinary reader cannot set for themselves
+   * any more -- the arrange tool on the canvas belongs to admins -- so the
+   * way somebody gets a layout that suits their job is for an admin to give
+   * them one, usually the one that already suits somebody doing the same
+   * job. Copying the whole permission set to achieve that would hand over
+   * page access nobody asked to change.
+   */
+  function copyLayoutFrom(targetUid, sourceUid) {
+    pages.forEach((page) => {
+      const from = accessMap[accessId(sourceUid, page.id)]
+      const to = accessMap[accessId(targetUid, page.id)]
+      if (!from?.widgetOrder || Object.keys(from.widgetOrder).length === 0) return
+      saveAccess(targetUid, page.id, { ...(to || { canView: false }), widgetOrder: from.widgetOrder })
+    })
+  }
+
   return (
     <div className="space-y-3">
       <div className="relative max-w-xs">
@@ -186,6 +205,20 @@ export default function UsersPanel({ pages }) {
                                     { value: '', label: 'Copy permissions from…' },
                                     ...users
                                       .filter((other) => other.id !== u.id && other.role !== 'admin')
+                                      .map((other) => ({ value: other.id, label: other.email || other.id })),
+                                  ]}
+                                  className="w-56"
+                                />
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <ArrowUpDown size={12} className="text-slate-400" />
+                                <Select
+                                  value=""
+                                  onChange={(v) => v && copyLayoutFrom(u.id, v)}
+                                  options={[
+                                    { value: '', label: 'Copy widget layout from…' },
+                                    ...users
+                                      .filter((other) => other.id !== u.id)
                                       .map((other) => ({ value: other.id, label: other.email || other.id })),
                                   ]}
                                   className="w-56"
