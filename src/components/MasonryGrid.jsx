@@ -86,8 +86,12 @@ export function packMasonry(items, slots, heights, gap = 12, columns = COLUMNS) 
  * `items`: [{ id, width, estimatedHeight?, content }] where `width` is one
  * of the existing quarter/third/half/twothird/full values.
  */
-export default function MasonryGrid({ items, gap = 12, className = '' }) {
+export default function MasonryGrid({ items, gap = 12, className = '', onMeasure }) {
   const containerRef = useRef(null)
+  // Held in a ref so a caller passing a fresh arrow function every render
+  // cannot re-create every observer on every render.
+  const measure = useRef(onMeasure)
+  measure.current = onMeasure
   const itemRefs = useRef(new Map())
   const [heights, setHeights] = useState({}) // id -> px, filled in as each widget reports its real size
   const [containerWidth, setContainerWidth] = useState(0)
@@ -129,9 +133,14 @@ export default function MasonryGrid({ items, gap = 12, className = '' }) {
     itemRefs.current.forEach((node, id) => {
       if (!node) return
       const ro = new ResizeObserver((entries) => {
-        const h = entries[0]?.contentRect?.height
+        const box = entries[0]?.contentRect
+        const h = box?.height
         if (!h) return
         setHeights((prev) => (Math.abs((prev[id] || 0) - h) > 1 ? { ...prev, [id]: h } : prev))
+        // The same measurement, handed back to whoever is drawing size
+        // controls. Reporting from here rather than measuring again means
+        // the number on screen is the number the layout actually used.
+        measure.current?.(id, Math.round(box.width), Math.round(h))
       })
       ro.observe(node)
       observers.push(ro)

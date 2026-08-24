@@ -296,6 +296,13 @@ blank slab.
 An admin on the dashboard itself gets **⇅ Arrange**, and every widget grows a
 small toolbar: **#** for its position, **W** and **H** in pixels.
 
+The W and H boxes show **the size the widget currently is**, greyed, so you
+adjust from a real number instead of typing into an empty box and guessing.
+It's a placeholder rather than a value: the widget isn't pinned until you
+type, and clearing the box still means *auto*. The number comes from the same
+measurement the layout used, so it's what the widget actually is on screen
+rather than a second opinion about it.
+
 Size belongs to the **page**, not to the reader. A canvas where one widget is
 640px for one person and 300px for another is not a canvas anybody designed,
 so W and H save to the page document and everyone sees them. Order stays

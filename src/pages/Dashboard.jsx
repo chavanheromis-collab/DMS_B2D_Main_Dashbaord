@@ -85,6 +85,18 @@ export default function Dashboard() {
   const [editError, setEditError] = useState(null)
   const [arranging, setArranging] = useState(false)
   const [savingLayout, setSavingLayout] = useState(false)
+  // What each widget currently measures, so the size boxes can show the
+  // number a widget IS rather than an empty box. Only collected while
+  // arranging: nothing else on the page needs it.
+  const [sizes, setSizes] = useState({})
+
+  const noteSize = useCallback((id, width, height) => {
+    setSizes((prev) => {
+      const was = prev[id]
+      if (was && Math.abs(was.width - width) <= 1 && Math.abs(was.height - height) <= 1) return prev
+      return { ...prev, [id]: { width, height } }
+    })
+  }, [])
   // Per-widget control values, keyed by widget id then control id. Held here
   // rather than inside each widget so the rows a widget receives are already
   // narrowed and no widget type needs to know controls exist.
@@ -813,6 +825,7 @@ export default function Dashboard() {
 
             <MasonryGrid
               gap={12}
+              onMeasure={arranging ? noteSize : undefined}
               items={view.widgets.map((widget, index) => {
                 const blended = blendedByWidget[widget.id]
                 const tabData = dataByLabel[widget.tab]
@@ -888,7 +901,10 @@ export default function Dashboard() {
                             type="number"
                             value={widget.widthPx ?? ''}
                             onChange={(e) => saveWidgetSize(widget.id, { widthPx: e.target.value })}
-                            placeholder="auto"
+                            // The current size, greyed: it says what the
+                            // widget is without pretending the page pinned
+                            // it, so clearing the box still means "auto".
+                            placeholder={sizes[widget.id]?.width ?? 'auto'}
                             className="w-14 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
                             aria-label={`Width of ${widget.title} in pixels`}
                           />
@@ -897,7 +913,7 @@ export default function Dashboard() {
                             type="number"
                             value={widget.heightPx ?? ''}
                             onChange={(e) => saveWidgetSize(widget.id, { heightPx: e.target.value })}
-                            placeholder="auto"
+                            placeholder={sizes[widget.id]?.height ?? 'auto'}
                             className="w-14 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
                             aria-label={`Height of ${widget.title} in pixels`}
                           />
