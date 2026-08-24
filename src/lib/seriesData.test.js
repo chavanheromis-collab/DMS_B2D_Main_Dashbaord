@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 
 import {
   OTHER_SERIES,
+  dateSeriesLabel,
+  isCyclical,
   asPercent,
   cumulative,
   movingAverage,
@@ -228,4 +230,127 @@ test('no dates, no chart, no crash', () => {
   assert.deepEqual(timeSeriesBy(null, { dateColumn: 'Date' }).data, [])
   assert.deepEqual(timeSeriesBy(SALES, {}).data, [])
   assert.deepEqual(timeSeriesBy([{ Date: 'not a date' }], { dateColumn: 'Date' }).data, [])
+})
+
+// --- a cyclical axis, and a date as the breakdown -------------------------
+
+const YEARS = [
+  { Date: '10/03/2024', Amount: '100' },
+  { Date: '12/03/2025', Amount: '200' },
+  { Date: '15/11/2025', Amount: '300' },
+  { Date: '02/11/2026', Amount: '400' },
+]
+
+const yoy = (extra = {}) =>
+  timeSeriesBy(YEARS, {
+    dateColumn: 'Date',
+    grain: 'monthOfYear',
+    breakdown: 'Date',
+    breakdownGrain: 'year',
+    valueColumn: 'Amount',
+    aggregation: 'sum',
+    order: 'DMY',
+    ...extra,
+  })
+
+test('every month of the year exists, in calendar order', () => {
+  // A March with no sales is the finding. A chart that simply omits March
+  // hides it.
+  const { data, cyclical } = yoy()
+  assert.equal(cyclical, true)
+  assert.equal(data.length, 12)
+  assert.deepEqual(data.map((d) => d.name).slice(0, 3), ['Jan', 'Feb', 'Mar'])
+  assert.equal(data[0].total, 0, 'January had nothing and says so')
+})
+
+test('one line per year, from the same date column', () => {
+  // The chart everybody actually wants: how does this November compare with
+  // the last two.
+  const { series, data } = yoy()
+  assert.deepEqual(series.sort(), ['2024', '2025', '2026'])
+  const nov = data[10]
+  assert.equal(nov['2025'], 300)
+  assert.equal(nov['2026'], 400)
+  assert.equal(nov['2024'], 0)
+})
+
+test('years can be ordered newest-first rather than by size', () => {
+  // Keeping which series is decided by size; only the drawing order follows
+  // the sort, so a legend reads 2026, 2025, 2024.
+  assert.deepEqual(yoy({ seriesSort: 'name_desc' }).series, ['2026', '2025', '2024'])
+  assert.deepEqual(yoy({ seriesSort: 'name' }).series, ['2024', '2025', '2026'])
+})
+
+test('a cyclical bucket carries its rows, since it has no date range', () => {
+  const { data } = yoy()
+  assert.equal(data[2].rows.length, 2, 'both Marches, from different years')
+  assert.equal(data[2].start, null, 'and no single span to filter by')
+})
+
+test('other cycles fold the same way', () => {
+  const week = timeSeriesBy(YEARS, { dateColumn: 'Date', grain: 'dayOfWeek', order: 'DMY' })
+  assert.equal(week.data.length, 7)
+  assert.equal(week.data[0].name, 'Mon', 'the week starts on Monday, so the weekend stays together')
+
+  const q = timeSeriesBy(YEARS, { dateColumn: 'Date', grain: 'quarterOfYear', order: 'DMY' })
+  assert.deepEqual(q.data.map((d) => d.name), ['Q1', 'Q2', 'Q3', 'Q4'])
+  assert.equal(q.data[0].value, 2, 'both March rows')
+  assert.equal(q.data[3].value, 2)
+})
+
+test('a continuous axis is unchanged by any of it', () => {
+  const { data, cyclical } = timeSeriesBy(YEARS, { dateColumn: 'Date', grain: 'year', order: 'DMY' })
+  assert.equal(cyclical, false)
+  assert.deepEqual(data.map((d) => d.value), [1, 2, 1])
+  assert.ok(data[0].start instanceof Date)
+})
+
+test('a date breakdown can be bucketed any of several ways', () => {
+  const byQuarter = timeSeriesBy(YEARS, {
+    dateColumn: 'Date',
+    grain: 'year',
+    breakdown: 'Date',
+    breakdownGrain: 'quarter',
+    order: 'DMY',
+  })
+  assert.deepEqual(byQuarter.series.sort(), ['2024 Q1', '2025 Q1', '2025 Q4', '2026 Q4'])
+
+  const byDay = timeSeriesBy(YEARS, {
+    dateColumn: 'Date',
+    grain: 'year',
+    breakdown: 'Date',
+    breakdownGrain: 'dayOfWeek',
+    order: 'DMY',
+  })
+  assert.ok(byDay.series.every((n) => /^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day$/.test(n)))
+})
+
+test('a value that will not parse as a date keeps its own text', () => {
+  // "2026-13-01" is a data-quality finding, not a row to drop.
+  const rows = [{ Date: '10/03/2025', When: 'not a date' }, { Date: '11/03/2025', When: '05/06/2024' }]
+  const { series } = timeSeriesBy(rows, {
+    dateColumn: 'Date',
+    grain: 'month',
+    breakdown: 'When',
+    breakdownGrain: 'year',
+    order: 'DMY',
+  })
+  assert.deepEqual(series.sort(), ['2024', 'not a date'])
+})
+
+test('the label helpers cover every grain they offer', () => {
+  const d = new Date(2026, 2, 15) // 15 March 2026
+  assert.equal(dateSeriesLabel(d, 'year'), '2026')
+  assert.equal(dateSeriesLabel(d, 'quarter'), '2026 Q1')
+  assert.equal(dateSeriesLabel(d, 'month'), 'Mar 2026')
+  assert.equal(dateSeriesLabel(d, 'monthOfYear'), 'March')
+  assert.equal(dateSeriesLabel(d, 'dayOfWeek'), 'Sunday')
+  assert.equal(dateSeriesLabel(d, 'nonsense'), null)
+  assert.equal(dateSeriesLabel(null, 'year'), null)
+})
+
+test('cyclical grains are recognised as such', () => {
+  assert.equal(isCyclical('monthOfYear'), true)
+  assert.equal(isCyclical('month'), false)
+  assert.equal(isCyclical(undefined), false)
 })

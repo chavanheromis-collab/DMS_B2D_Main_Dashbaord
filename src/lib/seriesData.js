@@ -19,6 +19,128 @@ import { PALETTE } from './config.js'
 //   Never invent one. A blank cell becomes "(blank)" and is charted, rather
 //   than quietly leaving its rows out of a total that claims to be complete.
 
+// ---------------------------------------------------------------------
+// Two kinds of time axis
+// ---------------------------------------------------------------------
+// A CONTINUOUS axis runs Jan 25, Feb 25, Mar 25 -- one bucket per period
+// that actually happened, in order, for ever. It answers "what happened".
+//
+// A CYCLICAL axis runs January…December, or Monday…Sunday, and folds every
+// year onto the same twelve slots. It answers "when in the year does this
+// happen" -- and paired with a breakdown by year it answers the question
+// every seasonal business actually asks, which is "how does this November
+// compare with the last three".
+//
+// They are different enough to need different bucketing. A continuous axis
+// walks from the first date to the last; a cyclical one has a FIXED domain
+// that exists whether or not the data does, because a March with no sales
+// is the finding, and a chart that simply omits March hides it.
+
+export const CYCLE_GRAINS = {
+  monthOfYear: {
+    label: 'Month of year (Jan–Dec)',
+    size: 12,
+    of: (d) => d.getMonth(),
+    name: (i) => ['January','February','March','April','May','June','July','August','September','October','November','December'][i],
+    short: (i) => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][i],
+  },
+  quarterOfYear: {
+    label: 'Quarter of year (Q1–Q4)',
+    size: 4,
+    of: (d) => Math.floor(d.getMonth() / 3),
+    name: (i) => `Q${i + 1}`,
+  },
+  dayOfWeek: {
+    label: 'Day of week (Mon–Sun)',
+    size: 7,
+    // Monday first: a week that starts on Sunday puts the weekend either
+    // side of the working days and makes the shape of a week unreadable.
+    of: (d) => (d.getDay() + 6) % 7,
+    name: (i) => ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][i],
+    short: (i) => ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i],
+  },
+  dayOfMonth: {
+    label: 'Day of month (1–31)',
+    size: 31,
+    of: (d) => d.getDate() - 1,
+    name: (i) => String(i + 1),
+  },
+  weekOfYear: {
+    label: 'Week of year (1–53)',
+    size: 53,
+    of: (d) => {
+      const start = new Date(d.getFullYear(), 0, 1)
+      return Math.min(52, Math.floor((d - start) / 86400000 / 7))
+    },
+    name: (i) => `W${i + 1}`,
+  },
+}
+
+export const TIME_GRAIN_GROUPS = [
+  {
+    label: 'Along a timeline',
+    grains: [
+      { value: 'day', label: 'Day' },
+      { value: 'week', label: 'Week' },
+      { value: 'month', label: 'Month (Mar 26)' },
+      { value: 'quarter', label: 'Quarter' },
+      { value: 'year', label: 'Year' },
+    ],
+  },
+  {
+    label: 'Folded onto one cycle',
+    grains: Object.entries(CYCLE_GRAINS).map(([value, g]) => ({ value, label: g.label })),
+  },
+]
+
+export const ALL_TIME_GRAINS = TIME_GRAIN_GROUPS.flatMap((g) =>
+  g.grains.map((x) => ({ ...x, label: `${g.label} · ${x.label}` }))
+)
+
+export function isCyclical(grain) {
+  return Boolean(CYCLE_GRAINS[grain])
+}
+
+/**
+ * How a date becomes a SERIES name.
+ *
+ * A breakdown column holding dates is useless as-is -- every row is its own
+ * series and the legend has four hundred entries. Bucketed, it becomes the
+ * comparison everyone wanted: one line per year, or per quarter.
+ */
+export const BREAKDOWN_GRAINS = [
+  { value: '', label: 'Use the value as it is' },
+  { value: 'year', label: 'Year (2026)' },
+  { value: 'quarter', label: 'Quarter (2026 Q1)' },
+  { value: 'month', label: 'Month (Mar 2026)' },
+  { value: 'monthOfYear', label: 'Month name (March)' },
+  { value: 'dayOfWeek', label: 'Day of week (Monday)' },
+]
+
+export function dateSeriesLabel(date, grain) {
+  if (!date) return null
+  switch (grain) {
+    case 'year':
+      return String(date.getFullYear())
+    case 'quarter':
+      return `${date.getFullYear()} Q${Math.floor(date.getMonth() / 3) + 1}`
+    case 'month':
+      return `${CYCLE_GRAINS.monthOfYear.short(date.getMonth())} ${date.getFullYear()}`
+    case 'monthOfYear':
+      return CYCLE_GRAINS.monthOfYear.name(date.getMonth())
+    case 'dayOfWeek':
+      return CYCLE_GRAINS.dayOfWeek.name((date.getDay() + 6) % 7)
+    default:
+      return null
+  }
+}
+
+export const SERIES_SORTS = [
+  { value: 'total', label: 'Biggest first' },
+  { value: 'name', label: 'A → Z (2022 first)' },
+  { value: 'name_desc', label: 'Z → A (2026 first)' },
+]
+
 export const SERIES_MODES = [
   { value: 'line', label: 'Lines', hint: 'Best for comparing shapes over time.' },
   { value: 'area', label: 'Stacked areas', hint: 'Shows the total and the mix at once.' },
@@ -87,19 +209,30 @@ const labelOf = (value) => (isBlank(value) ? '(blank)' : String(value).trim())
  * well as a key, and a stack whose biggest band is at the bottom is easier
  * to read along than one in alphabetical order.
  */
-export function pickSeries(totals, { maxSeries = 6, otherLabel = OTHER_SERIES } = {}) {
+export function pickSeries(totals, { maxSeries = 6, otherLabel = OTHER_SERIES, sort = 'total' } = {}) {
+  // Which series to KEEP is always decided by size -- dropping the biggest
+  // because it sorts last alphabetically would be indefensible. Only the
+  // ORDER they are drawn and listed in follows the sort, which is what lets
+  // a year breakdown read 2026, 2025, 2024 instead of by volume.
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
   const sorted = Array.from(totals.entries()).sort((a, b) => b[1] - a[1])
   const cap = Number(maxSeries) > 0 ? Number(maxSeries) : sorted.length
 
-  if (sorted.length <= cap) return { series: sorted.map((e) => e[0]), rolled: [], otherLabel }
+  const ordered = (list) => {
+    if (sort === 'name') return [...list].sort(collator.compare)
+    if (sort === 'name_desc') return [...list].sort((a, b) => collator.compare(b, a))
+    return list
+  }
+
+  if (sorted.length <= cap) return { series: ordered(sorted.map((e) => e[0])), rolled: [], otherLabel }
 
   // One over the cap is not worth an "Other" that holds a single series and
   // hides its name for nothing.
-  if (sorted.length === cap + 1) return { series: sorted.map((e) => e[0]), rolled: [], otherLabel }
+  if (sorted.length === cap + 1) return { series: ordered(sorted.map((e) => e[0])), rolled: [], otherLabel }
 
   const kept = sorted.slice(0, cap - 1).map((e) => e[0])
   const rolled = sorted.slice(cap - 1).map((e) => e[0])
-  return { series: [...kept, otherLabel], rolled, otherLabel }
+  return { series: [...ordered(kept), otherLabel], rolled, otherLabel }
 }
 
 /**
@@ -115,26 +248,48 @@ export function timeSeriesBy(
     dateColumn,
     grain = 'month',
     breakdown,
+    breakdownGrain = '',
     valueColumn,
     aggregation = 'count',
     order = 'DMY',
     maxBuckets = 36,
     maxSeries = 6,
+    seriesSort = 'total',
   }
 ) {
   if (!dateColumn) return { data: [], series: [], rolled: [] }
 
+  const cycle = CYCLE_GRAINS[grain]
   const buckets = new Map()
   const totals = new Map()
   let min = null
   let max = null
 
+  /**
+   * The series a row belongs to.
+   *
+   * A breakdown column holding dates is useless raw -- every row becomes its
+   * own series. Bucketed, it is the comparison that was wanted. A date that
+   * will not parse falls back to its raw text rather than vanishing, because
+   * "2026-13-01" is a data-quality finding and deserves to be visible.
+   */
+  const seriesOf = (row) => {
+    if (!breakdown) return 'value'
+    if (breakdownGrain) {
+      const d = toDate(row[breakdown], order)
+      const label = dateSeriesLabel(d, breakdownGrain)
+      if (label) return label
+    }
+    return labelOf(row[breakdown])
+  }
+
   for (const row of rows || []) {
     const d = toDate(row[dateColumn], order)
     if (!d) continue
-    const start = bucketStart(d, grain)
-    const key = start.getTime()
-    const series = breakdown ? labelOf(row[breakdown]) : 'value'
+    // A cyclical axis keys on the slot in the cycle; a continuous one on the
+    // start of the period the date falls in.
+    const key = cycle ? cycle.of(d) : bucketStart(d, grain).getTime()
+    const series = seriesOf(row)
 
     if (!buckets.has(key)) buckets.set(key, new Map())
     const bucket = buckets.get(key)
@@ -157,41 +312,74 @@ export function timeSeriesBy(
   }
 
   const picked = breakdown
-    ? pickSeries(totals, { maxSeries })
+    ? pickSeries(totals, { maxSeries, sort: seriesSort })
     : { series: ['value'], rolled: [], otherLabel: OTHER_SERIES }
   const keep = new Set(picked.series)
   const rolled = new Set(picked.rolled)
+
+  /** Turns one bucket's rows into one row of chart data. */
+  const fill = (bucket, meta) => {
+    const entry = { ...meta }
+    for (const series of picked.series) entry[series] = 0
+
+    const all = []
+    for (const [series, list] of bucket.entries()) {
+      const value = aggregate(list, valueColumn, aggregation)
+      const target = keep.has(series) ? series : rolled.has(series) ? picked.otherLabel : null
+      if (target !== null) entry[target] = (entry[target] || 0) + value
+      all.push(...list)
+    }
+
+    entry.total = picked.series.reduce((sum, key) => sum + (entry[key] || 0), 0)
+    entry.count = all.length
+    // Kept so a click on a cyclical bucket -- which has no single date range
+    // to filter by -- can still drill, by the rows themselves.
+    entry.rows = all
+    // The unbroken-down chart keeps its old key, so nothing that reads
+    // `value` has to learn about series.
+    if (!breakdown) entry.value = entry.value || 0
+    return entry
+  }
+
+  // A cyclical axis has a fixed domain: every slot exists whether or not the
+  // data does, in calendar order. A March with no sales is the finding, and
+  // a chart that omits March hides it.
+  if (cycle) {
+    const data = Array.from({ length: cycle.size }, (_, i) =>
+      fill(buckets.get(i) || new Map(), {
+        name: (cycle.short || cycle.name)(i),
+        fullName: cycle.name(i),
+        cycleIndex: i,
+        start: null,
+        end: null,
+      })
+    )
+    return { data, series: picked.series, rolled: picked.rolled, otherLabel: picked.otherLabel, cyclical: true }
+  }
 
   const data = []
   let cursor = new Date(min)
   while (cursor.getTime() <= max && data.length < maxBuckets * 4) {
     const key = cursor.getTime()
-    const bucket = buckets.get(key) || new Map()
     const next = nextBucket(cursor, grain)
-
-    const entry = { name: bucketLabel(cursor, grain), start: new Date(cursor), end: new Date(next.getTime() - 1) }
-    for (const series of picked.series) entry[series] = 0
-
-    let rows_ = 0
-    for (const [series, list] of bucket.entries()) {
-      const value = aggregate(list, valueColumn, aggregation)
-      const target = keep.has(series) ? series : rolled.has(series) ? picked.otherLabel : null
-      if (target !== null) entry[target] = (entry[target] || 0) + value
-      rows_ += list.length
-    }
-
-    entry.total = picked.series.reduce((sum, s) => sum + (entry[s] || 0), 0)
-    entry.count = rows_
-    // The unbroken-down chart keeps its old key, so nothing that reads
-    // `value` has to learn about series.
-    if (!breakdown) entry.value = entry.value || 0
-
-    data.push(entry)
+    data.push(
+      fill(buckets.get(key) || new Map(), {
+        name: bucketLabel(cursor, grain),
+        start: new Date(cursor),
+        end: new Date(next.getTime() - 1),
+      })
+    )
     cursor = next
   }
 
   const trimmed = data.length > maxBuckets ? data.slice(data.length - maxBuckets) : data
-  return { data: trimmed, series: picked.series, rolled: picked.rolled, otherLabel: picked.otherLabel }
+  return {
+    data: trimmed,
+    series: picked.series,
+    rolled: picked.rolled,
+    otherLabel: picked.otherLabel,
+    cyclical: false,
+  }
 }
 
 /**

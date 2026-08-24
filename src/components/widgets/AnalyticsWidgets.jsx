@@ -3,11 +3,13 @@ import ExportButton from '../ExportButton.jsx'
 import {
   asPercent,
   cumulative,
+  isCyclical,
   movingAverage,
   seriesColor,
   seriesRollupNote,
   timeSeriesBy,
 } from '../../lib/seriesData.js'
+import { normalizeKey } from '../../lib/dataUtils'
 import {
   Area,
   AreaChart,
@@ -16,6 +18,7 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  LabelList,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -71,12 +74,25 @@ export function TrendWidget({
         dateColumn: widget.dateColumn,
         grain: widget.grain || 'month',
         breakdown,
+        breakdownGrain: widget.breakdownGrain || '',
         valueColumn: widget.column,
         aggregation: widget.aggregation || 'count',
         order: dateOrder,
         maxSeries: Number(widget.maxSeries) > 0 ? Number(widget.maxSeries) : 6,
+        seriesSort: widget.seriesSort || 'total',
       }),
-    [source, widget.dateColumn, widget.grain, breakdown, widget.column, widget.aggregation, widget.maxSeries, dateOrder]
+    [
+      source,
+      widget.dateColumn,
+      widget.grain,
+      breakdown,
+      widget.breakdownGrain,
+      widget.column,
+      widget.aggregation,
+      widget.maxSeries,
+      widget.seriesSort,
+      dateOrder,
+    ]
   )
 
   const shown = useMemo(() => built.series.filter((name) => !hidden.has(name)), [built.series, hidden])
@@ -96,7 +112,8 @@ export function TrendWidget({
     single ? widget.color || '#4F46E5' : seriesColor(name, i, widget.seriesColors, widget.palette)
 
   const fmt = (v) => formatNumber(v, widget.format, widget.aggregation)
-  const activeBucket = crossFilters.find((cf) => cf.id === `trend_${widget.id}`)?.label
+  const activeCf = crossFilters.find((cf) => cf.id === `trend_${widget.id}`)
+  const activeBucket = activeCf?.value ?? activeCf?.label
 
   /**
    * Clicking a bucket filters the dashboard to that PERIOD.
@@ -112,7 +129,29 @@ export function TrendWidget({
     if (!bucketName || !onCrossFilter || !widget.dateColumn) return
 
     const bucket = data.find((d) => d.name === bucketName)
-    if (!bucket?.start || !bucket?.end) return
+    if (!bucket) return
+
+    // A cyclical bucket is not a span -- "March" is three Marches from three
+    // different years, and no date range covers it. What it IS, exactly, is
+    // its rows, so it drills by sheet row: precise, and scoped to this tab
+    // because a row number means nothing anywhere else.
+    if (!bucket.start || !bucket.end) {
+      const keys = Array.from(
+        new Set((bucket.rows || []).map((row) => normalizeKey(row._row)).filter((k) => k !== null))
+      )
+      if (keys.length === 0) return
+      onCrossFilter({
+        id: `trend_${widget.id}`,
+        kind: 'keys',
+        value: bucketName,
+        keys,
+        keyColumns: [{ tab: widget.tab, column: '_row' }],
+        keyNames: [],
+        icon: '📅',
+        label: bucket.fullName || bucketName,
+      })
+      return
+    }
 
     const iso = (d) => new Date(d).toISOString().slice(0, 10)
     onCrossFilter({
@@ -207,7 +246,19 @@ export function TrendWidget({
             strokeWidth={hover === name ? 3 : 2}
             dot={{ r: 2, cursor: onCrossFilter ? 'pointer' : 'default' }}
             activeDot={{ r: 5 }}
-          />
+          >
+            {widget.showValues && (
+              <LabelList
+                dataKey={name}
+                position="top"
+                fontSize={9}
+                fill={color}
+                // A zero on every empty month is noise, and on a folded axis
+                // there are a lot of empty months.
+                formatter={(v) => (v ? fmt(v) : '')}
+              />
+            )}
+          </Line>
         )
         return
       }
@@ -260,6 +311,7 @@ export function TrendWidget({
             {widget.tab} · {widget.dateColumn || '—'} by {widget.grain || 'month'}
             {breakdown && ` · split by ${breakdown}`}
             {widget.cumulative && ' · cumulative'}
+            {isCyclical(widget.grain) && ' · every year folded onto one cycle'}
             {onCrossFilter && ' · click a period to drill in'}
           </p>
         </div>

@@ -7,13 +7,12 @@ import {
   PALETTE,
   STAGE_PALETTE,
   TABLE_CONTROL_KINDS,
-  TIME_GRAINS,
   aggNeedsColumn,
   uid,
 } from '../../lib/config'
 import { looksLikeDateColumn } from '../../lib/dataUtils'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps } from './ui.jsx'
-import { SERIES_MODES, SERIES_PALETTES } from '../../lib/seriesData'
+import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
 import ConditionBuilder from './ConditionBuilder.jsx'
 
 /**
@@ -569,7 +568,7 @@ export function TrendEditor({ widget, cols, set }) {
           />
         </Field>
         <Field label="Bucket by">
-          <Select value={widget.grain || 'month'} onChange={(v) => set({ grain: v })} options={TIME_GRAINS} />
+          <Select value={widget.grain || 'month'} onChange={(v) => set({ grain: v })} options={ALL_TIME_GRAINS} />
         </Field>
         <Field label="Calculation">
           <Select
@@ -601,6 +600,16 @@ export function TrendEditor({ widget, cols, set }) {
             />
           </Field>
 
+          {breakdown && (
+            <Field label="Bucket the breakdown by" className="w-48" hint="When that column holds dates.">
+              <Select
+                value={widget.breakdownGrain || ''}
+                onChange={(v) => set({ breakdownGrain: v })}
+                options={BREAKDOWN_GRAINS}
+              />
+            </Field>
+          )}
+
           {breakdown ? (
             <>
               <Field label="Draw them as" className="w-48">
@@ -615,6 +624,13 @@ export function TrendEditor({ widget, cols, set }) {
                   type="number"
                   value={widget.maxSeries ?? 6}
                   onChange={(v) => set({ maxSeries: Number(v) || 0 })}
+                />
+              </Field>
+              <Field label="Order the series" className="w-40">
+                <Select
+                  value={widget.seriesSort || 'total'}
+                  onChange={(v) => set({ seriesSort: v })}
+                  options={SERIES_SORTS}
                 />
               </Field>
               <Field label="Palette" className="w-36" hint="For anything unassigned.">
@@ -658,6 +674,30 @@ export function TrendEditor({ widget, cols, set }) {
         </p>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2">
+        <Btn
+          onClick={() =>
+            set({
+              grain: 'monthOfYear',
+              breakdown: widget.dateColumn,
+              breakdownGrain: 'year',
+              seriesMode: 'line',
+              seriesSort: 'name_desc',
+              cumulative: false,
+              maxSeries: 6,
+            })
+          }
+          disabled={!widget.dateColumn}
+        >
+          <Plus size={11} /> Set up a year-on-year comparison
+        </Btn>
+        <p className="max-w-lg text-[10px] text-slate-500">
+          Folds every year onto one Jan–Dec axis and draws a line per year, newest first — the seasonal question
+          ("how does this November compare with the last three") in one click. It is six settings; this is the
+          combination that answers it.
+        </p>
+      </div>
+
       {breakdown && <SeriesColorEditor widget={widget} set={set} />}
 
       {/* --- readings ----------------------------------------------------- */}
@@ -674,6 +714,13 @@ export function TrendEditor({ widget, cols, set }) {
             checked={!!widget.movingAverage}
             onChange={(v) => set({ movingAverage: v })}
             label="Moving-average line"
+          />
+        </div>
+        <div className="pb-1.5">
+          <Toggle
+            checked={!!widget.showValues}
+            onChange={(v) => set({ showValues: v })}
+            label="Print the value at each point"
           />
         </div>
         {widget.movingAverage && (

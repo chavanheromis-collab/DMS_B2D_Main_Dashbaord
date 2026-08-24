@@ -694,7 +694,7 @@ stacking two contradictory filters.
 | **Combo Chart** | Bars and a line on **two independent axes** — volume against rate, which one axis would flatten. |
 | **Scatter / Bubble** | Two numeric columns plotted against each other, optionally sized by a third and coloured by a fourth. The one widget that shows individual rows, so outliers survive. |
 | **Heat Map** | The pivot's cross-tabulation as colour intensity, with five ramps. Click a cell to filter to that row × column. |
-| **Trend Over Time** | Buckets a date column by day / week / month / quarter / year, filling empty periods with zero. **Split it into series** by any second column, each with its own colour. Running totals, a moving-average line, and a legend you can switch series off in. Click a period to filter to it. |
+| **Trend Over Time** | Two kinds of time axis — along a timeline (day → year) or **folded onto one cycle** (Jan–Dec, Mon–Sun, Q1–Q4…). **Split into series** by any second column, and if that column holds dates, bucket it too — which is how you get one line per year. Running totals, a moving-average line, value labels, and a legend you can switch series off in. |
 | **Pivot Table** | Cross-tabulates columns, with totals. Either axis can cross **several** columns. Renders as a full matrix, or as a grouped list with parent values merged down their children. |
 | **Gauge / Target** | Progress toward a target, with zones and click-to-filter. |
 | **Activity Feed** | A chronological feed of the newest rows. |
@@ -926,6 +926,39 @@ series per value. Then:
 A blank value becomes its own **"(blank)"** series rather than quietly
 dropping out of a total that claims to be complete — the same rule the flow
 and the pie follow.
+
+#### Two kinds of time axis
+
+A **timeline** axis runs Jan 25, Feb 25, Mar 25 — one bucket per period that
+actually happened. It answers *what happened*.
+
+A **cycle** axis runs January…December, or Monday…Sunday, folding every year
+onto the same twelve slots. It answers *when in the year does this happen* —
+and paired with a breakdown by year, it answers the question every seasonal
+business actually asks: **how does this November compare with the last three?**
+
+Cycles available: month of year, quarter of year, day of week (Monday first,
+so the weekend stays together), day of month, week of year. Every slot exists
+whether or not the data does — a March with no sales is the finding, and a
+chart that omits March hides it.
+
+**A date column makes a poor breakdown raw** — every row becomes its own
+series and the legend has four hundred entries. So a breakdown can be bucketed
+too: by year, quarter, month, month name or day of week. That's the whole
+trick behind the year-on-year chart, and there's a **one-click preset** in the
+editor that sets all six settings at once.
+
+Two details:
+
+- **Series order** can follow size (default) or name — ascending or
+  descending — so a year breakdown reads 2026, 2025, 2024 rather than by
+  volume. Which series are *kept* is always decided by size; only the drawing
+  order follows the sort, because dropping the biggest series for sorting last
+  alphabetically would be indefensible.
+- **Clicking a folded bucket still filters.** "March" is three Marches from
+  three different years and no date range covers it — so it drills by sheet
+  row instead: exact, and scoped to its own tab, since a row number means
+  nothing anywhere else.
 
 ### Pie, donut and rose — built for real data
 
