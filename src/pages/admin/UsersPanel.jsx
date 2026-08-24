@@ -66,7 +66,7 @@ export default function UsersPanel({ pages }) {
     const q = query.trim().toLowerCase()
     return [...users]
       .filter((u) => status === 'all' || statusOf(u) === status)
-      .filter((u) => !q || `${u.email || ''} ${u.name || ''}`.toLowerCase().includes(q))
+      .filter((u) => !q || `${u.email || ''} ${u.name || ''} ${u.jobRole || ''}`.toLowerCase().includes(q))
       // Pending first: they are the ones waiting on somebody.
       .sort((a, b) => {
         const rank = (u) => (statusOf(u) === 'pending' ? 0 : 1)
@@ -127,7 +127,7 @@ export default function UsersPanel({ pages }) {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Find a user…"
+          placeholder="Find by name, email or role…"
             className="w-full rounded-lg border border-slate-200 py-1.5 pl-7 pr-2 text-xs placeholder:text-slate-300"
           />
         </div>
@@ -180,7 +180,16 @@ export default function UsersPanel({ pages }) {
                 <Fragment key={u.id}>
                   <tr className="border-b border-slate-50">
                     <td className="py-2 pr-2">
-                      <p className="font-medium text-ink">{u.name || '—'}</p>
+                      <p className="flex flex-wrap items-center gap-1.5 font-medium text-ink">
+                        {u.name || '—'}
+                        {/* What they said they do. Not a permission -- it is
+                            how an admin recognises who is asking. */}
+                        {u.jobRole && (
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal text-slate-500">
+                            {u.jobRole}
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-slate-400">{u.email}</p>
                     </td>
                     <td className="py-2 pr-2">
@@ -205,18 +214,6 @@ export default function UsersPanel({ pages }) {
                         ]}
                         className="w-24"
                       />
-                      {/* What they asked for when they signed up. A request,
-                          never a grant -- the rules stop a user writing
-                          their own role, so this is the only way it moves. */}
-                      {u.requestedRole && u.requestedRole !== (u.role || 'user') && (
-                        <button
-                          onClick={() => saveUser(u.id, { role: u.requestedRole })}
-                          className="mt-1 block rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700 hover:bg-amber-100"
-                          title={`They asked to be an ${u.requestedRole}. Click to grant it.`}
-                        >
-                          asked for {u.requestedRole}
-                        </button>
-                      )}
                     </td>
                     <td className="py-2 pr-2 text-xs text-slate-500">
                       {u.role === 'admin' ? (

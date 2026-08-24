@@ -59,19 +59,23 @@ export function AuthProvider({ children }) {
    * What a new user tells us about themselves while they wait.
    *
    * A name they can correct -- Google's display name is often a personal
-   * account's, not the one their colleagues know -- and the role they say
-   * they need. The role is a REQUEST and is stored under its own key: a
-   * user writing their own `role` would be granting themselves admin, so
-   * the rules refuse it and this never tries.
+   * account's, not the one their colleagues know -- and what they DO:
+   * "Sales Executive", "Service Advisor", "Yard Supervisor". Free text,
+   * because a dealership's job titles are its own and a dropdown written
+   * here would be wrong at the second dealership that used this.
+   *
+   * `jobRole` is deliberately nothing to do with `role`, which is the
+   * access level and only an admin can set. Two different questions that
+   * happen to share a word.
    */
   const submitProfile = useCallback(
-    async ({ name, requestedRole }) => {
+    async ({ name, jobRole }) => {
       if (!auth.currentUser) return
       await setDoc(
         doc(db, 'users', auth.currentUser.uid),
         {
           name: String(name || '').trim() || auth.currentUser.displayName || '',
-          requestedRole: requestedRole === 'admin' ? 'admin' : 'user',
+          jobRole: String(jobRole || '').trim(),
           requestedAt: serverTimestamp(),
         },
         { merge: true }

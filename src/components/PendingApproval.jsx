@@ -10,18 +10,18 @@ import { useAuth } from '../context/AuthContext.jsx'
  * account is called, which is often not it -- and what they need to be able
  * to do.
  *
- * The role is a REQUEST. A user writing their own role would be granting
- * themselves admin, so it is stored under its own key, the security rules
- * refuse the real one, and an admin sees "asked for admin" beside their row
- * with one click to grant it. There are only ever two roles, so this is two
- * buttons rather than a box to type into.
+ * The role asked for here is their JOB -- "Sales Executive", "Service
+ * Advisor" -- and has nothing to do with the access level, which only an
+ * admin sets. It is a free text box rather than a list because a
+ * dealership's job titles are its own, and any list written here would be
+ * wrong at the second dealership that used this.
  */
 export default function PendingApproval() {
   const { user, userDoc, signOut, submitProfile } = useAuth()
   const removed = userDoc?.status === 'removed'
 
   const [name, setName] = useState(userDoc?.name || user?.displayName || '')
-  const [role, setRole] = useState(userDoc?.requestedRole || 'user')
+  const [jobRole, setJobRole] = useState(userDoc?.jobRole || '')
   const [busy, setBusy] = useState(false)
   const sent = Boolean(userDoc?.requestedAt)
 
@@ -29,7 +29,7 @@ export default function PendingApproval() {
     e.preventDefault()
     setBusy(true)
     try {
-      await submitProfile({ name, requestedRole: role })
+      await submitProfile({ name, jobRole })
     } finally {
       setBusy(false)
     }
@@ -73,32 +73,19 @@ export default function PendingApproval() {
               />
             </label>
 
-            <div>
-              <span className="text-[10px] uppercase tracking-wide text-slate-400">What you need</span>
-              <div className="mt-0.5 grid grid-cols-2 gap-1.5">
-                {[
-                  { value: 'user', label: 'User', hint: 'See the pages I’m given' },
-                  { value: 'admin', label: 'Admin', hint: 'Build and edit pages' },
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setRole(option.value)}
-                    className={`rounded-lg border px-2 py-1.5 text-left transition-colors ${
-                      role === option.value
-                        ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="block text-xs font-medium">{option.label}</span>
-                    <span className="block text-[10px] text-slate-400">{option.hint}</span>
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1 text-[10px] text-slate-400">
-                Asking is not getting: an admin decides, and can change it later.
-              </p>
-            </div>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">Your role</span>
+              <input
+                value={jobRole}
+                onChange={(e) => setJobRole(e.target.value)}
+                placeholder="e.g. Sales Executive"
+                className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+              />
+              <span className="mt-1 block text-[10px] text-slate-400">
+                What you do, so your admin knows which pages you need. Which pages you actually get is their
+                decision.
+              </span>
+            </label>
 
             <button
               type="submit"

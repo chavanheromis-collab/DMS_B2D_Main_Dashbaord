@@ -1324,13 +1324,17 @@ browser can't grant itself permission.
 **Signing in** is Google-only, and a new account lands on a waiting screen
 that asks two things: the **name** their colleagues would recognise (Google
 hands us whatever their personal account is called, which often isn't it) and
-**what they need** — *User* or *Admin*, the only two roles there are.
+**their role** — *Sales Executive*, *Service Advisor*, *Yard Supervisor*.
 
-The role is a **request, not a grant**. It's stored under its own key, the
-security rules freeze the real `role` and `status` at whatever the document
-already says, and the admin sees **"asked for admin"** beside that user's row
-with one click to grant it. Asking is not getting, however the request is
-made.
+That role is their **job**, typed freely, not an access level. A dealership's
+job titles are its own, and any dropdown written here would be wrong at the
+second dealership that used this. It shows as a chip beside their name in the
+Users list and is searchable, because "the service advisor who joined last
+week" is how an admin actually remembers somebody.
+
+Nothing a user types about themselves changes what they can see: `jobRole` is
+deliberately not `role`, and the security rules freeze `role` and `status` at
+whatever the document already says.
 
 **Admin → Users** filters by **All / Pending / Active / Removed**, each with a
 count, and lists pending users first — they're the ones waiting on somebody.
