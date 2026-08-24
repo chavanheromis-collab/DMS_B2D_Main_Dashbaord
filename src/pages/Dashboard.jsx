@@ -10,7 +10,7 @@ import { useUserPrefs, orderWidgets } from '../hooks/useUserPrefs'
 import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
 import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from '../lib/filterEngine'
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
-import { heightStyle } from '../lib/gridSpan'
+import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
 import { normalizeKey } from '../lib/dataUtils'
@@ -27,6 +27,7 @@ import { PageIcon } from '../components/PageIcon.jsx'
 import AppShell from '../components/AppShell.jsx'
 import CrossFilterChips from '../components/CrossFilterChips.jsx'
 import MasonryGrid from '../components/MasonryGrid.jsx'
+import ArrangeBar from '../components/ArrangeBar.jsx'
 import KpiWidget from '../components/widgets/KpiWidget.jsx'
 import PipelineWidget from '../components/widgets/PipelineWidget.jsx'
 import FlowWidget from '../components/widgets/FlowWidget.jsx'
@@ -574,11 +575,20 @@ export default function Dashboard() {
   async function saveWidgetSize(widgetId, patch) {
     if (!isAdmin || !page?.id) return
 
+    const floors = { widthPx: MIN_WIDTH_PX, heightPx: MIN_HEIGHT_PX }
     const clean = {}
     for (const [key, value] of Object.entries(patch)) {
       const n = Number(value)
-      clean[key] = value === '' || !Number.isFinite(n) || n <= 0 ? null : Math.round(n)
+      clean[key] =
+        value === '' || value === null || !Number.isFinite(n) || n <= 0
+          ? null
+          : Math.max(floors[key] || 1, Math.round(n))
     }
+
+    const current = (page.widgets || []).find((w) => w.id === widgetId)
+    // Nothing to write. The handle commits on blur as well as on a pause, so
+    // tabbing out of a box nobody edited used to cost a whole page write.
+    if (current && Object.entries(clean).every(([k, v]) => (current[k] ?? null) === v)) return
 
     const widgets = (page.widgets || []).map((w) =>
       w.id === widgetId
@@ -767,10 +777,11 @@ export default function Dashboard() {
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-800">
             <ArrowUpDown size={13} />
             <span>
-              <strong>#</strong> is the position — lower first, blank leaves it where it is, and it is yours alone.{' '}
-              <strong>W</strong> and <strong>H</strong> are pixels and belong to the page. A height is drawn exactly
-              as typed and only gives way on a phone; a width is capped at the canvas, so a number wider than the
-              page draws full width and anything larger looks the same.
+              Every widget wears a pill showing its position and its real size — click one to edit.{' '}
+              <strong>#</strong> is the position: lower first, blank leaves it where it is, and it is yours alone.{' '}
+              <strong>W</strong> and <strong>H</strong> are pixels and belong to the page. They save when you leave
+              the box, press Enter, or pause; Escape puts back what was saved. A height is drawn exactly as typed
+              and only gives way on a phone; a width never runs past the edge of the canvas.
             </span>
             {savingLayout && <span className="text-[10px] font-medium text-indigo-500">saving…</span>}
             <div className="ml-auto flex gap-2">
@@ -934,37 +945,16 @@ export default function Dashboard() {
                       }}
                     >
                       {arranging && (
-                        <div className="absolute -left-1 -top-1 z-20 flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-1.5 py-1 shadow-md">
-                          <input
-                            type="number"
-                            value={widgetOrder[widget.id] ?? ''}
-                            onChange={(e) => setWidgetOrder(widget.id, e.target.value)}
-                            placeholder={String(index + 1)}
-                            className="w-11 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
-                            aria-label={`Position of ${widget.title}`}
-                          />
-                          <span className="text-[10px] font-semibold text-slate-400">W</span>
-                          <input
-                            type="number"
-                            value={widget.widthPx ?? ''}
-                            onChange={(e) => saveWidgetSize(widget.id, { widthPx: e.target.value })}
-                            // The current size, greyed: it says what the
-                            // widget is without pretending the page pinned
-                            // it, so clearing the box still means "auto".
-                            placeholder={sizes[widget.id]?.width ?? 'auto'}
-                            className="w-14 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
-                            aria-label={`Width of ${widget.title} in pixels`}
-                          />
-                          <span className="text-[10px] font-semibold text-slate-400">H</span>
-                          <input
-                            type="number"
-                            value={widget.heightPx ?? ''}
-                            onChange={(e) => saveWidgetSize(widget.id, { heightPx: e.target.value })}
-                            placeholder={sizes[widget.id]?.height ?? 'auto'}
-                            className="w-14 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
-                            aria-label={`Height of ${widget.title} in pixels`}
-                          />
-                        </div>
+                        <ArrangeBar
+                          index={index + 1}
+                          order={widgetOrder[widget.id] ?? ''}
+                          onOrder={(v) => setWidgetOrder(widget.id, v)}
+                          widthPx={widget.widthPx ?? ''}
+                          heightPx={widget.heightPx ?? ''}
+                          measured={sizes[widget.id]}
+                          onSize={(patch) => saveWidgetSize(widget.id, patch)}
+                          title={widget.title}
+                        />
                       )}
 
                       {/* This widget's own controls, above its card. Living

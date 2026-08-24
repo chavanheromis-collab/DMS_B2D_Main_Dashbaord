@@ -81,7 +81,32 @@ export function spanForPixels(widthPx, colWidth, gap = 12, columns = COLUMNS) {
  * Returns null for "no opinion", which is what most widgets should have:
  * the masonry already sizes them from their content.
  */
-export function heightStyle(px, { min = 60 } = {}) {
+/**
+ * Floors for a pinned size.
+ *
+ * A number is committed once, not per keystroke -- but somebody can still
+ * type 4 and tab away, and a widget four pixels wide is indistinguishable
+ * from a broken page. Low enough that a thin strip of a KPI is still
+ * allowed; high enough that the result is always visibly a widget.
+ */
+export const MIN_WIDTH_PX = 80
+export const MIN_HEIGHT_PX = 60
+
+/**
+ * The width a pixel-sized widget draws at.
+ *
+ * Its own number, but never past the right edge of the canvas: a widget
+ * placed in column 7 that then drew 900px would spill off the page, and the
+ * part that spilled would simply be unreachable. Falls back to the span the
+ * packer reserved when no pixel width was pinned.
+ */
+export function drawnWidth(widthPx, { left = 0, containerWidth = 0, spanWidth = 0 }) {
+  if (!(widthPx > 0)) return spanWidth
+  if (!(containerWidth > 0)) return widthPx
+  return Math.max(1, Math.min(widthPx, containerWidth - left))
+}
+
+export function heightStyle(px, { min = MIN_HEIGHT_PX } = {}) {
   const n = Number(px)
   if (!Number.isFinite(n) || n <= 0) return null
   // A floor, because a widget forty pixels tall is a mistake rather than a

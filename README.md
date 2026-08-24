@@ -294,7 +294,20 @@ blank slab.
 ### Sizing a widget on the page
 
 An admin on the dashboard itself gets **⇅ Arrange**, and every widget grows a
-small toolbar: **#** for its position, **W** and **H** in pixels.
+small pill in its corner reading its position and its real size — `3 412×583`.
+That is the thing you want most while arranging, so it's readable without
+opening anything, and it covers nothing: the old always-open toolbar sat
+across the title of every short widget.
+
+Click the pill to edit: **#** for position, **W** and **H** in pixels, and an
+**×** to go back to automatic.
+
+A number is **committed once, not as you type it**. It saves when you leave
+the box, when you press Enter, or after a short pause; Escape puts back what
+was saved. Typing `412` used to save `4`, then `41`, then `412` — three
+writes, three full re-layouts, and a widget that really was four pixels wide
+on the way there, which is what made resizing flash blank. A value below a
+usable floor is raised to it rather than drawn.
 
 The W and H boxes show **the size the widget currently is**, greyed, so you
 adjust from a real number instead of typing into an empty box and guessing.
@@ -311,16 +324,20 @@ personal — see below.
 Both pixel numbers stay **responsive**, because a hard pixel size is a
 promise a phone cannot keep:
 
-- A **width** becomes a whole number of the 12 grid columns, rounded up, so
-  it re-flows at every breakpoint exactly as a named width does.
-- A **height** is written as `min(<your px>, 82vh)` — it never outgrows the
-  viewport, and it is floored at something readable so a mistyped `2` doesn't
-  produce a widget two pixels tall. The **card stretches to fill it** and
-  anything too tall scrolls inside the card, so the widget changes rather
-  than the space around it. It beats a height the widget sets for itself (a
-  leaderboard is 480px by default) — your number is the more specific
-  instruction. Blank clears the pin and lets the masonry size the widget from
-  its content, which is what most widgets want.
+- A **width** claims a whole number of the 12 grid columns, rounded up, so it
+  re-flows at every breakpoint exactly as a named width does — and it is
+  clamped to the space **remaining from where the widget sits**, not to the
+  canvas as a whole, so a wide widget in the seventh column can't spill off
+  the right-hand edge into somewhere nobody can scroll to.
+- A **height** is drawn exactly as typed, published as a CSS custom property
+  so a media query can cap it on a phone — where a widget taller than the
+  device is a trap rather than a layout — and floored at 60px so a mistyped
+  `2` doesn't produce a widget two pixels tall. The **card stretches to fill
+  it** and anything too tall scrolls inside the card, so the widget changes
+  rather than the space around it. It beats a height the widget sets for
+  itself (a leaderboard is 480px by default) — your number is the more
+  specific instruction. Blank clears the pin and lets the masonry size the
+  widget from its content, which is what most widgets want.
 
 The **content fills the size too** — a chart, a trend, a stacked chart, a
 pie and a flow canvas all stretch to the height you set instead of keeping

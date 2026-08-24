@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 // The span maths lives in lib/gridSpan.js so it can be tested without a DOM
 // -- Node cannot import a .jsx file. Re-exported because callers (and its
 // own tests) have long imported `spanForWidth` from here.
-import { COLUMNS, breakpointFor, spanForItem, spanForWidth } from '../lib/gridSpan'
+import { COLUMNS, breakpointFor, drawnWidth, spanForItem, spanForWidth } from '../lib/gridSpan'
 
 export { spanForWidth }
 
@@ -187,10 +187,10 @@ export default function MasonryGrid({ items, gap = 12, className = '', onMeasure
         }
         const left = p.col * (colWidth + gap)
         const spanWidth = p.span * colWidth + (p.span - 1) * gap
-        // A pixel-sized widget draws at exactly its number, but never wider
-        // than the canvas -- overflowing would push a horizontal scrollbar
-        // onto the whole page.
-        const width = item.widthPx > 0 ? Math.min(item.widthPx, containerWidth) : spanWidth
+        // A pixel-sized widget draws at exactly its number, but never past
+        // the right edge -- measured from where it actually sits, not from
+        // the canvas origin, or a widget in column 7 spills off the page.
+        const width = drawnWidth(item.widthPx, { left, containerWidth, spanWidth })
         return (
           <div
             key={item.id}

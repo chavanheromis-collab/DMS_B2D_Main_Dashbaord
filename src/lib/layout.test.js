@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { orderWidgets } from './widgetOrder.js'
-import { heightStyle } from './gridSpan.js'
+import { MIN_HEIGHT_PX, MIN_WIDTH_PX, drawnWidth, heightStyle } from './gridSpan.js'
 import { groupStacked, groupSeries, scatterPoints } from './dataUtils.js'
 import { resolveStyle, styleVars, styleClass } from './widgetStyle.js'
 import { canvasFor, childPages, navLabelFor, sidebarPages } from './workspace.js'
@@ -233,4 +233,34 @@ test('a height too small to be a decision is raised to a floor', () => {
 
 test('fractions are rounded rather than written into the stylesheet', () => {
   assert.deepEqual(heightStyle(300.6), { '--widget-h': '301px' })
+})
+
+// --- how wide a pinned widget actually draws -----------------------------
+
+test('a pinned width draws at exactly its number', () => {
+  assert.equal(drawnWidth(306, { left: 0, containerWidth: 1200, spanWidth: 360 }), 306)
+})
+
+test('a pinned width never spills off the right edge of the canvas', () => {
+  // Measured from where the widget SITS. Clamping against the canvas width
+  // alone let a widget in the seventh column draw halfway off the page,
+  // where the part that overflowed simply could not be reached.
+  assert.equal(drawnWidth(412, { left: 750, containerWidth: 900, spanWidth: 150 }), 150)
+  assert.equal(drawnWidth(2000, { left: 0, containerWidth: 900, spanWidth: 900 }), 900)
+})
+
+test('no pinned width falls back to the span the packer reserved', () => {
+  assert.equal(drawnWidth(0, { left: 0, containerWidth: 1200, spanWidth: 360 }), 360)
+  assert.equal(drawnWidth(null, { left: 0, containerWidth: 1200, spanWidth: 360 }), 360)
+})
+
+test('before the canvas has been measured, the number is taken as given', () => {
+  // The first frame: no ResizeObserver has reported yet, and clamping
+  // against a width of zero would draw every pinned widget one pixel wide.
+  assert.equal(drawnWidth(306, { left: 0, containerWidth: 0, spanWidth: 0 }), 306)
+})
+
+test('the floors are low enough to be useful and high enough to be visible', () => {
+  assert.ok(MIN_WIDTH_PX >= 40 && MIN_WIDTH_PX <= 200)
+  assert.equal(MIN_HEIGHT_PX, 60, 'the height floor heightStyle already used')
 })
