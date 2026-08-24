@@ -256,6 +256,9 @@ export default function Admin() {
               tabHeaders={tabHeaders}
               widgets={draft.widgets || []}
               setWidgets={setPart('widgets')}
+              // A filter panel arranges the page's existing controls, so the
+              // widget editor has to know what they are.
+              pageControls={draft.controls || []}
             />
           )}
 

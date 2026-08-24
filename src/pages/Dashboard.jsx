@@ -14,7 +14,7 @@ import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/re
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
 import { normalizeKey } from '../lib/dataUtils'
 import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
-import { styleClass, styleVars } from '../lib/widgetStyle'
+import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
 import { fixedValues, initialValues, normalizeControls, splitControls } from '../lib/pageControls'
@@ -28,6 +28,7 @@ import MasonryGrid from '../components/MasonryGrid.jsx'
 import KpiWidget from '../components/widgets/KpiWidget.jsx'
 import PipelineWidget from '../components/widgets/PipelineWidget.jsx'
 import FlowWidget from '../components/widgets/FlowWidget.jsx'
+import FilterPanelWidget from '../components/widgets/FilterPanelWidget.jsx'
 import LeaderboardWidget from '../components/widgets/LeaderboardWidget.jsx'
 import TableWidget from '../components/widgets/TableWidget.jsx'
 import ChartWidget from '../components/widgets/ChartWidget.jsx'
@@ -48,6 +49,7 @@ function estimateWidgetHeight(type) {
   if (type === 'scorecard') return 190
   if (type === 'pipeline') return 260
   if (type === 'flow') return 300
+  if (type === 'filters') return 340
   if (type === 'heatmap') return 320
   return 380
 }
@@ -758,6 +760,8 @@ export default function Dashboard() {
                 // Exporting is on unless an admin turned it off -- and an
                 // admin can always take the data they administer.
                 const canExport = isAdmin || widget.allowExport !== false
+                // The page's look, unless this widget states its own.
+                const themed = withPageTheme(widget.style, page?.theme)
 
                 const common = { widget, rows, unfilteredRows: unfiltered, tabError: tabData?.error }
 
@@ -775,8 +779,8 @@ export default function Dashboard() {
                     // An unstyled widget emits none and looks exactly as it
                     // always did -- no widget component knows about theming.
                     <div
-                      className={`rise-in relative ${styleClass(widget.style)}`}
-                      style={{ animationDelay: `${Math.min(index * 45, 360)}ms`, ...(styleVars(widget.style) || {}) }}
+                      className={`rise-in relative ${styleClass(themed)}`}
+                      style={{ animationDelay: `${Math.min(index * 45, 360)}ms`, ...(styleVars(themed) || {}) }}
                     >
                       {arranging && (
                         <div className="absolute -left-1 -top-1 z-20 flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-1.5 py-1 shadow-md">
@@ -793,7 +797,7 @@ export default function Dashboard() {
 
                       {/* This widget's own controls, above its card. Living
                           here rather than inside each widget is what lets
-                          all fifteen types have them. */}
+                          all sixteen types have them. */}
                       <WidgetControls
                         controls={myControls}
                         values={myValues}
@@ -871,6 +875,15 @@ export default function Dashboard() {
                           onCrossFilter={toggleCrossFilter}
                           dateOrder={dateOrder}
                           canExport={canExport}
+                        />
+                      )}
+                      {widget.type === 'filters' && (
+                        <FilterPanelWidget
+                          widget={widget}
+                          controls={view.controls}
+                          values={filterValues}
+                          onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
+                          tabsData={dataByLabel}
                         />
                       )}
                       {widget.type === 'leaderboard' && (

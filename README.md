@@ -686,9 +686,10 @@ stacking two contradictory filters.
 | **KPI Card** | One number from a tab + column + calculation. Counts up on change; with filters active it shows the unfiltered total underneath. Can express a conversion between two tabs. Its mark can be an emoji **or an image URL**. |
 | **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and pop-up KPIs. Click a stage *or one of its KPIs* to drill in. |
 | **Flow (drill-down tree)** | One or more trees on a shared canvas. Each opens level by level — by column, by conditions, into named numbers, by a list on a reference tab, across a **key into another tab**, or into other tabs outright — and each can blend a second table into its rows first. Full screen, pan and zoom. See below. |
+| **Filter Panel** | The page's filters as a column of labelled button groups, on the canvas — the right-hand panel of a classic report. |
 | **Leaderboard** | Ranks any column by any metrics you define. Click a row to drill in. |
 | **Data Table** | Sortable, reorderable, searchable grid with optional inline editing, row detail panel and per-row download actions. |
-| **Chart** | One data shape, **17 styles** — bar, horizontal bar, lollipop, line, step, area, waterfall, pareto, histogram, pie, donut, rose, radar, radial, treemap, funnel, progress list. Plus colour rules, reference lines and axis scaling. Every style is clickable to drill in. |
+| **Chart** | One data shape, **21 styles** — bar, horizontal bar, lollipop, **arrow bars** (up or across), **cylinder bars**, **nested circles**, line, step, area, waterfall, pareto, histogram, pie, donut, rose, radar, radial, treemap, funnel, progress list. Plus colour rules, reference lines and axis scaling. Every style is clickable to drill in. |
 | **Stacked / Grouped Bars** | Bars by one column, split by a second. Stacked or side-by-side. Overflow segments merge into "Other" so totals stay honest. |
 | **Combo Chart** | Bars and a line on **two independent axes** — volume against rate, which one axis would flatten. |
 | **Scatter / Bubble** | Two numeric columns plotted against each other, optionally sized by a third and coloured by a fourth. The one widget that shows individual rows, so outliers survive. |
@@ -830,7 +831,7 @@ other controls, not the top 10 of the raw tab which the others then whittle
 down to three.
 
 Controls render in the canvas wrapper above each widget, which is why all
-fifteen widget types get them without any widget knowing controls exist.
+sixteen widget types get them without any widget knowing controls exist.
 
 ### Chart styles
 
@@ -867,6 +868,40 @@ Pivot tables and heat maps drill from their **row and column headers** as well
 as their cells — "all of March" and "everything for West" are the two
 questions those charts invite most, and neither should need a trip to the
 filter bar.
+
+### The filter panel
+
+The control bar along the top is right for two or three controls and wrong
+for eight: it wraps into a hedge, and every value hides behind a dropdown you
+have to open before you can see what's in it. A report with a dozen dimensions
+wants the other arrangement, and that's the **Filter Panel** widget — a column
+of labelled groups, every value a button, the selected ones lit, with
+*select all* and *clear* on each group and a *clear everything* at the top.
+
+Put it in a quarter-width column beside the charts and you have the classic
+report layout.
+
+It is a second **surface** for controls that already exist, not a second
+filtering system: it reads and writes the same values the bar does. So the
+same control can appear in both, a saved view still restores it, Reset still
+clears it, and the reach rules still decide which tabs it narrows. Pick which
+controls appear, and how many buttons per row, per panel. Only dropdown,
+multi-choice and chip controls qualify — a date range drawn as a grid of
+buttons is a worse date range. A **fixed** control never appears, because it's
+a rule of the page rather than something anyone is meant to press.
+
+### Themes
+
+**Admin → Pages → Widget theme** restyles every widget on a page at once.
+Each theme is a surface, a corner radius and an accent that go together —
+*Report (olive)*, *Soft product*, *Glass*, *Paper*, *High contrast*,
+*Midnight*, plus the plainer *Outlined / Elevated / Flat / Dark*. The accent
+is what colours a filter panel's selected buttons, so the panel matches the
+page it sits on.
+
+It's a **default, not an override**: a widget you restyled by hand keeps its
+own look. One page setting silently undoing a dozen individual decisions is
+the kind of change nobody can find afterwards.
 
 ### Breaking a chart into series
 
@@ -1276,6 +1311,7 @@ src/
   lib/csv.js              CSV export: escaping, file names, the download
   lib/pieData.js          Part-of-whole slicing: roll-up, labels, honesty
   lib/seriesData.js       Breakdowns: series picking, colours, cumulative, smoothing
+  lib/chartShapes.js      Arrow, cylinder and nested-circle geometry
   lib/imageUrl.js         Drive-link rewriting + the image URL allow-list
   lib/pageControls.js     The unified page control list + saved views
   lib/chartOptions.js     Colour rules, reference lines, axis scaling
@@ -1294,7 +1330,7 @@ src/
   components/WidgetControls.jsx  Per-widget control bar
   components/Sliders.jsx      Slider primitives, shared by both bars
   components/PageIcon.jsx     Page mark: image, falling back to emoji
-  components/widgets/*        The fifteen widget types
+  components/widgets/*        The sixteen widget types
   pages/Dashboard.jsx     One canvas; resolves refs to labels and blends
   pages/Admin.jsx         Admin shell + admin/*Panel.jsx
 ```

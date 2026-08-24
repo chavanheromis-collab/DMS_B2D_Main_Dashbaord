@@ -55,7 +55,7 @@ const BLENDABLE = new Set([
  * any spreadsheet this page is connected to -- and all of them render
  * together on the one canvas.
  */
-export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) {
+export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pageControls = [] }) {
   const { labelFor } = useWorkspaceCtx()
   const ops = listOps(widgets, setWidgets)
   const [addType, setAddType] = useState('table')
@@ -175,6 +175,14 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) 
             },
           },
         ],
+      })
+    } else if (addType === 'filters') {
+      Object.assign(base, {
+        title: 'Filters',
+        width: 'quarter',
+        controlIds: [],
+        buttonColumns: 2,
+        showSelectAll: true,
       })
     } else if (addType === 'flow') {
       // Ships with one working level rather than an empty shell: a flow with
@@ -545,6 +553,9 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets }) 
               {widget.type === 'flow' && (
                 <FlowEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
+              {widget.type === 'filters' && (
+                <FilterPanelEditor widget={widget} pageControls={pageControls} set={set} />
+              )}
               {widget.type === 'leaderboard' && <LeaderboardEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'chart' && <ChartEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'table' && <TableEditor widget={widget} cols={cols} set={set} />}
@@ -647,6 +658,87 @@ function WidthPicker({ widget, set }) {
         </>
       )}
     </span>
+  )
+}
+
+/**
+ * Which of the page's controls appear in a panel, and how they are laid out.
+ *
+ * It does not define filters -- it arranges the ones the page already has.
+ * Defining them twice would give a page two things called "Region" that
+ * could disagree, which is the whole reason this is a surface and not a
+ * feature.
+ */
+function FilterPanelEditor({ widget, pageControls, set }) {
+  const usable = (pageControls || []).filter((c) => ['select', 'multi', 'chips'].includes(c.kind))
+  const chosen = widget.controlIds || []
+  const all = chosen.length === 0
+
+  function toggle(id) {
+    // An empty list means "all of them", so the first tick has to start from
+    // the full set rather than from nothing -- otherwise ticking one control
+    // silently removes every other.
+    const from = all ? usable.map((c) => c.id) : chosen
+    const next = from.includes(id) ? from.filter((x) => x !== id) : [...from, id]
+    set({ controlIds: next.length === usable.length ? [] : next })
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Buttons per row" className="w-36" hint="0 lets them flow.">
+          <TextInput
+            type="number"
+            value={widget.buttonColumns ?? 2}
+            onChange={(v) => set({ buttonColumns: Number(v) || 0 })}
+          />
+        </Field>
+        <div className="pb-1.5">
+          <Toggle
+            checked={widget.showSelectAll !== false}
+            onChange={(v) => set({ showSelectAll: v })}
+            label="Show “select all” on each group"
+          />
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+        <p className="mb-1 text-[11px] font-medium text-slate-500">
+          Filters in this panel{' '}
+          <span className="font-normal text-slate-400">{all ? '(all of them)' : `(${chosen.length} chosen)`}</span>
+        </p>
+
+        {usable.length === 0 ? (
+          <p className="py-1 text-[10px] text-slate-400">
+            This page has no dropdown, multi-choice or chip controls yet. Add them under 🎛️ Controls — a date range
+            or a slider is a worse date range when drawn as a grid of buttons, so only these three kinds appear here.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {usable.map((control) => {
+              const on = all || chosen.includes(control.id)
+              return (
+                <button
+                  key={control.id}
+                  onClick={() => toggle(control.id)}
+                  className={`rounded-full border px-2 py-1 text-[11px] ${
+                    on ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-500'
+                  }`}
+                >
+                  {control.label || control.column}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        <p className="mt-1.5 text-[10px] text-slate-400">
+          The panel reads and writes the same values as the control bar, so a control can appear in both, a saved
+          view still restores it, and Reset still clears it. A <strong>fixed</strong> control never appears here —
+          it is a rule of the page, not a control on it.
+        </p>
+      </div>
+    </div>
   )
 }
 

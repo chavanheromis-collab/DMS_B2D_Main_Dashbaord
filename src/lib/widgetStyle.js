@@ -44,6 +44,57 @@ export const WIDGET_THEMES = [
     label: 'Flat / borderless',
     preset: { bg: '#FFFFFF', borderColor: 'transparent', borderWidth: 0, radius: 14, shadow: 'none' },
   },
+  // --- named looks, rather than named ingredients ------------------
+  // The six above describe a surface ("outlined", "elevated"). These
+  // describe a REPORT: a palette, a corner radius and an accent that go
+  // together, so a page can be restyled with one choice instead of six.
+  {
+    value: 'report',
+    label: 'Report (olive)',
+    preset: { bg: '#FBFAF4', borderColor: '#D9D3B4', borderWidth: 1, radius: 10, shadow: 'sm', accent: '#7C7A3A' },
+  },
+  {
+    value: 'saas',
+    label: 'Soft product',
+    preset: { bg: '#FFFFFF', borderColor: '#E6F4EC', borderWidth: 1, radius: 20, shadow: 'sm', accent: '#10B981' },
+  },
+  {
+    value: 'glass',
+    label: 'Glass',
+    preset: {
+      bg: 'rgba(255,255,255,0.62)',
+      borderColor: 'rgba(255,255,255,0.85)',
+      borderWidth: 1,
+      radius: 22,
+      shadow: 'md',
+      accent: '#6366F1',
+    },
+  },
+  {
+    value: 'paper',
+    label: 'Paper',
+    preset: { bg: '#FFFDF7', borderColor: '#EBE4D6', borderWidth: 1, radius: 6, shadow: 'none', accent: '#B45309' },
+  },
+  {
+    value: 'contrast',
+    label: 'High contrast',
+    // Not a style choice so much as an accessibility one: a hard 2px border
+    // and a near-black accent survive a projector and a bright room.
+    preset: { bg: '#FFFFFF', borderColor: '#0F172A', borderWidth: 2, radius: 4, shadow: 'none', accent: '#0F172A' },
+  },
+  {
+    value: 'midnight',
+    label: 'Midnight',
+    preset: {
+      bg: '#0B1220',
+      borderColor: '#1E293B',
+      borderWidth: 1,
+      radius: 18,
+      shadow: 'lg',
+      accent: '#38BDF8',
+      invert: true,
+    },
+  },
   {
     value: 'dark',
     label: 'Dark',
@@ -71,6 +122,20 @@ export const DEFAULT_WIDGET_STYLE = {
   text: null,
   accent: null,
   padding: null,
+}
+
+/**
+ * A widget's style, with the PAGE's theme standing in where it has none.
+ *
+ * A page theme is a default, not an override: a widget the admin restyled
+ * deliberately keeps its own look, because the alternative -- one page
+ * setting silently undoing a dozen individual decisions -- is the kind of
+ * change nobody can find afterwards.
+ */
+export function withPageTheme(style, pageTheme) {
+  if (!pageTheme) return style
+  if (style?.theme) return style
+  return { ...(style || {}), theme: pageTheme }
 }
 
 /** Resolves a widget's style, folding in its named theme's preset first. */

@@ -4,6 +4,7 @@ import { uid } from '../../lib/config'
 import { PAGE_ICONS, emptyPage, navLabelFor } from '../../lib/workspace'
 import { Btn, Field, Select, TextInput, Toggle, stableEqual } from './ui.jsx'
 import BackgroundEditor from './BackgroundEditor.jsx'
+import { WIDGET_THEMES } from '../../lib/widgetStyle'
 import { PageIcon } from '../../components/PageIcon.jsx'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
 
@@ -314,6 +315,25 @@ function PageSettings({ page, pages, sources, onSave }) {
             itself become a tab of another page — tab strips are one level deep.
           </p>
         )}
+      </div>
+
+      {/* --- The page's look --------------------------------------------- */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Widget theme" className="w-52" hint="Applies to every widget on the page.">
+            <Select
+              value={draft.theme || ''}
+              onChange={(v) => set({ theme: v })}
+              options={WIDGET_THEMES.map((t) => ({ value: t.value, label: t.label }))}
+            />
+          </Field>
+          <p className="max-w-lg pb-1.5 text-[10px] text-slate-400">
+            A <strong>default</strong>, not an override: a widget you restyled by hand keeps its own look, so one
+            page setting can never silently undo a dozen individual decisions. Each theme sets a surface, a corner
+            radius and an accent that go together — the accent is what colours the selected buttons in a filter
+            panel.
+          </p>
+        </div>
       </div>
 
       {/* --- Canvas background ----------------------------------------- */}

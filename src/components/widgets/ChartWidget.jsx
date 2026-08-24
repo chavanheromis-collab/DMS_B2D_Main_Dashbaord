@@ -32,6 +32,7 @@ import { groupRows, histogram, formatNumber } from '../../lib/dataUtils'
 import { PALETTE } from '../../lib/config'
 import ExportButton from '../ExportButton.jsx'
 import PiePanel from './PiePanel.jsx'
+import { arrowRightPath, arrowUpPath, cylinderCapRadius, nestedCircles } from '../../lib/chartShapes.js'
 import {
   axisTicks,
   chartCaps,
@@ -67,6 +68,127 @@ function nameFromChartEvent(state) {
 /** A click straight on a shape (slice, tile, segment). */
 // The part-of-whole family, which needs a layout rather than a shape.
 const PIE_TYPES = new Set(['pie', 'donut', 'rose'])
+
+/**
+ * A bar drawn as an arrow.
+ *
+ * Recharts hands a shape the same box it would have filled with a rect, so
+ * the arrow measures exactly what the bar did -- baseline to tip.
+ */
+function ArrowBar({ x, y, width, height, fill, fillOpacity, cursor, horizontal }) {
+  if (!(height > 0) && !horizontal) return null
+  const d = horizontal
+    ? arrowRightPath(x, y, width, height)
+    : arrowUpPath(x, y, width, height)
+  return <path d={d} fill={fill} fillOpacity={fillOpacity} cursor={cursor} />
+}
+
+/**
+ * A bar drawn as a cylinder.
+ *
+ * The caps sit INSIDE the bar's own extent, top and bottom, so the silhouette
+ * still starts at the baseline and ends at the value. A cap drawn proud of
+ * the top would add a few pixels of "value" that is not there.
+ */
+function CylinderBar({ x, y, width, height, fill, fillOpacity, cursor }) {
+  if (!(height > 0)) return null
+  const ry = cylinderCapRadius(width)
+  const w = Math.max(1, width)
+  const body = Math.max(0, height - ry)
+
+  return (
+    <g cursor={cursor} fillOpacity={fillOpacity}>
+      <rect x={x} y={y + ry} width={w} height={body} fill={fill} />
+      {/* A light edge down the middle is what makes it read as round. */}
+      <rect x={x} y={y + ry} width={w} height={body} fill="url(#cyl-sheen)" />
+      <ellipse cx={x + w / 2} cy={y + height} rx={w / 2} ry={ry} fill={fill} />
+      <ellipse cx={x + w / 2} cy={y + ry} rx={w / 2} ry={ry} fill={fill} />
+      <ellipse cx={x + w / 2} cy={y + ry} rx={w / 2} ry={ry} fill="#ffffff" fillOpacity={0.25} />
+    </g>
+  )
+}
+
+/** Shared by every cylinder on the page; defined once per chart. */
+function CylinderSheen() {
+  return (
+    <defs>
+      <linearGradient id="cyl-sheen" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stopColor="#000" stopOpacity={0.18} />
+        <stop offset="30%" stopColor="#fff" stopOpacity={0.28} />
+        <stop offset="65%" stopColor="#fff" stopOpacity={0.06} />
+        <stop offset="100%" stopColor="#000" stopOpacity={0.2} />
+      </linearGradient>
+    </defs>
+  )
+}
+
+/**
+ * Nested proportion: one circle per category, sized by area, sharing a
+ * bottom edge.
+ *
+ * A part-of-whole picture for the handful of categories where a pie's angles
+ * are hard to compare -- four or five stages of a funnel, say. Beyond about
+ * six the inner circles are too small to label and a bar chart is simply
+ * better, which is why the roll-up is deliberate rather than automatic here:
+ * the admin's `limit` already caps it.
+ */
+function NestedCircleChart({ data, fmt, colorFor, activeName, onDrill, height, showLabels }) {
+  const box = { width: 320, height: Math.max(160, height || 260) }
+  const circles = nestedCircles(data, { ...box, padding: 10 })
+  if (circles.length === 0) return <p className="empty-state">No data to chart</p>
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center gap-3 overflow-hidden">
+      <svg
+        viewBox={`0 0 ${box.width} ${box.height}`}
+        width="100%"
+        height={box.height}
+        className="max-w-[360px] shrink"
+        role="img"
+      >
+        {/* Biggest first, so every smaller ring is drawn on top of the one
+            that contains it rather than hidden behind it. */}
+        {circles.map((c, i) => {
+          const dim = activeName && activeName !== c.name ? 0.3 : 1
+          return (
+            <g key={c.name} onClick={() => onDrill?.(c.name)} cursor={onDrill ? 'pointer' : 'default'}>
+              <circle cx={c.cx} cy={c.cy} r={c.r} fill={colorFor(c, i)} fillOpacity={0.9 * dim} />
+              {showLabels && c.r > 18 && (
+                <text
+                  x={c.cx}
+                  y={c.labelY}
+                  textAnchor="middle"
+                  fontSize={11}
+                  fontWeight={600}
+                  fill="#fff"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  {fmt(c.value)}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+
+      <ul className="max-h-full shrink-0 space-y-0.5 overflow-y-auto text-[11px]">
+        {circles.map((c, i) => (
+          <li key={c.name}>
+            <button
+              onClick={() => onDrill?.(c.name)}
+              disabled={!onDrill}
+              className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-slate-50 disabled:cursor-default"
+            >
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorFor(c, i) }} />
+              <span className="min-w-0 max-w-[110px] flex-1 truncate text-slate-600">{c.name}</span>
+              <span className="shrink-0 font-semibold tabular-nums text-slate-700">{fmt(c.value)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 function nameFromShapeEvent(entry) {
   if (!entry) return null
@@ -614,6 +736,7 @@ export default function ChartWidget({
           </AreaChart>
         )
 
+      case 'arrowRow':
       case 'hbar':
         return (
           <BarChart
@@ -630,7 +753,12 @@ export default function ChartWidget({
             <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
             {refLines('x')}
-            <Bar dataKey="value" radius={[0, 6, 6, 0]} label={label('right')}>
+            <Bar
+              dataKey="value"
+              radius={[0, 6, 6, 0]}
+              label={label('right')}
+              shape={type === 'arrowRow' ? (props) => <ArrowBar {...props} horizontal /> : undefined}
+            >
               {cells()}
             </Bar>
           </BarChart>
@@ -649,7 +777,15 @@ export default function ChartWidget({
             <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
             {refLines('y')}
-            <Bar dataKey="value" radius={[6, 6, 0, 0]} label={label()}>
+            {type === 'cylinder' && <CylinderSheen />}
+            <Bar
+              dataKey="value"
+              radius={[6, 6, 0, 0]}
+              label={label()}
+              shape={
+                type === 'arrow' ? ArrowBar : type === 'cylinder' ? CylinderBar : undefined
+              }
+            >
               {cells()}
             </Bar>
           </BarChart>
@@ -699,6 +835,16 @@ export default function ChartWidget({
           activeName={activeName}
           onDrill={onCrossFilter ? drill : undefined}
           height={height}
+        />
+      ) : type === 'circles' ? (
+        <NestedCircleChart
+          data={data}
+          fmt={fmt}
+          colorFor={colorFor}
+          activeName={activeName}
+          onDrill={onCrossFilter ? drill : undefined}
+          height={height}
+          showLabels={widget.showLabels !== false}
         />
       ) : type === 'progress' ? (
         <ProgressList
