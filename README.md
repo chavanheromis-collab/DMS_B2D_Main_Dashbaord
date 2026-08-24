@@ -896,6 +896,33 @@ what keeps twenty categories readable. A **histogram** is the one style that
 bins a numeric column instead of grouping by a category, so it gets its own
 fields (column, bin count, optional fixed range).
 
+### Bucketing, everywhere a column is grouped
+
+The buckets a control offers are the same ones every **widget** offers,
+because grouping four hundred dates into years is the same problem whether
+it's a dropdown or a bar chart:
+
+| Widget | What it buckets |
+|---|---|
+| **Chart** | Its *group rows by* column |
+| **Leaderboard** | The column it ranks |
+| **Stacked / Grouped Bars** | The bars and the segments, **independently** |
+| **Pivot Table / Heat Map** | Each axis column **on its own** — a "Region / Sold" axis wants the region as it is and the date by month |
+| **Trend** | Its axis (timeline or folded cycle) and its breakdown |
+| **Flow** | Its *break down by* levels |
+| **Controls** | Every list a reader picks from |
+
+**Clicking a bucketed bar still filters the page.** `100 – 200` is not a
+value any row holds, so the drill translates the bucket back into real
+conditions: a band becomes `≥ 100 AND < 200`, a year becomes a date range
+(a quarter and a month work out their own last day, leap years counted
+rather than assumed), *Blank* becomes `is empty`, a first letter becomes
+`starts with`. Where a bucket has **no** exact form — a first word, a
+three-letter prefix, `#` for "not a letter" — the drill selects those rows
+by identity instead, so a click works everywhere rather than only where the
+maths happens to be expressible. A test asserts the two halves agree: every
+row a bar grouped is a row its drill selects.
+
 ### Long charts scroll; they don't squash
 
 A chart of forty categories has two honest options and one dishonest one.

@@ -210,15 +210,24 @@ export function formatNumber(value, format = 'comma', agg) {
  * Groups rows by `groupBy` and aggregates `valueColumn` within each group.
  * Returns [{ name, value }] ready for recharts.
  */
-export function groupRows(rows, { groupBy, valueColumn, aggregation = 'count', limit = 12, sort = 'value_desc', includeBlank = false }) {
+export function groupRows(
+  rows,
+  { groupBy, valueColumn, aggregation = 'count', limit = 12, sort = 'value_desc', includeBlank = false, bucket, dateOrder = 'DMY' }
+) {
   if (!groupBy) return []
   const buckets = new Map()
+  const order = new Map()
   for (const row of rows || []) {
-    const raw = row[groupBy]
-    if (isBlank(raw) && !includeBlank) continue
-    const key = isBlank(raw) ? '(blank)' : String(raw).trim()
-    if (!buckets.has(key)) buckets.set(key, [])
-    buckets.get(key).push(row)
+    const key = groupKey(row, groupBy, bucket, dateOrder)
+    if (key === null && !includeBlank) continue
+    const name = key === null ? '(blank)' : key
+    if (!buckets.has(name)) {
+      buckets.set(name, [])
+      // A bucket's own order, kept in case the caller sorts by name: bands
+      // and months have one, and it is never the order of their text.
+      order.set(name, valueBucket(row[groupBy], bucket, dateOrder)?.sort)
+    }
+    buckets.get(name).push(row)
   }
 
   let out = Array.from(buckets.entries()).map(([name, groupedRows]) => ({
@@ -228,10 +237,18 @@ export function groupRows(rows, { groupBy, valueColumn, aggregation = 'count', l
   }))
 
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+  // Sorting a bucketed group by NAME follows the bucket's own order --
+  // "1,000 - 1,100" before "200 - 300" is what its text would give.
+  const byName = (a, b) => {
+    const x = order.get(a.name)
+    const y = order.get(b.name)
+    if (Number.isFinite(x) && Number.isFinite(y) && x !== y) return x - y
+    return collator.compare(a.name, b.name)
+  }
   if (sort === 'value_desc') out.sort((a, b) => b.value - a.value)
   else if (sort === 'value_asc') out.sort((a, b) => a.value - b.value)
-  else if (sort === 'name_asc') out.sort((a, b) => collator.compare(a.name, b.name))
-  else if (sort === 'name_desc') out.sort((a, b) => collator.compare(b.name, a.name))
+  else if (sort === 'name_asc') out.sort(byName)
+  else if (sort === 'name_desc') out.sort((a, b) => byName(b, a))
 
   if (limit && out.length > limit) out = out.slice(0, limit)
   return out
@@ -258,6 +275,9 @@ export function groupStacked(rows, {
   limit = 12,
   maxSeries = 8,
   sort = 'value_desc',
+  bucket,
+  stackBucket,
+  dateOrder = 'DMY',
 }) {
   if (!groupBy || !stackBy) return { data: [], series: [] }
 
@@ -265,12 +285,12 @@ export function groupStacked(rows, {
   const seriesTotals = new Map()
 
   for (const row of rows || []) {
-    const g = isBlank(row[groupBy]) ? '(blank)' : String(row[groupBy]).trim()
-    const s = isBlank(row[stackBy]) ? '(blank)' : String(row[stackBy]).trim()
+    const g = groupKey(row, groupBy, bucket, dateOrder) ?? '(blank)'
+    const s = groupKey(row, stackBy, stackBucket, dateOrder) ?? '(blank)'
     if (!groups.has(g)) groups.set(g, new Map())
-    const bucket = groups.get(g)
-    if (!bucket.has(s)) bucket.set(s, [])
-    bucket.get(s).push(row)
+    const segments = groups.get(g)
+    if (!segments.has(s)) segments.set(s, [])
+    segments.get(s).push(row)
     seriesTotals.set(s, (seriesTotals.get(s) || 0) + 1)
   }
 
@@ -662,6 +682,109 @@ export function shownValue(row, control, dateOrder = 'DMY', columnOverride) {
   return bucketedCell(row?.[columnOverride ?? control?.column], control, dateOrder)
 }
 
+/**
+ * How a row's value in one column should be GROUPED.
+ *
+ * Every widget that groups -- a chart's bars, a leaderboard's rows, a
+ * pivot's axes, a stacked chart's segments, a flow's branches -- ends up
+ * asking this same question, so they all ask it here. Without a bucket it is
+ * the trimmed cell, exactly as it always was.
+ *
+ * Returns `null` for a blank, which the callers already treat as "skip
+ * unless asked to include blanks" -- except under the `filled` bucket, where
+ * a blank is the whole point and comes back as "Blank".
+ */
+export function groupKey(row, column, spec, dateOrder = 'DMY') {
+  if (!column) return null
+  const raw = row?.[column]
+  const grain = typeof spec === 'string' ? spec : spec?.bucket
+
+  if (grain) {
+    const bucket = valueBucket(raw, spec, dateOrder)
+    if (bucket) return bucket.label
+  }
+  return isBlank(raw) ? null : String(raw).trim()
+}
+
+/**
+ * The condition that selects the rows behind a bucket label.
+ *
+ * Clicking a bar reading "100 – 200" has to filter the page to the rows in
+ * that band, not to a column whose value is the string "100 – 200" -- which
+ * is a column no sheet has. Where the bucket has an exact form the filter
+ * engine can express, this returns it; where it does not (a first word, a
+ * three-letter prefix), it returns null and the caller falls back to
+ * selecting the rows by identity.
+ */
+export function bucketConditions(column, label, spec, dateOrder = 'DMY') {
+  const grain = typeof spec === 'string' ? spec : spec?.bucket
+  if (!grain || !column || label === undefined || label === null) return null
+  const at = (operator, value, value2) => [{ column, operator, value, value2 }]
+  const text = String(label)
+
+  switch (grain) {
+    case 'filled':
+      return at(text === 'Blank' ? 'is_empty' : 'is_not_empty', '')
+
+    case 'sign':
+      if (text === 'Zero') return at('equals', '0')
+      if (text === 'Negative') return at('lt', '0')
+      return at('gt', '0')
+
+    case 'band':
+    case 'breaks': {
+      // The label carries its own bounds, which is exactly why the labels
+      // are built the way they are.
+      if (text.startsWith('<')) return at('lt', text.slice(1).replace(/,/g, '').trim())
+      if (text.endsWith('+')) return at('gte', text.slice(0, -1).replace(/,/g, '').trim())
+      const parts = text.split('–').map((x) => x.replace(/,/g, '').trim())
+      if (parts.length !== 2) return null
+      // Half open, so the top of one band is the bottom of the next and a
+      // row can never be selected by both.
+      return [
+        { column, operator: 'gte', value: parts[0] },
+        { column, operator: 'lt', value: parts[1] },
+      ]
+    }
+
+    case 'year': {
+      const y = Number(text)
+      if (!Number.isFinite(y)) return null
+      return at('date_between', `${y}-01-01`, `${y}-12-31`)
+    }
+
+    case 'quarter': {
+      const [y, q] = text.split(' Q')
+      const start = (Number(q) - 1) * 3
+      if (!Number.isFinite(Number(y)) || !Number.isFinite(start)) return null
+      const from = new Date(Number(y), start, 1)
+      const to = new Date(Number(y), start + 3, 0)
+      return at('date_between', iso(from), iso(to))
+    }
+
+    case 'month': {
+      const [abbr, y] = text.split(' ')
+      const m = MONTH_ABBR.indexOf(abbr)
+      if (m === -1 || !Number.isFinite(Number(y))) return null
+      return at('date_between', iso(new Date(Number(y), m, 1)), iso(new Date(Number(y), m + 1, 0)))
+    }
+
+    case 'firstLetter':
+      // "#" is "anything that is not a letter", which no single condition
+      // expresses -- so it falls through to selecting rows by identity.
+      return text === '#' ? null : at('starts_with', text)
+
+    default:
+      // monthOfYear, dayOfWeek, firstWord, prefix: real groupings that no
+      // single column condition describes.
+      return null
+  }
+}
+
+function iso(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 /** What one cell counts as, once its column is bucketed. */
 export function bucketedCell(value, spec, dateOrder = 'DMY') {
   const grain = typeof spec === 'string' ? spec : spec?.bucket
@@ -845,9 +968,9 @@ export function bucketLabel(d, grain) {
 /** The composite key several grouping columns make for one row. */
 const PART_SEP = ' / '
 
-function compositeKey(row, columns) {
+function compositeKey(row, columns, buckets, dateOrder = 'DMY') {
   return columns
-    .map((c) => (isBlank(row[c]) ? '(blank)' : String(row[c]).trim()))
+    .map((c) => groupKey(row, c, buckets?.[c], dateOrder) ?? '(blank)')
     .join(PART_SEP)
 }
 
@@ -890,6 +1013,8 @@ export function pivotTree(rows, {
   sort = 'value_desc',
   maxGroups = 0,
   maxRows = 400,
+  buckets,
+  dateOrder = 'DMY',
 }) {
   const columns = (rowColumns || []).filter(Boolean)
   if (columns.length === 0) return { columns: [], rows: [], grandTotal: 0 }
@@ -909,14 +1034,15 @@ export function pivotTree(rows, {
    * biggest thing appear first at every depth.
    */
   function build(list, depth) {
-    const buckets = new Map()
+    const groups = new Map()
     for (const row of list) {
-      const key = isBlank(row[columns[depth]]) ? '(blank)' : String(row[columns[depth]]).trim()
-      if (!buckets.has(key)) buckets.set(key, [])
-      buckets.get(key).push(row)
+      const column = columns[depth]
+      const key = groupKey(row, column, buckets?.[column], dateOrder) ?? '(blank)'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(row)
     }
 
-    const nodes = Array.from(buckets.entries()).map(([label, groupRows]) => ({
+    const nodes = Array.from(groups.entries()).map(([label, groupRows]) => ({
       label,
       value: aggregate(groupRows, valueColumn, aggregation),
       children: depth + 1 < columns.length ? build(groupRows, depth + 1) : null,
@@ -996,6 +1122,10 @@ export function pivot(rows, {
   aggregation = 'count',
   maxRows = 25,
   maxCols = 12,
+  // { [column]: bucketSpec } -- an axis can bucket some of its columns and
+  // leave the rest alone, which is what a "Region / Month" axis needs.
+  buckets,
+  dateOrder = 'DMY',
 }) {
   // Single-column callers keep working untouched: the original two props are
   // simply the one-element case of the new ones.
@@ -1019,8 +1149,8 @@ export function pivot(rows, {
   const colCounts = new Map()
 
   for (const row of rows || []) {
-    const r = compositeKey(row, rowCols)
-    const c = colCols.length ? compositeKey(row, colCols) : 'Total'
+    const r = compositeKey(row, rowCols, buckets, dateOrder)
+    const c = colCols.length ? compositeKey(row, colCols, buckets, dateOrder) : 'Total'
     // A NUL separator can never occur inside a real cell value, so two
     // different (row, column) pairs can never collide on one key.
     const key = r + '\u0000' + c

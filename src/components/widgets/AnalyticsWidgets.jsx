@@ -517,7 +517,15 @@ function SeriesLegend({ series, hidden, hover, colorOf, onHover, onToggle, scrol
  * data is visible at a glance, and clicking one drills the dashboard into
  * that exact combination.
  */
-export function PivotWidget({ widget, rows, unfilteredRows, tabError, onCrossFilter, canExport = false }) {
+export function PivotWidget({
+  widget,
+  rows,
+  unfilteredRows,
+  tabError,
+  onCrossFilter,
+  canExport = false,
+  dateOrder = 'DMY',
+}) {
   const source = widget.ignoreFilters ? unfilteredRows : rows
 
   // Back-compat: the original single-column props are the one-element case.
@@ -537,6 +545,8 @@ export function PivotWidget({ widget, rows, unfilteredRows, tabError, onCrossFil
         aggregation: widget.aggregation || 'count',
         maxRows: widget.maxRows || 25,
         maxCols: widget.maxCols || 12,
+        buckets: widget.buckets,
+        dateOrder,
       }),
     [source, rowCols.join('|'), colCols.join('|'), totalsOnly, widget.column, widget.aggregation, widget.maxRows, widget.maxCols]
   )
@@ -553,6 +563,8 @@ export function PivotWidget({ widget, rows, unfilteredRows, tabError, onCrossFil
             sort: widget.sort || 'value_desc',
             maxGroups: widget.maxGroups || 0,
             maxRows: widget.maxRows || 400,
+            buckets: widget.buckets,
+            dateOrder,
           })
         : null,
     [totalsOnly, source, rowCols.join('|'), widget.column, widget.aggregation, widget.sort, widget.maxGroups, widget.maxRows]

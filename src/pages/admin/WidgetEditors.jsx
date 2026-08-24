@@ -10,7 +10,7 @@ import {
   aggNeedsColumn,
   uid,
 } from '../../lib/config'
-import { looksLikeDateColumn } from '../../lib/dataUtils'
+import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUtils'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps } from './ui.jsx'
 import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
 import ConditionBuilder from './ConditionBuilder.jsx'
@@ -162,6 +162,7 @@ export function LeaderboardEditor({ widget, cols, set }) {
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <BucketPicker widget={widget} set={set} label="Bucket the ranked column" />
         <Field label="Rank by column">
           <Select value={widget.groupBy || ''} onChange={(v) => set({ groupBy: v })} options={cols} placeholder="— pick a column —" />
         </Field>
@@ -745,6 +746,50 @@ export function TrendEditor({ widget, cols, set }) {
 }
 
 /**
+ * "Group these values first."
+ *
+ * The same control wherever a widget groups a column -- a chart's bars, a
+ * leaderboard's rows, a pivot axis, a stacked chart's segments. One
+ * component rather than five copies, because five copies of a picker is how
+ * three of them end up missing the option somebody needs.
+ *
+ * `prefix` lets one widget carry two of these: a stacked chart buckets its
+ * groups and its segments independently.
+ */
+export function BucketPicker({ widget, set, prefix = '', label = 'Bucket the values' }) {
+  const key = (name) => (prefix ? `${prefix}${name[0].toUpperCase()}${name.slice(1)}` : name)
+  const grain = widget[key('bucket')] || ''
+  const needs = bucketNeeds(grain)
+
+  return (
+    <>
+      <Field label={label} className="w-52" hint="Optional — groups instead of listing.">
+        <Select value={grain} onChange={(v) => set({ [key('bucket')]: v })} options={DATE_BUCKETS} />
+      </Field>
+      {needs === 'size' && (
+        <Field label={grain === 'prefix' ? 'How many characters' : 'Band size'} className="w-32">
+          <TextInput
+            type="number"
+            value={widget[key('bucketSize')] ?? ''}
+            onChange={(v) => set({ [key('bucketSize')]: Number(v) || null })}
+            placeholder={grain === 'prefix' ? '3' : '100'}
+          />
+        </Field>
+      )}
+      {needs === 'breaks' && (
+        <Field label="Breakpoints" className="w-44" hint="Comma separated.">
+          <TextInput
+            value={widget[key('bucketBreaks')] ?? ''}
+            onChange={(v) => set({ [key('bucketBreaks')]: v })}
+            placeholder="0, 100, 250"
+          />
+        </Field>
+      )}
+    </>
+  )
+}
+
+/**
  * What may scroll, and how much room a category gets.
  *
  * Both halves are the admin's call. Squashing forty bars into the height of
@@ -1062,6 +1107,65 @@ export function PivotEditor({ widget, cols, set }) {
             onChange={(next) => set({ colColumns: next, colColumn: next[0] || '' })}
           />
         )}
+      </div>
+
+      <PivotBuckets columns={[...rowColumns, ...colColumns]} widget={widget} set={set} />
+    </div>
+  )
+}
+
+/**
+ * A bucket per pivot column, rather than one for the axis.
+ *
+ * A "Region / Sold" axis wants the region as it is and the date by month --
+ * one setting for the pair would force the wrong answer on one of them.
+ */
+function PivotBuckets({ columns, widget, set }) {
+  const buckets = widget.buckets || {}
+  const used = columns.filter(Boolean)
+  if (used.length === 0) return null
+
+  const setFor = (column, patch) =>
+    set({ buckets: { ...buckets, [column]: { ...(buckets[column] || {}), ...patch } } })
+
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+      <p className="mb-1 text-[11px] font-medium text-slate-500">
+        Bucket a column <span className="font-normal text-slate-400">(optional, per column)</span>
+      </p>
+      <div className="space-y-1.5">
+        {used.map((column) => {
+          const spec = buckets[column] || {}
+          const needs = bucketNeeds(spec.bucket)
+          return (
+            <div key={column} className="flex flex-wrap items-center gap-1.5">
+              <span className="w-32 shrink-0 truncate text-[11px] text-slate-600">{column}</span>
+              <Select
+                value={spec.bucket || ''}
+                onChange={(v) => setFor(column, { bucket: v })}
+                options={DATE_BUCKETS}
+                className="w-56"
+              />
+              {needs === 'size' && (
+                <TextInput
+                  type="number"
+                  value={spec.bucketSize ?? ''}
+                  onChange={(v) => setFor(column, { bucketSize: Number(v) || null })}
+                  placeholder={spec.bucket === 'prefix' ? 'chars' : 'band'}
+                  className="w-20"
+                />
+              )}
+              {needs === 'breaks' && (
+                <TextInput
+                  value={spec.bucketBreaks ?? ''}
+                  onChange={(v) => setFor(column, { bucketBreaks: v })}
+                  placeholder="0, 100, 250"
+                  className="w-36"
+                />
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

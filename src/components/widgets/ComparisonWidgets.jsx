@@ -71,7 +71,15 @@ function Shell({ widget, icon, caption, tabError, children }) {
  * "grouped" answers "how do the segments compare within each group". Same
  * data, and the admin picks -- so both are one widget, not two.
  */
-export function StackedWidget({ widget, rows, unfilteredRows, tabError, crossFilters = [], onCrossFilter }) {
+export function StackedWidget({
+  widget,
+  rows,
+  unfilteredRows,
+  tabError,
+  crossFilters = [],
+  onCrossFilter,
+  dateOrder = 'DMY',
+}) {
   const { data, series } = useMemo(
     () =>
       groupStacked(sourceRows(widget, rows, unfilteredRows), {
@@ -81,6 +89,13 @@ export function StackedWidget({ widget, rows, unfilteredRows, tabError, crossFil
         aggregation: widget.aggregation || 'count',
         limit: widget.limit || 12,
         maxSeries: widget.maxSeries || 8,
+        bucket: { bucket: widget.bucket, bucketSize: widget.bucketSize, bucketBreaks: widget.bucketBreaks },
+        stackBucket: {
+          bucket: widget.stackBucket,
+          bucketSize: widget.stackBucketSize,
+          bucketBreaks: widget.stackBucketBreaks,
+        },
+        dateOrder,
         sort: widget.sort || 'value_desc',
       }),
     [widget, rows, unfilteredRows]
@@ -373,7 +388,7 @@ function mix(from, to, t) {
  * answers "where are the concentrations" at a glance, which is a different
  * question and much harder to read off a grid of numerals.
  */
-export function HeatmapWidget({ widget, rows, unfilteredRows, tabError, onCrossFilter }) {
+export function HeatmapWidget({ widget, rows, unfilteredRows, tabError, onCrossFilter, dateOrder = 'DMY' }) {
   const data = useMemo(
     () =>
       pivot(sourceRows(widget, rows, unfilteredRows), {

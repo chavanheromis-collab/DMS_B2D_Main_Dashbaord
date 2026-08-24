@@ -859,7 +859,13 @@ export default function Dashboard() {
                         />
                       )}
                       {widget.type === 'chart' && (
-                        <ChartWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} canExport={canExport} />
+                        <ChartWidget
+                          {...common}
+                          crossFilters={crossFilters}
+                          onCrossFilter={drill}
+                          canExport={canExport}
+                          dateOrder={dateOrder}
+                        />
                       )}
                       {widget.type === 'trend' && (
                         <TrendWidget
@@ -878,11 +884,18 @@ export default function Dashboard() {
                         />
                       )}
                       {widget.type === 'pivot' && (
-                        <PivotWidget {...common} onCrossFilter={drill} canExport={canExport} />
+                        <PivotWidget {...common} onCrossFilter={drill} canExport={canExport} dateOrder={dateOrder} />
                       )}
-                      {widget.type === 'heatmap' && <HeatmapWidget {...common} onCrossFilter={drill} />}
+                      {widget.type === 'heatmap' && (
+                        <HeatmapWidget {...common} onCrossFilter={drill} dateOrder={dateOrder} />
+                      )}
                       {widget.type === 'stacked' && (
-                        <StackedWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
+                        <StackedWidget
+                          {...common}
+                          crossFilters={crossFilters}
+                          onCrossFilter={drill}
+                          dateOrder={dateOrder}
+                        />
                       )}
                       {widget.type === 'combo' && (
                         <ComboWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
@@ -929,6 +942,7 @@ export default function Dashboard() {
                           crossFilters={crossFilters}
                           onCrossFilter={drill}
                           canExport={canExport}
+                          dateOrder={dateOrder}
                         />
                       )}
                       {widget.type === 'table' && (

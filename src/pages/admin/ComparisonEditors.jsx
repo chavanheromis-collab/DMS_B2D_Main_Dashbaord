@@ -1,6 +1,6 @@
 import { AGGREGATIONS, HEAT_SCALES, NUMBER_FORMATS, PALETTE, aggNeedsColumn } from '../../lib/config'
 import { SERIES_PALETTES } from '../../lib/seriesData'
-import { ScrollEditor, SeriesColorEditor } from './WidgetEditors.jsx'
+import { BucketPicker, ScrollEditor, SeriesColorEditor } from './WidgetEditors.jsx'
 import { Field, Select, TextInput, Toggle } from './ui.jsx'
 
 const SORTS = [
@@ -32,6 +32,8 @@ export function StackedEditor({ widget, cols, set }) {
         <Field label="Split each bar by">
           <Select value={widget.stackBy || ''} onChange={(v) => set({ stackBy: v })} options={cols} placeholder="— column —" />
         </Field>
+        <BucketPicker widget={widget} set={set} label="Bucket the bars" />
+        <BucketPicker widget={widget} set={set} prefix="stack" label="Bucket the segments" />
         <Field label="Calculation">
           <Select value={widget.aggregation || 'count'} onChange={(v) => set({ aggregation: v })} options={AGGREGATIONS} />
         </Field>

@@ -32,6 +32,7 @@ import StyleEditor from './StyleEditor.jsx'
 import WidgetControlsEditor from './WidgetControlsEditor.jsx'
 import { ComboEditor, HeatmapEditor, ScatterEditor, StackedEditor } from './ComparisonEditors.jsx'
 import {
+  BucketPicker,
   ScrollEditor,
   PipelineEditor,
   LeaderboardEditor,
@@ -1255,6 +1256,7 @@ function ChartEditor({ widget, cols, set }) {
       <Field label="Group rows by">
         <Select value={widget.groupBy || ''} onChange={(v) => set({ groupBy: v })} options={cols} placeholder="— pick a column —" />
       </Field>
+      <BucketPicker widget={widget} set={set} />
       <Field label="Calculation">
         <Select value={widget.aggregation} onChange={(v) => set({ aggregation: v })} options={AGGREGATIONS} />
       </Field>

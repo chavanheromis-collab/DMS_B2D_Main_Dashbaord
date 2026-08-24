@@ -28,7 +28,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { groupRows, histogram, formatNumber } from '../../lib/dataUtils'
+import { bucketConditions, groupKey, groupRows, histogram, formatNumber, normalizeKey } from '../../lib/dataUtils'
 import { PALETTE } from '../../lib/config'
 import ExportButton from '../ExportButton.jsx'
 import PiePanel from './PiePanel.jsx'
@@ -293,7 +293,8 @@ function TreemapCell(props) {
  * whatever tab the admin points it at.
  */
 export default function ChartWidget({
-  canExport = false, widget, rows, unfilteredRows, tabError, crossFilters = [], onCrossFilter }) {
+  canExport = false,
+  dateOrder = 'DMY', widget, rows, unfilteredRows, tabError, crossFilters = [], onCrossFilter }) {
   const type = widget.chartType || 'bar'
   const caps = chartCaps(type)
   const source = widget.ignoreFilters ? unfilteredRows : rows
@@ -322,6 +323,8 @@ export default function ChartWidget({
       // and its frame scrolls, rather than the tail being dropped.
       limit: PIE_TYPES.has(type) ? 0 : (widget.limit ?? 12),
       sort: widget.sort || 'value_desc',
+      bucket: widget,
+      dateOrder,
     })
   }, [caps.binned, source, widget, type])
 
@@ -362,6 +365,46 @@ export default function ChartWidget({
     }
 
     if (!widget.groupBy) return
+
+    // A bucketed bar reads "100 – 200", which is not a value any row holds.
+    // Where the bucket has an exact form the engine can express, the drill
+    // uses it; where it does not -- a first word, a three-letter prefix --
+    // it selects the rows themselves, so a click still works everywhere.
+    if (widget.bucket) {
+      const conditions = bucketConditions(widget.groupBy, name, widget, dateOrder)
+      if (conditions) {
+        onCrossFilter({
+          id: `chart_${widget.id}`,
+          kind: 'conditions',
+          tab: widget.tab,
+          match: 'all',
+          value: name,
+          conditions: conditions.map((c) => ({ ...c, tab: widget.tab })),
+          label: `${widget.groupBy}: ${name}`,
+        })
+        return
+      }
+
+      const keys = Array.from(
+        new Set(
+          (rows || [])
+            .filter((row) => groupKey(row, widget.groupBy, widget, dateOrder) === name)
+            .map((row) => normalizeKey(row._row))
+            .filter((k) => k !== null)
+        )
+      )
+      onCrossFilter({
+        id: `chart_${widget.id}`,
+        kind: 'keys',
+        value: name,
+        keys,
+        keyColumns: [{ tab: widget.tab, column: '_row' }],
+        keyNames: [],
+        label: `${widget.groupBy}: ${name}`,
+      })
+      return
+    }
+
     // The synthetic total column of a waterfall isn't a real category, so
     // clicking it would filter to a value that doesn't exist.
     if (type === 'waterfall' && data.find((d) => d.name === name)?.direction === 'total') return

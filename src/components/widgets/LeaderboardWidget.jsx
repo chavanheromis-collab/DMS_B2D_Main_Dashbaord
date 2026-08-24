@@ -20,6 +20,7 @@ export default function LeaderboardWidget({
   crossFilters,
   onCrossFilter,
   canExport = false,
+  dateOrder = 'DMY',
 }) {
   const metrics = widget.metrics || []
 
@@ -29,8 +30,8 @@ export default function LeaderboardWidget({
 
     const buckets = new Map()
     for (const row of source) {
-      const key = String(row[widget.groupBy] ?? '').trim()
-      if (!key) continue
+      const key = groupKey(row, widget.groupBy, widget, dateOrder)
+      if (key === null) continue
       if (!buckets.has(key)) buckets.set(key, [])
       buckets.get(key).push(row)
     }
@@ -43,7 +44,7 @@ export default function LeaderboardWidget({
     const sortIdx = Math.max(0, metrics.findIndex((m) => m.id === widget.sortBy))
     out.sort((a, b) => (b.values[sortIdx] ?? 0) - (a.values[sortIdx] ?? 0))
     return out.slice(0, widget.limit || 10)
-  }, [rows, unfilteredRows, widget, metrics])
+  }, [rows, unfilteredRows, widget, metrics, dateOrder])
 
   const maxFirst = Math.max(1, ...ranked.map((r) => r.values[0] ?? 0))
 

@@ -133,3 +133,118 @@ test('a bare grain string still works, as it did before there were options', () 
   assert.equal(valueBucket('05/01/2026', 'year').label, '2026')
   assert.equal(bucketedCell('05/01/2026', 'year'), '2026')
 })
+
+// --- the same buckets, wherever a widget groups ---------------------------
+
+import { groupRows, groupStacked, pivot, bucketConditions, groupKey } from './dataUtils.js'
+
+const DEALS = [
+  { _row: 2, Amount: '40', Region: 'West', Sold: '05/01/2026' },
+  { _row: 3, Amount: '140', Region: 'West', Sold: '20/03/2026' },
+  { _row: 4, Amount: '160', Region: 'East', Sold: '02/11/2025' },
+  { _row: 5, Amount: '250', Region: 'East', Sold: '15/03/2025' },
+]
+
+const band = { bucket: 'band', bucketSize: 100 }
+
+test('a chart groups by the bucket', () => {
+  const out = groupRows(DEALS, { groupBy: 'Amount', bucket: band, sort: 'name_asc', limit: 0 })
+  assert.deepEqual(out.map((d) => d.name), ['0 – 100', '100 – 200', '200 – 300'])
+  assert.deepEqual(out.map((d) => d.value), [1, 2, 1])
+})
+
+test('bucketed groups sorted by name follow the bucket’s order', () => {
+  // Not the text's: "1,000 – 1,100" would otherwise come before "200 – 300".
+  const rows = [{ A: '1000' }, { A: '200' }]
+  const out = groupRows(rows, { groupBy: 'A', bucket: band, sort: 'name_asc' })
+  assert.deepEqual(out.map((d) => d.name), ['200 – 300', '1,000 – 1,100'])
+})
+
+test('a stacked chart can bucket both axes independently', () => {
+  const { data, series } = groupStacked(DEALS, {
+    groupBy: 'Region',
+    stackBy: 'Amount',
+    stackBucket: band,
+    limit: 0,
+  })
+  assert.deepEqual(series.sort(), ['0 – 100', '100 – 200', '200 – 300'])
+  assert.equal(data.find((d) => d.name === 'West')['100 – 200'], 1)
+})
+
+test('a pivot buckets each axis column on its own', () => {
+  // "Region / Sold" wants the region as it is and the date by month; one
+  // setting for the pair would force the wrong answer on one of them.
+  const out = pivot(DEALS, {
+    rowColumns: ['Region'],
+    colColumns: ['Sold'],
+    buckets: { Sold: { bucket: 'year' } },
+  })
+  assert.deepEqual(out.colLabels.sort(), ['2025', '2026'])
+  assert.deepEqual(out.rowLabels.sort(), ['East', 'West'])
+})
+
+test('an unbucketed group is exactly what it always was', () => {
+  const out = groupRows(DEALS, { groupBy: 'Region', sort: 'name_asc' })
+  assert.deepEqual(out.map((d) => d.name), ['East', 'West'])
+})
+
+// --- clicking a bucketed bar ---------------------------------------------
+
+test('a band drills to the range behind it, half open', () => {
+  assert.deepEqual(bucketConditions('Amount', '100 – 200', band), [
+    { column: 'Amount', operator: 'gte', value: '100' },
+    { column: 'Amount', operator: 'lt', value: '200' },
+  ])
+})
+
+test('the open ends of custom breakpoints drill too', () => {
+  const spec = { bucket: 'breaks', bucketBreaks: '0, 100' }
+  assert.deepEqual(bucketConditions('A', '< 0', spec), [{ column: 'A', operator: 'lt', value: '0', value2: undefined }])
+  assert.deepEqual(bucketConditions('A', '100+', spec), [{ column: 'A', operator: 'gte', value: '100', value2: undefined }])
+})
+
+test('a year drills to that year’s dates', () => {
+  assert.deepEqual(bucketConditions('Sold', '2026', 'year'), [
+    { column: 'Sold', operator: 'date_between', value: '2026-01-01', value2: '2026-12-31' },
+  ])
+})
+
+test('a quarter and a month know their own last day', () => {
+  assert.equal(bucketConditions('D', '2026 Q1', 'quarter')[0].value2, '2026-03-31')
+  assert.equal(bucketConditions('D', 'Feb 2024', 'month')[0].value2, '2024-02-29', 'a leap year, counted not assumed')
+})
+
+test('filled and sign drill to the obvious thing', () => {
+  assert.equal(bucketConditions('A', 'Blank', 'filled')[0].operator, 'is_empty')
+  assert.equal(bucketConditions('A', 'Filled', 'filled')[0].operator, 'is_not_empty')
+  assert.equal(bucketConditions('A', 'Zero', 'sign')[0].operator, 'equals')
+  assert.equal(bucketConditions('A', 'Negative', 'sign')[0].operator, 'lt')
+})
+
+test('a first letter drills, but "#" cannot and says so', () => {
+  assert.deepEqual(bucketConditions('N', 'R', 'firstLetter'), [
+    { column: 'N', operator: 'starts_with', value: 'R', value2: undefined },
+  ])
+  // "anything that is not a letter" is no single condition -- the caller
+  // falls back to selecting the rows themselves.
+  assert.equal(bucketConditions('N', '#', 'firstLetter'), null)
+})
+
+test('a bucket with no exact form returns nothing rather than something wrong', () => {
+  assert.equal(bucketConditions('N', 'March', 'monthOfYear'), null)
+  assert.equal(bucketConditions('N', 'Ravi', 'firstWord'), null)
+  assert.equal(bucketConditions('N', 'MA3', { bucket: 'prefix' }), null)
+  assert.equal(bucketConditions('N', 'x', ''), null)
+})
+
+test('grouping and drilling agree on what a row is', () => {
+  // The pair that matters: whatever the bar grouped, the drill must select.
+  for (const row of DEALS) {
+    const label = groupKey(row, 'Amount', band)
+    const conditions = bucketConditions('Amount', label, band)
+    const lo = Number(conditions[0].value)
+    const hi = Number(conditions[1].value)
+    const n = Number(row.Amount)
+    assert.ok(n >= lo && n < hi, `${n} should fall inside ${label}`)
+  }
+})
