@@ -53,6 +53,8 @@ export default function StageKpiPopup({
   isDrilled,
   onDrillKpi,
   drilledKpiId,
+  onDrillValue,
+  drilledValueKey,
 }) {
   const ref = useRef(null)
   const [pos, setPos] = useState(null)
@@ -92,13 +94,42 @@ export default function StageKpiPopup({
     }
   }, [open, onClose])
 
-  // KPI pop-ups should measure against the whole tab data for that stage,
-  // not the already-filtered stage condition rows. The stage condition is
-  // still used for the funnel count, but each KPI can independently narrow
-  // further with its own conditions.
+  // The stage's own rows. Everything in here -- the KPIs, the pivot, the
+  // leaderboard -- describes the stage you clicked, which is what makes the
+  // numbers agree with the card above and with whatever you then drill the
+  // dashboard by. Each KPI narrows further with its own conditions.
   const baseRows = useMemo(() => {
     return rows || []
   }, [rows])
+
+  /**
+   * The condition behind clicking one label.
+   *
+   * `(blank)` is a real group -- the pivot puts every empty cell in it -- so
+   * it drills as "this column is empty" rather than as the literal text,
+   * which would match nothing and look like a broken click.
+   */
+  const valueCondition = (column, label) =>
+    String(label) === '(blank)'
+      ? { column, operator: 'is_empty', value: '' }
+      : { column, operator: 'equals', value: String(label) }
+
+  const drillValue = (key, label, conditions) =>
+    onDrillValue && onDrillValue(stage, { key, label, conditions })
+
+  // Every drillable cell looks the same and says the same thing.
+  const cellProps = (key, label, conditions) =>
+    onDrillValue
+      ? {
+          onClick: () => drillValue(key, label, conditions),
+          title: `Filter the dashboard to ${label}`,
+          className: 'cursor-pointer hover:bg-indigo-50/70',
+          'aria-pressed': drilledValueKey === key,
+        }
+      : {}
+
+  const drilledCell = (key) =>
+    drilledValueKey === key ? { boxShadow: 'inset 0 0 0 2px rgb(99 102 241)' } : undefined
 
   const kpis = useMemo(() => {
     if (!stage) return []
@@ -282,12 +313,21 @@ export default function StageKpiPopup({
                           <div>Row</div>
                           <div className="text-right">Total</div>
                         </div>
-                        {pivotData.rowLabels.map((rowLabel, ri) => (
-                          <div key={rowLabel} className="grid grid-cols-[1.6fr_1fr] gap-2 border-t border-slate-100 px-2 py-2 text-right text-xs text-slate-700">
-                            <div className="text-left font-medium" title={rowLabel}>{rowLabel}</div>
-                            <div className="tabular-nums">{formatNumber(pivotData.rowTotals[ri], stage.pivot.format, stage.pivot.aggregation)}</div>
-                          </div>
-                        ))}
+                        {pivotData.rowLabels.map((rowLabel, ri) => {
+                          const key = `row:${rowLabel}`
+                          const props = cellProps(key, rowLabel, [valueCondition(stage.pivot.rowColumn, rowLabel)])
+                          return (
+                            <div
+                              key={rowLabel}
+                              {...props}
+                              className={`grid grid-cols-[1.6fr_1fr] gap-2 border-t border-slate-100 px-2 py-2 text-right text-xs text-slate-700 ${props.className || ''}`}
+                              style={drilledCell(key)}
+                            >
+                              <div className="text-left font-medium" title={rowLabel}>{rowLabel}</div>
+                              <div className="tabular-nums">{formatNumber(pivotData.rowTotals[ri], stage.pivot.format, stage.pivot.aggregation)}</div>
+                            </div>
+                          )
+                        })}
                       </div>
 
                       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white">
@@ -295,12 +335,21 @@ export default function StageKpiPopup({
                           <div>Column totals</div>
                           <div className="text-right">Value</div>
                         </div>
-                        {pivotData.colLabels.map((colLabel, ci) => (
-                          <div key={colLabel} className="grid grid-cols-[1.6fr_1fr] gap-2 border-t border-slate-100 px-2 py-2 text-right text-xs text-slate-700">
-                            <div className="text-left font-medium truncate" title={colLabel}>{colLabel}</div>
-                            <div className="tabular-nums">{formatNumber(pivotData.colTotals[ci], stage.pivot.format, stage.pivot.aggregation)}</div>
-                          </div>
-                        ))}
+                        {pivotData.colLabels.map((colLabel, ci) => {
+                          const key = `col:${colLabel}`
+                          const props = cellProps(key, colLabel, [valueCondition(stage.pivot.colColumn, colLabel)])
+                          return (
+                            <div
+                              key={colLabel}
+                              {...props}
+                              className={`grid grid-cols-[1.6fr_1fr] gap-2 border-t border-slate-100 px-2 py-2 text-right text-xs text-slate-700 ${props.className || ''}`}
+                              style={drilledCell(key)}
+                            >
+                              <div className="text-left font-medium truncate" title={colLabel}>{colLabel}</div>
+                              <div className="tabular-nums">{formatNumber(pivotData.colTotals[ci], stage.pivot.format, stage.pivot.aggregation)}</div>
+                            </div>
+                          )
+                        })}
                       </div>
 
                       <div className="rounded-xl border border-slate-100 bg-white px-3 py-2 text-right text-xs font-semibold text-slate-700">
@@ -329,15 +378,40 @@ export default function StageKpiPopup({
                               </td>
                               {pivotData.colLabels.map((colLabel, ci) => {
                                 const value = pivotData.matrix[ri][ci]
+                                // An empty cell has no rows behind it, so it
+                                // stays inert rather than offering a click
+                                // that would empty the dashboard.
+                                const key = `cell:${rowLabel}|${colLabel}`
+                                const props = value > 0
+                                  ? cellProps(key, `${rowLabel} \u00d7 ${colLabel}`, [
+                                      valueCondition(stage.pivot.rowColumn, rowLabel),
+                                      valueCondition(stage.pivot.colColumn, colLabel),
+                                    ])
+                                  : {}
                                 return (
-                                  <td key={colLabel} className="px-2 py-1.5 text-right tabular-nums text-slate-700">
+                                  <td
+                                    key={colLabel}
+                                    {...props}
+                                    className={`px-2 py-1.5 text-right tabular-nums text-slate-700 ${props.className || ''}`}
+                                    style={drilledCell(key)}
+                                  >
                                     {value > 0 ? formatNumber(value, stage.pivot.format, stage.pivot.aggregation) : <span className="text-slate-300">·</span>}
                                   </td>
                                 )
                               })}
-                              <td className="bg-slate-50 px-2 py-1.5 text-right font-semibold tabular-nums text-slate-700">
-                                {formatNumber(pivotData.rowTotals[ri], stage.pivot.format, stage.pivot.aggregation)}
-                              </td>
+                              {(() => {
+                                const key = `row:${rowLabel}`
+                                const props = cellProps(key, rowLabel, [valueCondition(stage.pivot.rowColumn, rowLabel)])
+                                return (
+                                  <td
+                                    {...props}
+                                    className={`bg-slate-50 px-2 py-1.5 text-right font-semibold tabular-nums text-slate-700 ${props.className || ''}`}
+                                    style={drilledCell(key)}
+                                  >
+                                    {formatNumber(pivotData.rowTotals[ri], stage.pivot.format, stage.pivot.aggregation)}
+                                  </td>
+                                )
+                              })()}
                             </tr>
                           ))}
                           <tr className="border-t border-slate-200 bg-slate-50">
@@ -383,8 +457,16 @@ export default function StageKpiPopup({
                         </tr>
                       </thead>
                       <tbody>
-                        {leaderboardData.map((row, i) => (
-                          <tr key={row.name} className="border-t border-slate-100">
+                        {leaderboardData.map((row, i) => {
+                          const key = `lb:${row.name}`
+                          const props = cellProps(key, row.name, [valueCondition(stage.leaderboard.groupBy, row.name)])
+                          return (
+                          <tr
+                            key={row.name}
+                            {...props}
+                            className={`border-t border-slate-100 ${props.className || ''}`}
+                            style={drilledCell(key)}
+                          >
                             <td className="px-2 py-1.5 text-sm">{MEDALS[i] || <span className="text-slate-400">#{i + 1}</span>}</td>
                             <td className="px-2 py-1.5 font-medium text-slate-700" title={row.name}>
                               {row.name}
@@ -395,7 +477,8 @@ export default function StageKpiPopup({
                               </td>
                             ))}
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>

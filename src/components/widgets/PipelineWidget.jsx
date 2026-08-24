@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { dailyCounts } from '../../lib/dataUtils.js'
-import { getStagePopupRows, getStageRows } from '../../lib/pipelineStageData.js'
+import { getStagePopupRows, getStageRows, stageConditions } from '../../lib/pipelineStageData.js'
 import Sparkline from './Sparkline.jsx'
 import StageKpiPopup from '../StageKpiPopup.jsx'
 
@@ -50,7 +50,10 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
       id: `stage_${widget.id}_${stage.id}`,
       kind: 'conditions',
       tab: stage.tab,
-      conditions: stage.conditions,
+      // Through the same helper the COUNT uses. A condition that never
+      // named its tab would otherwise be dropped by the engine, leaving a
+      // stage that reads 40 and filters nothing when you click it.
+      conditions: stageConditions(stage),
       match: stage.match || 'all',
       icon: stage.icon,
       label: `${stage.label}`,
@@ -58,28 +61,83 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
   }
 
   /**
-   * Drilling by a stage KPI narrows the dashboard to the stage AND the KPI's
-   * own conditions -- "Delivered vehicles that were financed", not just
-   * "financed". Combining them is what makes the number on the card and the
-   * rows the dashboard then shows agree; filtering by the KPI's conditions
-   * alone would show rows from outside the stage entirely.
+   * A drill meaning "inside this stage, AND this as well" -- a stage KPI, a
+   * leaderboard row, a pivot cell.
+   *
+   * The stage part is what makes the number you clicked and the rows the
+   * dashboard then shows agree: filtering by "financed" alone would pull in
+   * rows from outside the stage entirely, and clicking Ravi in the Delivered
+   * leaderboard would show everything Ravi has ever touched.
+   *
+   * How the two sets combine depends on the stage's own match. With ALL they
+   * simply concatenate. With ANY they cannot -- "(booked or delivered) and
+   * financed" is not expressible in one flat condition set -- so the stage
+   * travels as a cross-filter of its own and the narrower one stacks on top,
+   * which is exactly what the chips then show. Both carry the same `value`,
+   * so they appear, move and clear together.
    */
-  function drillKpi(stage, kpi) {
+  function narrowWithinStage(stage, { id, value, conditions, icon, label }) {
+    const within = stageConditions(stage)
+    const splitOut = (stage.match || 'all') === 'any' && within.length > 1
+
+    if (splitOut) {
+      onCrossFilter({
+        id: `stagewithin_${widget.id}_${stage.id}`,
+        value,
+        kind: 'conditions',
+        tab: stage.tab,
+        match: 'any',
+        conditions: within,
+        icon: stage.icon,
+        label: stage.label,
+      })
+    }
+
     onCrossFilter({
-      id: `stagekpi_${widget.id}_${stage.id}_${kpi.id}`,
+      id,
+      value,
       kind: 'conditions',
       tab: stage.tab,
       match: 'all',
-      conditions: [
-        ...(stage.conditions || []).filter((c) => c.column),
-        // A stage KPI's conditions are written against the stage's own tab,
-        // which the builder pins for them, but they don't carry it.
-        ...(kpi.conditions || []).filter((c) => c.column).map((c) => ({ ...c, tab: c.tab || stage.tab })),
-      ],
+      conditions: [...(splitOut ? [] : within), ...conditions],
+      icon,
+      label,
+    })
+  }
+
+  function drillKpi(stage, kpi) {
+    narrowWithinStage(stage, {
+      id: `stagekpi_${widget.id}_${stage.id}_${kpi.id}`,
+      // A stage KPI's conditions are written against the stage's own tab,
+      // which the builder pins for them, but they don't carry it.
+      conditions: (kpi.conditions || []).filter((c) => c.column).map((c) => ({ ...c, tab: c.tab || stage.tab })),
       icon: kpi.icon || stage.icon,
       label: `${stage.label} · ${kpi.label}`,
     })
   }
+
+  /**
+   * Drilling on something INSIDE the pop-up -- a leaderboard row, a pivot
+   * cell, a pivot total.
+   *
+   * The pop-up hands over a `key` describing what was clicked rather than an
+   * id, so clicking the same cell again toggles it off and clicking a
+   * different one in the same stage replaces it instead of stacking two
+   * contradictory filters on the page.
+   */
+  function drillValue(stage, { key, label, icon, conditions }) {
+    narrowWithinStage(stage, {
+      id: `stageval_${widget.id}_${stage.id}`,
+      value: key,
+      conditions: conditions.filter((c) => c.column).map((c) => ({ ...c, tab: stage.tab })),
+      icon: icon || stage.icon,
+      label: `${stage.label} · ${label}`,
+    })
+  }
+
+  const drilledValueKey = crossFilters.find(
+    (cf) => cf.id === `stageval_${widget.id}_${openStageId}`
+  )?.value
 
   const drilledKpiId = openStageId
     ? (stages.find((s) => s.id === openStageId)?.kpis || []).find((k) =>
@@ -112,7 +170,9 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
   }
 
   const openStage = stages.find((s) => s.id === openStageId) || null
-  const openStageRows = openStage ? getStagePopupRows({ stage: openStage, widget, rowsByTab, rawRowsByTab }) : []
+  const openStageRows = openStage
+    ? getStagePopupRows({ stage: openStage, widget, rowsByTab, rawRowsByTab, dateOrder })
+    : []
 
   return (
     <div className="card">
@@ -207,6 +267,8 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
         isDrilled={openStage ? isActive(openStage) : false}
         onDrillKpi={drillKpi}
         drilledKpiId={drilledKpiId}
+        onDrillValue={drillValue}
+        drilledValueKey={drilledValueKey}
       />
     </div>
   )

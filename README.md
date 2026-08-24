@@ -731,7 +731,7 @@ stacking two contradictory filters.
 | Type | What it does |
 |---|---|
 | **KPI Card** | One number from a tab + column + calculation. Counts up on change; with filters active it shows the unfiltered total underneath. Can express a conversion between two tabs. Its mark can be an emoji **or an image URL**. |
-| **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and pop-up KPIs. Click a stage *or one of its KPIs* to drill in. |
+| **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and a pop-up of KPIs, a pivot and a leaderboard. Click a stage, a KPI, a leaderboard row or a pivot cell to drill in. |
 | **Flow (drill-down tree)** | One or more trees on a shared canvas. Each opens level by level — by column, by conditions, into named numbers, by a list on a reference tab, across a **key into another tab**, or into other tabs outright — and each can blend a second table into its rows first. Full screen, pan and zoom. See below. |
 | **Filter Panel** | The page's filters as a column of labelled button groups, on the canvas — the right-hand panel of a classic report. |
 | **Leaderboard** | Ranks any column by any metrics you define. Click a row to drill in. |
@@ -1228,11 +1228,35 @@ as removable chips, so it's always visible *why* the numbers changed. Clicking
 the same thing again clears it. Drill-downs obey the same tab scoping as
 everything else.
 
-A **stage KPI** drill combines the stage's conditions with the KPI's own —
-"delivered vehicles that were financed", not just "financed" — so the number
-on the card and the rows the dashboard then shows agree. A stage KPI with no
-conditions of its own stays inert, since filtering by it would be identical to
-clicking the stage.
+#### Everything in a pipeline stage's pop-up drills
+
+A stage's pop-up shows **the stage's own rows** — its KPIs, its pivot table and
+its leaderboard all describe the card you clicked. That's what lets everything
+in there be clickable, and mean what it says:
+
+- a **KPI** → the stage *and* that KPI's conditions ("delivered vehicles that
+  were financed", not just "financed")
+- a **leaderboard row** → that person's rows *in this stage*, not everything
+  they've ever touched
+- a **pivot cell** → that row × that column, within the stage; a **row or
+  column total** → that one label. An empty cell stays inert, since there are
+  no rows behind it to show.
+
+A stage KPI with no conditions of its own stays inert, since filtering by it
+would be identical to clicking the stage. `(blank)` is a real group, so it
+drills as *"this column is empty"* rather than as the literal text.
+
+When a stage matches **any** of its conditions rather than all, the stage
+travels as a chip of its own with the narrower drill stacked on top —
+"(booked or delivered) **and** financed" can't be written as one flat set of
+conditions. Both chips appear, move and clear together.
+
+> **Fixed:** a stage whose conditions never recorded which tab they belonged
+> to — one migrated from v2, or written before multi-source refs existed —
+> used to **count correctly and then filter nothing at all** when clicked.
+> Counting only ever looked at the column; the filter engine also insists a
+> condition names its tab, and silently ignored the rest. Both now go through
+> one function, so a stage's number and its drill can't disagree again.
 
 ### Exporting to CSV
 
