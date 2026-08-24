@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
   CornerDownRight,
+  Expand,
   Filter,
   GitBranch,
   ListTree,
@@ -11,6 +12,7 @@ import {
   MoveHorizontal,
   MoveVertical,
   Plus,
+  Shrink,
   X,
 } from 'lucide-react'
 import { formatNumber } from '../../lib/dataUtils.js'
@@ -18,14 +20,13 @@ import { STAGE_PALETTE } from '../../lib/config.js'
 import FlowDiagram from './FlowDiagram.jsx'
 import {
   DEFAULT_FLOW,
-  buildFlow,
+  buildFlowTrees,
   describeFlow,
   findFlowNode,
   flattenFlow,
   flowCrossFilter,
   flowNodeCanDrill,
   flowNodeIsDrilled,
-  flowRootTab,
 } from '../../lib/flow.js'
 
 /**
@@ -50,14 +51,22 @@ import {
  *    two targets -- an expand that also filtered the page would make the
  *    page unusable as a way to explore.
  */
-export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilters, onCrossFilter, dateOrder }) {
+export default function FlowWidget({
+  widget,
+  rowsByTab,
+  rawRowsByTab,
+  headersByTab,
+  crossFilters,
+  onCrossFilter,
+  dateOrder,
+}) {
   const flow = { ...DEFAULT_FLOW, ...(widget.flow || {}) }
   const source = widget.ignoreFilters ? rawRowsByTab : rowsByTab
 
   const [expanded, setExpanded] = useState(() => new Set())
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [autoExpand, setAutoExpand] = useState(undefined)
-  const [focusPath, setFocusPath] = useState('')
+  const [focusByTree, setFocusByTree] = useState({})
   const [levelOverrides, setLevelOverrides] = useState({})
   // The admin picks which view a page opens on; the reader picks what they
   // want to look at. Neither answer is right for every flow -- a two-level
@@ -65,51 +74,60 @@ export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilte
   // a picture.
   const [view, setView] = useState(flow.view === 'diagram' ? 'diagram' : 'tree')
   const [orientation, setOrientation] = useState(flow.orientation === 'horizontal' ? 'horizontal' : 'vertical')
+  const [fullscreen, setFullscreen] = useState(false)
 
-  const built = useMemo(
-    () => buildFlow({ widget, rowsByTab: source, dateOrder, expanded, collapsed, autoExpand, levelOverrides }),
-    [widget, source, dateOrder, expanded, collapsed, autoExpand, levelOverrides]
+  const forest = useMemo(() => {
+    const built = buildFlowTrees({
+      widget,
+      rowsByTab: source,
+      headersByTab,
+      dateOrder,
+      expanded,
+      collapsed,
+      autoExpand,
+      levelOverrides,
+    })
+    // Node paths are unique inside a tree, not between them. Stamping the
+    // tree on every node is what lets one canvas, one set of open branches
+    // and one click handler serve all of them.
+    for (const one of built.trees) {
+      for (const node of flattenFlow(one.root)) node.treeId = one.tree.id
+    }
+    return built
+  }, [widget, source, headersByTab, dateOrder, expanded, collapsed, autoExpand, levelOverrides])
+
+  const keyFor = useCallback(
+    (node) => (forest.multi ? `${node.treeId}::${node.path}` : node.path),
+    [forest.multi]
   )
 
-  // Focus makes any node the temporary root -- the same "zoom in" every
-  // serious drill tool has. The tree is still built from the real root, so
-  // the breadcrumb can walk back out without recomputing anything.
-  const focused = (focusPath && findFlowNode(built.root, focusPath)) || built.root
-  const trail = useMemo(() => {
-    if (!focusPath) return []
-    const out = []
-    let node = built.root
-    const parts = focusPath.split('/').slice(1)
-    let path = ''
-    out.push(built.root)
-    for (const part of parts) {
-      path += `/${part}`
-      node = findFlowNode(built.root, path)
-      if (!node) break
-      out.push(node)
-    }
-    return out
-  }, [built.root, focusPath])
+  const toggle = useCallback(
+    (node) => {
+      const key = keyFor(node)
+      const open = node.open
+      setExpanded((current) => {
+        const next = new Set(current)
+        if (open) next.delete(key)
+        else next.add(key)
+        return next
+      })
+      setCollapsed((current) => {
+        const next = new Set(current)
+        if (open) next.add(key)
+        else next.delete(key)
+        return next
+      })
+    },
+    [keyFor]
+  )
 
-  function toggle(node) {
-    const open = node.open
-    setExpanded((current) => {
-      const next = new Set(current)
-      if (open) next.delete(node.path)
-      else next.add(node.path)
-      return next
-    })
-    setCollapsed((current) => {
-      const next = new Set(current)
-      if (open) next.add(node.path)
-      else next.delete(node.path)
-      return next
-    })
-  }
+  const focusNode = useCallback((node) => {
+    setFocusByTree((all) => ({ ...all, [node.treeId]: node.path }))
+  }, [])
 
   function expandAll() {
     setCollapsed(new Set())
-    setAutoExpand(built.depth)
+    setAutoExpand(forest.depth)
   }
 
   function collapseAll() {
@@ -118,38 +136,77 @@ export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilte
     setAutoExpand(0)
   }
 
-  function drill(node) {
-    const cf = flowCrossFilter(widget, node)
-    if (cf) onCrossFilter(cf)
-  }
+  const drill = useCallback(
+    (node) => {
+      const cf = flowCrossFilter(widget, node)
+      if (cf) onCrossFilter(cf)
+    },
+    [widget, onCrossFilter]
+  )
 
-  const openCount = flattenFlow(built.root).filter((n) => n.open).length
+  const isDrilled = useCallback(
+    (node) => flowNodeIsDrilled(widget, node, crossFilters),
+    [widget, crossFilters]
+  )
+
+  // Fullscreen is a property of the WIDGET, not of the canvas inside it: the
+  // view switch, the breadcrumb and the breakdown pickers are part of
+  // reading a flow, and a fullscreen picture without them would be a
+  // picture you cannot steer.
+  useEffect(() => {
+    if (!fullscreen) return undefined
+    const onKey = (e) => {
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    // The page behind must not scroll under the overlay.
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previous
+    }
+  }, [fullscreen])
+
+  const openCount = forest.trees.reduce((sum, one) => sum + flattenFlow(one.root).filter((n) => n.open).length, 0)
 
   // A viewer-changeable split has to offer the columns of the tab in play at
   // ITS level, which a hop above it may have changed -- offering the root
   // tab's columns everywhere would silently produce an empty branch.
   const changeable = useMemo(() => {
-    let tab = flowRootTab(widget)
     const out = []
-    built.levels.forEach((level) => {
-      if (level.kind === 'split' && level.allowChange && level.id) out.push({ level, tab })
-      if (level.kind === 'hop' && level.tab) tab = level.tab
-    })
+    for (const one of forest.trees) {
+      let tab = one.tree.tab
+      one.levels.forEach((level) => {
+        if (level.kind === 'split' && level.allowChange && level.id) out.push({ level, tab, tree: one.tree })
+        if (level.kind === 'hop' && level.tab) tab = level.tab
+      })
+    }
     return out
-  }, [built.levels, widget])
+  }, [forest])
 
   const columnsOf = (tab) => {
     const sample = (source?.[tab] || [])[0]
     return sample ? Object.keys(sample).filter((c) => c !== '_row') : []
   }
 
-  return (
-    <div className="card">
+  const rootFor = (one) => findFlowNode(one.root, focusByTree[one.tree.id] || '') || one.root
+
+  // A stable array, so the diagram does not re-lay itself out on every
+  // unrelated re-render of the page.
+  const roots = useMemo(
+    () => forest.trees.map((one) => findFlowNode(one.root, focusByTree[one.tree.id] || '') || one.root),
+    [forest, focusByTree]
+  )
+
+  const card = (
+    <div className={`card ${fullscreen ? 'flex h-full flex-col overflow-hidden' : ''}`}>
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="widget-title">🔀 {widget.title}</h2>
           <p className="truncate text-[11px] text-slate-400">
             {describeFlow(widget)}
+            {forest.multi && ` · ${forest.trees.length} trees`}
             {widget.ignoreFilters && ' · unfiltered'}
           </p>
         </div>
@@ -201,6 +258,17 @@ export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilte
           >
             <Minus size={11} /> Collapse
           </button>
+          <button
+            onClick={() => setFullscreen((f) => !f)}
+            className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium ${
+              fullscreen
+                ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
+                : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+            }`}
+            title={fullscreen ? 'Leave full screen (Esc)' : 'Full screen'}
+          >
+            {fullscreen ? <Shrink size={11} /> : <Expand size={11} />}
+          </button>
         </div>
       </div>
 
@@ -209,10 +277,10 @@ export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilte
           one anyone predicted when the page was built. */}
       {changeable.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          {changeable.map(({ level, tab }, i) => (
+          {changeable.map(({ level, tab, tree }, i) => (
             <div key={level.id} className="flex items-center gap-1">
               <span className="text-[10px] uppercase tracking-wide text-slate-400">
-                {i === 0 ? 'break down by' : 'then by'}
+                {forest.multi ? `${tree.label || tree.tab} ·` : i === 0 ? 'break down by' : 'then by'}
               </span>
               <select
                 value={levelOverrides[level.id]?.column ?? level.column}
@@ -232,67 +300,152 @@ export default function FlowWidget({ widget, rowsByTab, rawRowsByTab, crossFilte
         </div>
       )}
 
+      {forest.depth === 0 ? (
+        <p className="empty-state">No levels configured yet</p>
+      ) : view === 'diagram' ? (
+        <div className={fullscreen ? 'min-h-0 flex-1' : ''}>
+          <FlowDiagram
+            roots={roots}
+            flow={flow}
+            orientation={orientation}
+            height={fullscreen ? '100%' : Number(flow.diagramHeight) || 420}
+            fullscreen={fullscreen}
+            isDrilled={isDrilled}
+            onToggle={toggle}
+            onDrill={drill}
+            onFocus={focusNode}
+          />
+        </div>
+      ) : (
+        <div className={`-mx-1 space-y-3 px-1 ${fullscreen ? 'min-h-0 flex-1 overflow-auto' : 'overflow-x-auto'}`}>
+          {forest.trees.map((one) => (
+            <TreeSection
+              key={one.tree.id}
+              built={one}
+              node={rootFor(one)}
+              flow={flow}
+              widget={widget}
+              showHeader={forest.multi}
+              crossFilters={crossFilters}
+              focusPath={focusByTree[one.tree.id] || ''}
+              onClearFocus={() => setFocusByTree((all) => ({ ...all, [one.tree.id]: '' }))}
+              onToggle={toggle}
+              onDrill={drill}
+              onFocus={focusNode}
+            />
+          ))}
+        </div>
+      )}
+
+      {forest.truncated && (
+        <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
+          Stopped after {flow.maxNodes} branches. Close a level, or focus into the branch you care about, to keep
+          going deeper.
+        </p>
+      )}
+    </div>
+  )
+
+  if (!fullscreen) return card
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-slate-900/50 p-2 backdrop-blur-sm sm:p-4">
+      <div className="mx-auto h-full max-w-[1800px]">{card}</div>
+    </div>
+  )
+}
+
+/**
+ * One tree on the page, with the breadcrumb that walks back out of it.
+ *
+ * A canvas with several trees needs each to say what it is; a canvas with
+ * one does not, and a heading above a single tree that already has a title
+ * is noise.
+ */
+function TreeSection({
+  built,
+  node,
+  flow,
+  widget,
+  showHeader,
+  crossFilters,
+  focusPath,
+  onClearFocus,
+  onToggle,
+  onDrill,
+  onFocus,
+}) {
+  const trail = useMemo(() => {
+    if (!focusPath) return []
+    const out = [built.root]
+    let path = ''
+    for (const part of focusPath.split('/').slice(1)) {
+      path += `/${part}`
+      const found = findFlowNode(built.root, path)
+      if (!found) break
+      out.push(found)
+    }
+    return out
+  }, [built.root, focusPath])
+
+  return (
+    <div>
+      {showHeader && (
+        <div className="mb-1 flex items-center gap-1.5 border-b border-slate-100 pb-1">
+          <span className="text-[11px] font-semibold text-slate-600">
+            {built.tree.icon} {built.tree.label || built.tree.tab}
+          </span>
+          <span className="rounded-full bg-slate-100 px-1.5 py-px text-[9px] uppercase tracking-wide text-slate-500">
+            {built.tree.tab}
+          </span>
+          {built.blended && (
+            <span
+              className="rounded-full bg-teal-50 px-1.5 py-px text-[9px] uppercase tracking-wide text-teal-600"
+              title={`Blended with ${built.tree.blend?.ref}`}
+            >
+              blended
+            </span>
+          )}
+        </div>
+      )}
+
       {trail.length > 1 && (
         <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg bg-indigo-50/70 px-2 py-1 text-[11px]">
           <span className="text-[10px] uppercase tracking-wide text-indigo-400">focused</span>
-          {trail.map((node, i) => (
-            <span key={node.path} className="flex items-center gap-1">
+          {trail.map((item, i) => (
+            <span key={item.path} className="flex items-center gap-1">
               {i > 0 && <ChevronRight size={11} className="text-indigo-300" />}
               <button
-                onClick={() => setFocusPath(node.path)}
+                onClick={() => onFocus(item)}
                 className={`max-w-[160px] truncate hover:underline ${
                   i === trail.length - 1 ? 'font-semibold text-indigo-700' : 'text-indigo-500'
                 }`}
               >
-                {node.label}
+                {item.label}
               </button>
             </span>
           ))}
           <button
-            onClick={() => setFocusPath('')}
+            onClick={onClearFocus}
             className="ml-1 rounded p-0.5 text-indigo-400 hover:bg-indigo-100 hover:text-indigo-600"
-            title="Back to the whole flow"
+            title="Back to the whole tree"
           >
             <X size={12} />
           </button>
         </div>
       )}
 
-      {built.depth === 0 ? (
-        <p className="empty-state">No levels configured yet</p>
-      ) : view === 'diagram' ? (
-        <FlowDiagram
-          root={focused}
-          flow={flow}
-          orientation={orientation}
-          height={Number(flow.diagramHeight) || 420}
-          isDrilled={(node) => flowNodeIsDrilled(widget, node, crossFilters)}
-          onToggle={toggle}
-          onDrill={drill}
-          onFocus={setFocusPath}
-        />
-      ) : (
-        <div className="-mx-1 overflow-x-auto px-1">
-          <FlowNode
-            node={focused}
-            root={focused}
-            flow={flow}
-            widget={widget}
-            crossFilters={crossFilters}
-            onToggle={toggle}
-            onDrill={drill}
-            onFocus={setFocusPath}
-            isRoot
-          />
-        </div>
-      )}
-
-      {built.truncated && (
-        <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
-          Stopped after {flow.maxNodes} branches. Close a level, or focus into the branch you care about, to keep
-          going deeper.
-        </p>
-      )}
+      <FlowNode
+        node={node}
+        root={node}
+        flow={flow}
+        widget={widget}
+        crossFilters={crossFilters}
+        onToggle={onToggle}
+        onDrill={onDrill}
+        onFocus={onFocus}
+        isRoot
+      />
     </div>
   )
 }
@@ -401,7 +554,7 @@ function FlowNode({ node, root, flow, widget, crossFilters, onToggle, onDrill, o
           <span className="flex items-center gap-0.5">
             {canOpen && !isRoot && (
               <button
-                onClick={() => onFocus(node.path)}
+                onClick={() => onFocus(node)}
                 className="rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-white hover:text-indigo-600 focus:opacity-100 group-hover:opacity-100"
                 title={`Zoom into ${node.label}`}
               >

@@ -3,12 +3,12 @@ import { ChevronDown, ChevronRight, Filter, Maximize2, Minus, Move, Plus, Scan }
 import { formatNumber } from '../../lib/dataUtils.js'
 import { STAGE_PALETTE } from '../../lib/config.js'
 import { flowNodeCanDrill } from '../../lib/flow.js'
-import { fitToViewport, layoutFlow } from '../../lib/flowLayout.js'
+import { fitToViewport, layoutForest } from '../../lib/flowLayout.js'
 
 /**
  * The flow as a diagram.
  *
- * Same tree, same numbers, same clicks as the indented view -- what changes
+ * Same trees, same numbers, same clicks as the indented view -- what changes
  * is what you can see at a glance: shape. Where a branch splits four ways
  * and three of them are hairlines, that is visible before you have read
  * anything, because the edge carries the volume.
@@ -17,8 +17,23 @@ import { fitToViewport, layoutFlow } from '../../lib/flowLayout.js'
  * Text in SVG cannot wrap, truncate, or inherit the card's theme, and every
  * hover control would have to be hand-drawn; laying real elements over the
  * lines costs one absolutely positioned div per node and buys all of it.
+ *
+ * Several trees share ONE canvas rather than getting one box each. Trees on
+ * the same page are read by looking between them, and two separately
+ * scrolling boxes make that comparison impossible -- you can never get both
+ * at the same size on the same screen at the same time.
  */
-export default function FlowDiagram({ root, flow, orientation, height = 420, isDrilled, onToggle, onDrill, onFocus }) {
+export default function FlowDiagram({
+  roots,
+  flow,
+  orientation,
+  height = 420,
+  isDrilled,
+  onToggle,
+  onDrill,
+  onFocus,
+  fullscreen,
+}) {
   const viewportRef = useRef(null)
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
@@ -28,7 +43,7 @@ export default function FlowDiagram({ root, flow, orientation, height = 420, isD
   // open a branch is the single most annoying thing a canvas can do.
   const touched = useRef(false)
 
-  const layout = useMemo(() => layoutFlow(root, { orientation }), [root, orientation])
+  const layout = useMemo(() => layoutForest(roots, { orientation }), [roots, orientation])
 
   const fit = useCallback(() => {
     const el = viewportRef.current
@@ -45,7 +60,8 @@ export default function FlowDiagram({ root, flow, orientation, height = 420, isD
     if (!touched.current) fit()
   }, [fit])
 
-  // A card that changes width mid-read has to re-fit regardless.
+  // A card that changes size mid-read -- including going fullscreen -- has
+  // to re-frame regardless.
   useEffect(() => {
     const el = viewportRef.current
     if (!el || typeof ResizeObserver === 'undefined') return undefined
@@ -57,7 +73,47 @@ export default function FlowDiagram({ root, flow, orientation, height = 420, isD
   // A change of direction is a new picture, so it starts framed again.
   useEffect(() => {
     touched.current = false
-  }, [orientation])
+  }, [orientation, fullscreen])
+
+  /** Zoom about a point, so the thing under the cursor stays under it. */
+  const zoomAt = useCallback((factor, px, py) => {
+    touched.current = true
+    setView((v) => {
+      const zoom = Math.max(0.2, Math.min(3, Number((v.zoom * factor).toFixed(4))))
+      const k = zoom / v.zoom
+      return { zoom, x: px - (px - v.x) * k, y: py - (py - v.y) * k }
+    })
+  }, [])
+
+  const zoomBy = (factor) => {
+    const el = viewportRef.current
+    zoomAt(factor, (el?.clientWidth || 0) / 2, (el?.clientHeight || 0) / 2)
+  }
+
+  // Wheel zoom, but only when it cannot be mistaken for scrolling the page.
+  // Hijacking a plain wheel inside a dashboard traps the reader in a widget
+  // they were trying to scroll past; ctrl/⌘+wheel is the browser's own
+  // zoom gesture, and in fullscreen there is nothing behind to scroll.
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return undefined
+    const onWheel = (e) => {
+      if (!fullscreen && !e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - rect.left, e.clientY - rect.top)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [zoomAt, fullscreen])
+
+  function onKeyDown(e) {
+    if (e.key === '+' || e.key === '=') zoomBy(1.2)
+    else if (e.key === '-' || e.key === '_') zoomBy(1 / 1.2)
+    else if (e.key === '0' || e.key.toLowerCase() === 'f') fit()
+    else return
+    e.preventDefault()
+  }
 
   function startPan(e) {
     // Only a drag on the canvas itself pans; a drag that starts on a card is
@@ -71,7 +127,11 @@ export default function FlowDiagram({ root, flow, orientation, height = 420, isD
 
   function movePan(e) {
     if (!drag.current) return
-    setView((v) => ({ ...v, x: drag.current.ox + (e.clientX - drag.current.x), y: drag.current.oy + (e.clientY - drag.current.y) }))
+    setView((v) => ({
+      ...v,
+      x: drag.current.ox + (e.clientX - drag.current.x),
+      y: drag.current.oy + (e.clientY - drag.current.y),
+    }))
   }
 
   function endPan() {
@@ -79,16 +139,15 @@ export default function FlowDiagram({ root, flow, orientation, height = 420, isD
     setDragging(false)
   }
 
-  const zoomBy = (factor) => {
-    touched.current = true
-    setView((v) => ({ ...v, zoom: Math.max(0.25, Math.min(2, Number((v.zoom * factor).toFixed(3)))) }))
-  }
-
   return (
-    <div className="relative">
+    // h-full so a fullscreen parent can hand the canvas a percentage height;
+    // with an auto-height parent it resolves to auto and changes nothing.
+    <div className="relative h-full">
       <div
         ref={viewportRef}
-        className={`flow-canvas relative overflow-hidden rounded-xl border border-slate-200/70 ${
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        className={`flow-canvas relative overflow-hidden rounded-xl border border-slate-200/70 outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
           dragging ? 'cursor-grabbing' : 'cursor-grab'
         }`}
         style={{ height }}
@@ -110,10 +169,26 @@ export default function FlowDiagram({ root, flow, orientation, height = 420, isD
             height={layout.height}
             className="pointer-events-none absolute left-0 top-0 overflow-visible"
           >
+            {/* One plate per tree, so a canvas holding three of them reads as
+                three things rather than one tangle. */}
+            {(layout.bands || []).map((band, i) => (
+              <rect
+                key={i}
+                x={band.x + 4}
+                y={band.y + 4}
+                width={Math.max(0, band.width - 8)}
+                height={Math.max(0, band.height - 8)}
+                rx={14}
+                fill="rgba(99,102,241,0.03)"
+                stroke="rgba(99,102,241,0.18)"
+                strokeDasharray="4 4"
+              />
+            ))}
+
             {layout.edges.map((edge) => {
               const color = nodeColor(edge.node)
               return (
-                <g key={edge.id}>
+                <g key={`${edge.node.treeId || ''}${edge.id}`}>
                   <path
                     d={edge.d}
                     fill="none"
@@ -145,7 +220,7 @@ export default function FlowDiagram({ root, flow, orientation, height = 420, isD
 
           {layout.nodes.map(({ node, x, y, w, h }) => (
             <FlowCard
-              key={node.path}
+              key={`${node.treeId || ''}${node.path}`}
               node={node}
               style={{ left: x, top: y, width: w, height: h }}
               flow={flow}
@@ -158,17 +233,25 @@ export default function FlowDiagram({ root, flow, orientation, height = 420, isD
         </div>
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-2">
-          <span className="pointer-events-none flex items-center gap-1 rounded-lg bg-white/80 px-1.5 py-1 text-[9px] text-slate-400 backdrop-blur">
-            <Move size={10} /> drag to pan
+          <span className="flex items-center gap-1 rounded-lg bg-white/80 px-1.5 py-1 text-[9px] text-slate-400 backdrop-blur">
+            <Move size={10} /> drag to pan · {fullscreen ? 'scroll' : '⌘/ctrl + scroll'} to zoom · double-click a
+            branch to zoom into it
           </span>
-          <div className="pointer-events-auto flex flex-col gap-1">
+          <div className="pointer-events-auto flex flex-col items-end gap-1">
+            <button
+              onClick={fit}
+              className="flow-tool w-auto px-1.5 text-[10px] font-semibold tabular-nums"
+              title="Fit to view (0 / F)"
+            >
+              {Math.round(view.zoom * 100)}%
+            </button>
             <button onClick={fit} className="flow-tool" title="Fit to view">
               <Scan size={13} />
             </button>
-            <button onClick={() => zoomBy(1.2)} className="flow-tool" title="Zoom in">
+            <button onClick={() => zoomBy(1.2)} className="flow-tool" title="Zoom in (+)">
               <Plus size={13} />
             </button>
-            <button onClick={() => zoomBy(1 / 1.2)} className="flow-tool" title="Zoom out">
+            <button onClick={() => zoomBy(1 / 1.2)} className="flow-tool" title="Zoom out (−)">
               <Minus size={13} />
             </button>
           </div>
@@ -185,7 +268,8 @@ function nodeColor(node) {
 /** 1,284 -> 1.3K, so an edge label never outgrows its pill. */
 function shortNumber(n) {
   const v = Number(n) || 0
-  if (Math.abs(v) >= 1000) return new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 }).format(v)
+  if (Math.abs(v) >= 1000)
+    return new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 }).format(v)
   return String(Math.round(v * 10) / 10)
 }
 
@@ -205,6 +289,9 @@ function FlowCard({ node, style, flow, drilled, onToggle, onDrill, onFocus }) {
         drilled ? 'border-transparent ring-2 ring-offset-1' : 'border-slate-200/80'
       }`}
       style={{ ...style, ...(drilled ? { '--tw-ring-color': color } : {}) }}
+      // Zooming into a branch is the deepest thing you can want from a node,
+      // so it gets the gesture that costs nothing to discover.
+      onDoubleClick={() => canOpen && !isRoot && onFocus(node)}
     >
       <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: color }} />
       {/* The share, as a wash across the card -- the same encoding the edge
@@ -270,7 +357,10 @@ function FlowCard({ node, style, flow, drilled, onToggle, onDrill, onFocus }) {
                 className="truncate rounded bg-slate-100/90 px-1 py-px text-[9px] text-slate-500"
                 title={`${m.label}: ${formatNumber(m.value, m.format, m.aggregation)}`}
               >
-                {m.label} <strong className="font-semibold text-slate-700">{formatNumber(m.value, m.format, m.aggregation)}</strong>
+                {m.label}{' '}
+                <strong className="font-semibold text-slate-700">
+                  {formatNumber(m.value, m.format, m.aggregation)}
+                </strong>
               </span>
             ))}
           </div>
@@ -280,7 +370,7 @@ function FlowCard({ node, style, flow, drilled, onToggle, onDrill, onFocus }) {
       <span className="absolute right-1 top-1 flex gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         {canOpen && !isRoot && (
           <button
-            onClick={() => onFocus(node.path)}
+            onClick={() => onFocus(node)}
             className="rounded bg-white/90 p-1 text-slate-400 shadow-sm hover:text-indigo-600"
             title={`Zoom into ${node.label}`}
           >

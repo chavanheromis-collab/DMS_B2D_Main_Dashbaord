@@ -1,5 +1,6 @@
 import { aggregate, isBlank, normalizeKey } from './dataUtils.js'
 import { matchesConditions } from './filterEngine.js'
+import { DEFAULT_BLEND, blendIsReady, blendRows, blendedHeaders } from './blend.js'
 
 // ---------------------------------------------------------------------
 // Flow -- a drill-down flowchart
@@ -53,9 +54,25 @@ import { matchesConditions } from './filterEngine.js'
 // `stop`, which is what gives a real flowchart its asymmetry -- "Lost" does
 // not need breaking down five ways.
 //
+// Two more things a flow is not:
+//
+//   NOT one tree. A flow widget holds a LIST of trees, side by side on one
+//   canvas. Three questions that belong together on a page usually belong
+//   together in one picture, and three separate widgets cannot share a
+//   canvas, a zoom, or a reader's attention. Each tree has its own table,
+//   its own starting number and its own levels; nothing is shared but the
+//   frame they are read in.
+//
+//   NOT limited to the columns a tab happens to have. A tree can BLEND a
+//   second tab into its rows first -- the same per-widget join every other
+//   widget can do -- so a tree rooted in MASTER can branch on a column that
+//   only exists in Quotations. The blend runs once, at the root, and every
+//   level below sees the joined columns as if they had always been there.
+//
 // Nothing here is new vocabulary: conditions are the SAME shape the buttons
-// and blend fill-ins use, evaluated by the same `matchesConditions`, and the
-// measure is the same `aggregate` every KPI uses.
+// and blend fill-ins use, evaluated by the same `matchesConditions`, the
+// measure is the same `aggregate` every KPI uses, and the blend is the same
+// `blendRows` the table and chart widgets use.
 
 export const FLOW_LEVEL_KINDS = [
   {
@@ -117,6 +134,11 @@ export const DEFAULT_FLOW = {
   // The flow's own starting tab. Empty means "the widget's tab", which is
   // what every flow used before a flow could start anywhere.
   tab: '',
+  // Several trees on one canvas. Absent means "one tree, described by the
+  // fields on the flow itself" -- which is every flow written before this
+  // existed, and still the shape of a flow with a single tree.
+  trees: null,
+  blend: null,
   match: 'all',
   conditions: [],
   measure: { aggregation: 'count', column: null, format: 'comma' },
@@ -184,6 +206,66 @@ export function flowIsReady(widget) {
 /** The tab a flow starts on, which need not be the widget's own. */
 export function flowRootTab(widget) {
   return widget?.flow?.tab || widget?.tab || ''
+}
+
+/** What one tree looks like before an admin has said anything about it. */
+export function defaultFlowTree(id, tab = '') {
+  return {
+    id,
+    label: '',
+    icon: '',
+    color: '',
+    tab,
+    match: 'all',
+    conditions: [],
+    measure: { aggregation: 'count', column: null, format: 'comma' },
+    blend: { ...DEFAULT_BLEND },
+    levels: [],
+  }
+}
+
+/**
+ * The trees a flow holds, however it happens to be stored.
+ *
+ * A flow written before there could be more than one keeps describing its
+ * single tree on the flow object itself. Rather than migrate those pages,
+ * that shape is read AS a one-tree list -- so both forms stay valid for
+ * ever, and an admin who never wants a second tree never sees the concept.
+ */
+export function flowTrees(widget) {
+  const flow = { ...DEFAULT_FLOW, ...(widget?.flow || {}) }
+  const list = Array.isArray(flow.trees) ? flow.trees.filter(Boolean) : null
+
+  if (!list || list.length === 0) {
+    return [
+      {
+        ...defaultFlowTree('t0', flowRootTab(widget)),
+        label: flow.label || '',
+        match: flow.match || 'all',
+        conditions: flow.conditions || [],
+        measure: flow.measure,
+        blend: flow.blend,
+        levels: flow.levels || [],
+      },
+    ]
+  }
+
+  return list.map((tree, i) => {
+    const tab = tree.tab || flowRootTab(widget)
+    return {
+      ...defaultFlowTree(tree.id || `t${i}`, tab),
+      ...tree,
+      tab,
+      // Several trees cannot all be called by the widget's title, so an
+      // unnamed one is called after its table.
+      label: tree.label || (list.length > 1 ? tab : ''),
+    }
+  })
+}
+
+/** Is this flow drawing more than one tree? */
+export function flowIsMultiTree(widget) {
+  return flowTrees(widget).length > 1
 }
 
 const uniq = (list) => Array.from(new Set(list))
@@ -725,31 +807,54 @@ function levelIsConfigured(level) {
  */
 export function buildFlow({
   widget,
+  tree,
   rowsByTab,
+  headersByTab,
   dateOrder = 'DMY',
   expanded = new Set(),
   collapsed = new Set(),
   autoExpand,
   levelOverrides = {},
+  keyPrefix = '',
 }) {
   const flow = { ...DEFAULT_FLOW, ...(widget?.flow || {}) }
-  const levels = (flow.levels || [])
+  // One tree, whether it came from a list of them or from the flow itself.
+  const spec = tree || flowTrees(widget)[0]
+  const levels = (spec.levels || [])
     .filter(Boolean)
     .map((l) => ({ ...DEFAULT_FLOW_LEVEL, ...l, ...(levelOverrides[l.id] || {}) }))
 
-  const rootTab = flowRootTab(widget)
-  const all = rowsByTab?.[rootTab] || []
-  const rootConditions = ownConditions(flow.conditions, rootTab)
+  const rootTab = spec.tab || flowRootTab(widget)
+  const blend = spec.blend
+  const blended = blendIsReady(blend)
+
+  // The join happens ONCE, before anything else: conditions, levels, splits
+  // and measures all see the joined row, so a blended column is not a
+  // special case anywhere below this line.
+  const all = blended
+    ? blendRows(
+        rowsByTab?.[rootTab] || [],
+        rowsByTab?.[blend.ref] || [],
+        blend,
+        headersByTab?.[blend.ref] || [],
+        dateOrder
+      )
+    : rowsByTab?.[rootTab] || []
+
+  const rootConditions = ownConditions(spec.conditions, rootTab)
   const rows = rootConditions.length
-    ? all.filter((row) => matchesConditions(row, rootConditions, flow.match || 'all', dateOrder))
+    ? all.filter((row) => matchesConditions(row, rootConditions, spec.match || 'all', dateOrder))
     : all
 
+  const measure = spec.measure || flow.measure
+
   const ctx = {
-    flow,
+    flow: { ...flow, measure },
     levels,
     rowsByTab,
+    headersByTab,
     dateOrder,
-    rootValue: measureOf(rows, flow.measure),
+    rootValue: measureOf(rows, measure),
     rootCount: rows.length,
     budget: Number(flow.maxNodes) > 0 ? Number(flow.maxNodes) : DEFAULT_FLOW.maxNodes,
     spent: 0,
@@ -759,22 +864,40 @@ export function buildFlow({
   const root = makeNode({
     path: '',
     level: 0,
-    label: flow.label || widget?.title || 'All rows',
+    label: spec.label || flow.label || widget?.title || 'All rows',
+    icon: spec.icon,
+    color: spec.color,
     kind: 'root',
     tab: rootTab,
     rows,
     parent: null,
     ctx,
     conditions: rootConditions,
-    mergeable: true,
-    measure: flow.measure,
+    // A blended row carries columns that exist on NEITHER tab under that
+    // name, so no chain built from them can describe anything to the page.
+    // What can: the key the blend joined on. Every drill in a blended tree
+    // therefore travels as a key set -- the same way a blended chart's does.
+    mergeable: !blended,
+    measure,
   })
+
+  if (blended) {
+    root.keyColumn = blend.leftKey
+    root.keyPairs = [
+      { tab: rootTab, column: blend.leftKey },
+      { tab: blend.ref, column: blend.rightKey },
+    ]
+  }
 
   const depth = autoExpand === undefined ? Number(flow.autoExpand) || 0 : autoExpand
 
+  // Paths are unique within a tree but not between them, so a canvas with
+  // several trees namespaces them. One set of open branches for the whole
+  // widget keeps "expand all" and "collapse" honest across all of it.
+  const key = (node) => `${keyPrefix}${node.path}`
   const isOpen = (node) => {
-    if (collapsed.has(node.path)) return false
-    return expanded.has(node.path) || node.level < depth
+    if (collapsed.has(key(node))) return false
+    return expanded.has(key(node)) || node.level < depth
   }
 
   ;(function grow(node) {
@@ -797,16 +920,61 @@ export function buildFlow({
 
   return {
     root,
+    tree: spec,
     levels,
+    blended,
     depth: levels.length,
     truncated: ctx.truncated,
     total: root.value,
     tabs: uniq([
       rootTab,
+      blended ? blend.ref : '',
       ...levels.filter((l) => (l.kind === 'hop' || l.kind === 'values') && l.tab).map((l) => l.tab),
       ...levels.flatMap((l) => (l.sources || []).map((src) => src.tab)),
     ]).filter(Boolean),
   }
+}
+
+/**
+ * Every tree this widget draws.
+ *
+ * Each is an independent `buildFlow`, which is what makes them independent
+ * in fact and not just on screen: separate table, separate blend, separate
+ * measure, separate levels, separate budget. They share the canvas and the
+ * set of open branches, and nothing else.
+ */
+export function buildFlowTrees({ widget, rowsByTab, headersByTab, dateOrder, expanded, collapsed, autoExpand, levelOverrides }) {
+  const trees = flowTrees(widget)
+
+  const built = trees.map((tree, i) =>
+    buildFlow({
+      widget,
+      tree,
+      rowsByTab,
+      headersByTab,
+      dateOrder,
+      expanded,
+      collapsed,
+      autoExpand,
+      levelOverrides,
+      keyPrefix: trees.length > 1 ? `${tree.id || i}::` : '',
+    })
+  )
+
+  return {
+    trees: built,
+    multi: built.length > 1,
+    depth: Math.max(0, ...built.map((b) => b.depth)),
+    truncated: built.some((b) => b.truncated),
+    tabs: uniq(built.flatMap((b) => b.tabs)),
+  }
+}
+
+/** The columns a tree's rows will actually have, blend included. */
+export function flowTreeColumns(tree, headersByTab) {
+  const base = headersByTab?.[tree?.tab] || []
+  if (!blendIsReady(tree?.blend)) return base
+  return blendedHeaders(base, headersByTab?.[tree.blend.ref] || [], tree.blend)
 }
 
 /** Walks the built tree for one node, by path. */
@@ -854,7 +1022,7 @@ export function flattenFlow(node, into = []) {
  */
 export function flowNodeCanDrill(node) {
   if (!node) return false
-  if (node.hopped) return true
+  if (node.keyColumn && node.keyPairs?.length) return true
   if (node.conditions?.length) return true
   // Left: the untouched root, and a whole tab brought in with no conditions
   // on it. Filtering the page to "everything" is not a filter, so neither
@@ -866,8 +1034,11 @@ export function flowCrossFilter(widget, node) {
   if (!node || !flowNodeCanDrill(node)) return null
   const label = node.trail.slice(1).join(' → ') || node.label
 
-  if (node.hopped) {
-    const column = node.keyColumn || '_row'
+  // A key exists after a hop, and also at the root of a blended tree. Both
+  // mean the same thing here: this branch is addressable by something every
+  // tab understands, which is strictly better than anything else on offer.
+  if (node.keyColumn && node.keyPairs?.length) {
+    const column = node.keyColumn
     return {
       id: `flow_${widget.id}`,
       kind: 'keys',
@@ -928,10 +1099,16 @@ export function flowNodeIsDrilled(widget, node, crossFilters) {
  * anything.
  */
 export function describeFlow(widget, labelFor = (t) => t) {
-  const flow = { ...DEFAULT_FLOW, ...(widget?.flow || {}) }
-  const parts = [labelFor(flowRootTab(widget)) || 'root']
+  return flowTrees(widget)
+    .map((tree) => describeFlowTree(tree, labelFor))
+    .join('  ·  ')
+}
 
-  for (const level of flow.levels || []) {
+function describeFlowTree(tree, labelFor = (t) => t) {
+  const parts = [labelFor(tree.tab) || 'root']
+  if (blendIsReady(tree.blend)) parts[0] += ` + ${labelFor(tree.blend.ref)}`
+
+  for (const level of tree.levels || []) {
     switch (level.kind) {
       case 'hop':
         parts.push(`🔗 ${labelFor(level.tab) || 'another tab'}`)

@@ -132,6 +132,12 @@ export function layoutFlow(root, options = {}) {
   const stepMain = (vertical ? nodeH : o.nodeW) + (vertical ? o.gapY : o.gapX)
   const stepCross = (vertical ? o.nodeW : nodeH) + (vertical ? o.gapX : o.gapY)
 
+  // An offset lets several trees share one coordinate space. Applied to the
+  // boxes BEFORE the edges are computed, so every path comes out already in
+  // the right place rather than needing its `d` string rewritten afterwards.
+  const dx = o.offsetX || 0
+  const dy = o.offsetY || 0
+
   const boxes = new Map()
   for (const item of laid) {
     const main = o.padding + item.depth * stepMain
@@ -139,8 +145,8 @@ export function layoutFlow(root, options = {}) {
     const box = {
       node: item.node,
       depth: item.depth,
-      x: vertical ? cross : main,
-      y: vertical ? main : cross,
+      x: (vertical ? cross : main) + dx,
+      y: (vertical ? main : cross) + dy,
       w: o.nodeW,
       h: nodeH,
     }
@@ -172,6 +178,52 @@ export function layoutFlow(root, options = {}) {
   const height = Math.max(...nodes.map((n) => n.y + n.h), 0) + o.padding
 
   return { nodes, edges, width, height, orientation, nodeH }
+}
+
+/**
+ * Several trees, laid out side by side in ONE coordinate space.
+ *
+ * Not several canvases stacked: one canvas, one zoom, one pan. Trees that
+ * answer related questions are read by looking between them, and two
+ * separately-scrolling boxes make that comparison impossible -- you can
+ * never get both at the same size on the same screen.
+ *
+ * They are laid out ACROSS the flow axis: top-to-bottom trees stand side by
+ * side, left-to-right trees stack. Each keeps its own internal spacing, so
+ * a wide tree and a narrow one still read as the same kind of object.
+ */
+export function layoutForest(roots, options = {}) {
+  const list = (roots || []).filter(Boolean)
+  if (list.length === 0) return layoutFlow(null, options)
+  if (list.length === 1) return layoutFlow(list[0], options)
+
+  const o = { ...FLOW_LAYOUT_DEFAULTS, ...options }
+  const vertical = o.orientation !== 'horizontal'
+  // A wider gutter between trees than between siblings, so the eye groups
+  // each tree before it compares them.
+  const gutter = (vertical ? o.gapX : o.gapY) * 2.5
+
+  const nodes = []
+  const edges = []
+  const bands = []
+  let offset = 0
+  let width = 0
+  let height = 0
+  let nodeH = 0
+
+  for (const root of list) {
+    const one = layoutFlow(root, { ...options, offsetX: vertical ? offset : 0, offsetY: vertical ? 0 : offset })
+    nodes.push(...one.nodes)
+    edges.push(...one.edges)
+    bands.push({ root, x: vertical ? offset : 0, y: vertical ? 0 : offset, width: one.width, height: one.height })
+
+    offset += (vertical ? one.width : one.height) + gutter
+    width = Math.max(width, vertical ? offset - gutter : one.width)
+    height = Math.max(height, vertical ? one.height : offset - gutter)
+    nodeH = Math.max(nodeH, one.nodeH || 0)
+  }
+
+  return { nodes, edges, bands, width, height, orientation: vertical ? 'vertical' : 'horizontal', nodeH }
 }
 
 /**

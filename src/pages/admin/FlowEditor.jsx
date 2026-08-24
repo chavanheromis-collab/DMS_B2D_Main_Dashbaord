@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowDown, Layers, Plus } from 'lucide-react'
+import { ArrowDown, ChevronRight, Layers, Plus } from 'lucide-react'
 import { AGGREGATIONS, NUMBER_FORMATS, STAGE_PALETTE, aggNeedsColumn, uid } from '../../lib/config'
 import {
   DEFAULT_FLOW,
@@ -7,11 +7,16 @@ import {
   FLOW_LEVEL_KINDS,
   FLOW_PERCENT_BASES,
   FLOW_SORTS,
+  defaultFlowTree,
   flowRootTab,
+  flowTreeColumns,
+  flowTrees,
 } from '../../lib/flow'
+import { blendIsReady } from '../../lib/blend'
 import { FLOW_ORIENTATIONS } from '../../lib/flowLayout'
+import BlendEditor from './BlendEditor.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
-import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, useWorkspaceCtx } from './ui.jsx'
+import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, optValue, useWorkspaceCtx } from './ui.jsx'
 
 /**
  * Authoring a flow.
@@ -26,229 +31,69 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
   const flow = { ...DEFAULT_FLOW, ...(widget.flow || {}) }
   const setFlow = (patch) => set({ flow: { ...flow, ...patch } })
 
-  const levels = flow.levels || []
-  const ops = listOps(levels, (next) => setFlow({ levels: next }))
   const metrics = flow.metrics || []
   const metricOps = listOps(metrics, (next) => setFlow({ metrics: next }))
 
+  // Always edited as a list, even when there is one of them. The legacy
+  // single-tree shape is read AS a list (see flowTrees), so the first edit
+  // simply writes the list back and the two forms never have to coexist in
+  // the editor's head.
+  const trees = flowTrees(widget)
+  const setTrees = (next) => setFlow({ trees: next, levels: [], conditions: [] })
+  const treeOps = listOps(trees, setTrees)
+
   const columnsOf = (tab) => tabHeaders?.[tab] || []
-  const rootTab = flowRootTab(widget)
-  const rootCols = columnsOf(rootTab)
+  const rootCols = columnsOf(flowRootTab(widget))
 
-  // Which tab is in play at each level: the flow's own, until something
-  // changes the subject. Every column picker below depends on this, and
-  // getting it wrong is the one mistake that makes a flow silently empty.
-  //
-  // Only a hop moves the whole flow: it has one child, so everything below
-  // it is on the new tab. A "bring in other tabs" level has several, each
-  // starting its own sub-flow, so it cannot move the levels that follow --
-  // they stay on whatever tab was in play before it.
-  const tabAt = (index) => {
-    let tab = rootTab
-    for (let i = 0; i < index; i += 1) {
-      if (levels[i]?.kind === 'hop' && levels[i]?.tab) tab = levels[i].tab
-    }
-    return tab
-  }
-
-  function addLevel(kind) {
-    const index = levels.length
-    const tab = tabAt(index)
-    ops.add({
-      ...DEFAULT_FLOW_LEVEL,
-      id: uid('fl'),
-      kind,
-      column: kind === 'split' ? columnsOf(tab)[0] || '' : '',
-      branches:
-        kind === 'rules'
-          ? [
-              {
-                id: uid('fb'),
-                label: 'Branch 1',
-                icon: '',
-                color: STAGE_PALETTE[0],
-                match: 'all',
-                conditions: [{ tab, column: '', operator: 'is_not_empty', value: '', value2: '' }],
-                stop: false,
-              },
-            ]
-          : [],
-      measures:
-        kind === 'measures'
-          ? [{ id: uid('fn'), label: 'Rows', aggregation: 'count', column: null, format: 'comma', conditions: [] }]
-          : [],
-      sources: kind === 'tables' ? [{ id: uid('ft'), tab: '', label: '', icon: '', conditions: [], match: 'all' }] : [],
+  function addTree() {
+    treeOps.add({
+      ...defaultFlowTree(uid('tr'), optValue(tabs?.[0]) || flowRootTab(widget)),
+      label: `Tree ${trees.length + 1}`,
+      color: STAGE_PALETTE[trees.length % STAGE_PALETTE.length],
     })
   }
 
   return (
     <div className="space-y-3">
-      {/* --- the starting number ----------------------------------------- */}
-      <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2">
-        <p className="mb-1.5 text-[11px] font-medium text-slate-500">
-          Start from <span className="font-normal text-slate-400">— the number everything below is a share of</span>
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
+          <Layers size={11} /> {trees.length > 1 ? `${trees.length} trees on one canvas` : 'The tree'}
         </p>
+        <Btn onClick={addTree}>
+          <Plus size={11} /> Add another tree
+        </Btn>
+      </div>
 
-        <div className="flex flex-wrap items-end gap-2">
-          <Field label="Table" className="w-48" hint="The flow starts wherever you say.">
-            <Select
-              value={flow.tab || ''}
-              onChange={(v) => setFlow({ tab: v, measure: { ...flow.measure, column: null }, conditions: [] })}
-              options={tabs}
-              placeholder={`${labelFor(widget.tab) || 'this widget’s tab'} (default)`}
-            />
-          </Field>
-          <Field label="Label" className="w-40">
-            <TextInput
-              value={flow.label || ''}
-              onChange={(v) => setFlow({ label: v })}
-              placeholder={labelFor(rootTab) || 'All rows'}
-            />
-          </Field>
-          <Field label="Measure" className="w-52">
-            <Select
-              value={flow.measure?.aggregation || 'count'}
-              onChange={(v) => setFlow({ measure: { ...flow.measure, aggregation: v } })}
-              options={AGGREGATIONS}
-            />
-          </Field>
-          {aggNeedsColumn(flow.measure?.aggregation) && (
-            <Field label="Of column" className="w-44">
-              <Select
-                value={flow.measure?.column || ''}
-                onChange={(v) => setFlow({ measure: { ...flow.measure, column: v } })}
-                options={rootCols}
-                placeholder="— column —"
-              />
-            </Field>
-          )}
-          <Field label="Format" className="w-40">
-            <Select
-              value={flow.measure?.format || 'comma'}
-              onChange={(v) => setFlow({ measure: { ...flow.measure, format: v } })}
-              options={NUMBER_FORMATS}
-            />
-          </Field>
-        </div>
-
-        <p className="mb-1 mt-2 text-[10px] uppercase tracking-wide text-slate-400">
-          Only these rows (optional)
-        </p>
-        <ConditionBuilder
-          compact
-          conditions={flow.conditions || []}
-          match={flow.match || 'all'}
-          tabs={[rootTab]}
+      {trees.map((tree, i) => (
+        <TreeEditor
+          key={tree.id}
+          tree={tree}
+          index={i}
+          count={trees.length}
+          widget={widget}
+          tabs={tabs}
           tabHeaders={tabHeaders}
-          onChange={(next) => setFlow({ conditions: next })}
+          labelFor={labelFor}
+          setTree={(patch) => treeOps.update(tree.id, patch)}
+          onUp={() => treeOps.move(i, -1)}
+          onDown={() => treeOps.move(i, 1)}
+          onDelete={() => treeOps.remove(tree.id)}
         />
-      </div>
+      ))}
 
-      {/* --- the path ----------------------------------------------------- */}
-      <div>
-        <p className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-slate-500">
-          <Layers size={11} /> Then, level by level
+      {trees.length > 1 && (
+        <p className="text-[10px] text-slate-400">
+          Trees share the canvas, the zoom and the set of open branches — and nothing else. Each has its own table,
+          its own starting number and its own levels, so putting three related questions in one picture costs one
+          widget rather than three.
         </p>
-
-        <div className="space-y-2">
-          {levels.map((level, i) => {
-            const setLevel = (patch) => ops.update(level.id, patch)
-            const tab = tabAt(i)
-            const cols = columnsOf(tab)
-
-            return (
-              <div key={level.id} className="rounded-lg border border-slate-200 bg-white p-2">
-                <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
-                    {i + 1}
-                  </span>
-                  <Select
-                    value={level.kind || 'split'}
-                    onChange={(v) => setLevel({ kind: v })}
-                    options={FLOW_LEVEL_KINDS}
-                    className="w-56"
-                  />
-                  <span className="rounded-full bg-slate-100 px-1.5 py-px text-[9px] uppercase tracking-wide text-slate-500">
-                    on {labelFor(tab) || 'this tab'}
-                  </span>
-                  <div className="ml-auto">
-                    <RowControls
-                      onUp={() => ops.move(i, -1)}
-                      onDown={() => ops.move(i, 1)}
-                      onDelete={() => ops.remove(level.id)}
-                      isFirst={i === 0}
-                      isLast={i === levels.length - 1}
-                    />
-                  </div>
-                </div>
-
-                <p className="mb-1.5 text-[10px] text-slate-400">
-                  {FLOW_LEVEL_KINDS.find((k) => k.value === (level.kind || 'split'))?.hint}
-                </p>
-
-                {(level.kind || 'split') === 'split' && (
-                  <SplitLevel level={level} cols={cols} setLevel={setLevel} />
-                )}
-                {level.kind === 'rules' && (
-                  <RulesLevel level={level} tab={tab} tabHeaders={tabHeaders} setLevel={setLevel} />
-                )}
-                {level.kind === 'measures' && (
-                  <MeasuresLevel level={level} tab={tab} cols={cols} tabHeaders={tabHeaders} setLevel={setLevel} />
-                )}
-                {level.kind === 'values' && (
-                  <ValuesLevel
-                    level={level}
-                    cols={cols}
-                    tabs={tabs}
-                    tabHeaders={tabHeaders}
-                    setLevel={setLevel}
-                    labelFor={labelFor}
-                  />
-                )}
-                {level.kind === 'hop' && (
-                  <HopLevel
-                    level={level}
-                    fromTab={tab}
-                    fromCols={cols}
-                    tabs={tabs}
-                    tabHeaders={tabHeaders}
-                    setLevel={setLevel}
-                    labelFor={labelFor}
-                  />
-                )}
-                {level.kind === 'tables' && (
-                  <TablesLevel level={level} tabs={tabs} tabHeaders={tabHeaders} setLevel={setLevel} labelFor={labelFor} />
-                )}
-
-                {level.kind !== 'measures' && (
-                  <MeasureOverride level={level} cols={columnsOf(level.kind === 'hop' ? level.tab || tab : tab)} setLevel={setLevel} />
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        {levels.length > 0 && (
-          <div className="flex justify-center py-1">
-            <ArrowDown size={12} className="text-slate-300" />
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-1.5">
-          {FLOW_LEVEL_KINDS.map((kind) => (
-            <Btn key={kind.value} onClick={() => addLevel(kind.value)}>
-              <Plus size={12} /> {kind.label}
-            </Btn>
-          ))}
-        </div>
-      </div>
+      )}
 
       {/* --- extra numbers on every node ---------------------------------- */}
       <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2">
         <div className="mb-1 flex items-center justify-between">
           <p className="text-[11px] font-medium text-slate-500">
-            Extra numbers{' '}
-            <span className="font-normal text-slate-400">(shown on a branch once it is open)</span>
+            Extra numbers <span className="font-normal text-slate-400">(shown on a branch once it is open)</span>
           </p>
           <Btn
             onClick={() =>
@@ -277,12 +122,7 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
             const setMetric = (patch) => metricOps.update(m.id, patch)
             return (
               <div key={m.id} className="flex flex-wrap items-center gap-1.5">
-                <TextInput
-                  value={m.label}
-                  onChange={(v) => setMetric({ label: v })}
-                  placeholder="Label"
-                  className="w-32"
-                />
+                <TextInput value={m.label} onChange={(v) => setMetric({ label: v })} placeholder="Label" className="w-32" />
                 <Select
                   value={m.aggregation}
                   onChange={(v) => setMetric({ aggregation: v })}
@@ -387,9 +227,277 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
 
       <p className="text-[10px] text-slate-400">
         On the dashboard: clicking a branch opens it, the funnel icon filters the whole page to that branch, and the
-        zoom icon makes it the temporary top of the tree. A branch that has hopped tabs filters by its key column, so
-        the rest of the page follows it across spreadsheets.
+        zoom icon (or a double-click) makes it the temporary top of the tree. Full screen, fit, ⌘/ctrl + scroll to
+        zoom and drag to pan are all on the diagram. A branch that has hopped tabs — or any branch of a blended tree
+        — filters by its key column, so the rest of the page follows it across spreadsheets.
       </p>
+    </div>
+  )
+}
+
+/**
+ * One tree: where it starts, what it joins, and how it goes deeper.
+ *
+ * Everything a tree needs is inside its own box, because a canvas with three
+ * of them is otherwise impossible to edit -- you cannot tell which "break
+ * down by" belongs to which picture.
+ */
+function TreeEditor({ tree, index, count, widget, tabs, tabHeaders, labelFor, setTree, onUp, onDown, onDelete }) {
+  const [open, setOpen] = useState(index === 0)
+  const levels = tree.levels || []
+  const ops = listOps(levels, (next) => setTree({ levels: next }))
+
+  const columnsOf = (tab) => tabHeaders?.[tab] || []
+  // The tree's own rows may be a JOIN, so its columns are the joined ones.
+  const rootCols = flowTreeColumns(tree, tabHeaders)
+
+  // Which tab is in play at each level: the tree's own, until something
+  // changes the subject. Every column picker below depends on this, and
+  // getting it wrong is the one mistake that makes a tree silently empty.
+  //
+  // Only a hop moves the whole tree: it has one child, so everything below
+  // it is on the new tab. A "bring in other tabs" level has several, each
+  // starting its own sub-flow, so it cannot move the levels that follow.
+  const tabAt = (i) => {
+    let tab = tree.tab
+    for (let n = 0; n < i; n += 1) {
+      if (levels[n]?.kind === 'hop' && levels[n]?.tab) tab = levels[n].tab
+    }
+    return tab
+  }
+  const colsAt = (i) => (tabAt(i) === tree.tab ? rootCols : columnsOf(tabAt(i)))
+
+  function addLevel(kind) {
+    const i = levels.length
+    const tab = tabAt(i)
+    ops.add({
+      ...DEFAULT_FLOW_LEVEL,
+      id: uid('fl'),
+      kind,
+      column: kind === 'split' ? colsAt(i)[0] || '' : '',
+      branches:
+        kind === 'rules'
+          ? [
+              {
+                id: uid('fb'),
+                label: 'Branch 1',
+                icon: '',
+                color: STAGE_PALETTE[0],
+                match: 'all',
+                conditions: [{ tab, column: '', operator: 'is_not_empty', value: '', value2: '' }],
+                stop: false,
+              },
+            ]
+          : [],
+      measures:
+        kind === 'measures'
+          ? [{ id: uid('fn'), label: 'Rows', aggregation: 'count', column: null, format: 'comma', conditions: [] }]
+          : [],
+      sources: kind === 'tables' ? [{ id: uid('ft'), tab: '', label: '', icon: '', conditions: [], match: 'all' }] : [],
+    })
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          onClick={() => setOpen(!open)}
+          className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        >
+          <ChevronRight size={15} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+        </button>
+        <span
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+          style={{ backgroundColor: tree.color || STAGE_PALETTE[index % STAGE_PALETTE.length] }}
+        >
+          {index + 1}
+        </span>
+        <TextInput
+          value={tree.label}
+          onChange={(v) => setTree({ label: v })}
+          placeholder={labelFor(tree.tab) || 'Tree name'}
+          className="w-40"
+        />
+        <TextInput value={tree.icon} onChange={(v) => setTree({ icon: v })} placeholder="🌳" className="w-14" />
+        <Select
+          value={tree.tab || ''}
+          onChange={(v) => setTree({ tab: v, levels: [], conditions: [], measure: { ...tree.measure, column: null } })}
+          options={tabs}
+          placeholder="— table —"
+          className="w-44"
+        />
+        <span className="text-[10px] text-slate-400">
+          {levels.length} {levels.length === 1 ? 'level' : 'levels'}
+          {blendIsReady(tree.blend) ? ` · blended with ${labelFor(tree.blend.ref)}` : ''}
+        </span>
+        {count > 1 && (
+          <div className="ml-auto">
+            <RowControls onUp={onUp} onDown={onDown} onDelete={onDelete} isFirst={index === 0} isLast={index === count - 1} />
+          </div>
+        )}
+      </div>
+
+      {open && (
+        <div className="mt-2 space-y-3">
+          {/* --- the starting number ------------------------------------- */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2">
+            <p className="mb-1.5 text-[11px] font-medium text-slate-500">
+              Start from{' '}
+              <span className="font-normal text-slate-400">— the number everything below is a share of</span>
+            </p>
+
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label="Measure" className="w-52">
+                <Select
+                  value={tree.measure?.aggregation || 'count'}
+                  onChange={(v) => setTree({ measure: { ...tree.measure, aggregation: v } })}
+                  options={AGGREGATIONS}
+                />
+              </Field>
+              {aggNeedsColumn(tree.measure?.aggregation) && (
+                <Field label="Of column" className="w-44">
+                  <Select
+                    value={tree.measure?.column || ''}
+                    onChange={(v) => setTree({ measure: { ...tree.measure, column: v } })}
+                    options={rootCols}
+                    placeholder="— column —"
+                  />
+                </Field>
+              )}
+              <Field label="Format" className="w-40">
+                <Select
+                  value={tree.measure?.format || 'comma'}
+                  onChange={(v) => setTree({ measure: { ...tree.measure, format: v } })}
+                  options={NUMBER_FORMATS}
+                />
+              </Field>
+            </div>
+
+            <p className="mb-1 mt-2 text-[10px] uppercase tracking-wide text-slate-400">Only these rows (optional)</p>
+            <ConditionBuilder
+              compact
+              conditions={tree.conditions || []}
+              match={tree.match || 'all'}
+              tabs={[tree.tab]}
+              tabHeaders={tabHeaders}
+              onChange={(next) => setTree({ conditions: next })}
+            />
+          </div>
+
+          {/* --- the join ------------------------------------------------- */}
+          <BlendEditor
+            widget={{ id: `${widget.id}_${tree.id}`, tab: tree.tab, blend: tree.blend, title: tree.label }}
+            set={(patch) => setTree(patch)}
+          />
+
+          {/* --- the path ------------------------------------------------- */}
+          <div>
+            <p className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-slate-500">
+              <Layers size={11} /> Then, level by level
+            </p>
+
+            <div className="space-y-2">
+              {levels.map((level, i) => {
+                const setLevel = (patch) => ops.update(level.id, patch)
+                const tab = tabAt(i)
+                const cols = colsAt(i)
+
+                return (
+                  <div key={level.id} className="rounded-lg border border-slate-200 bg-white p-2">
+                    <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
+                        {i + 1}
+                      </span>
+                      <Select
+                        value={level.kind || 'split'}
+                        onChange={(v) => setLevel({ kind: v })}
+                        options={FLOW_LEVEL_KINDS}
+                        className="w-56"
+                      />
+                      <span className="rounded-full bg-slate-100 px-1.5 py-px text-[9px] uppercase tracking-wide text-slate-500">
+                        on {labelFor(tab) || 'this tab'}
+                      </span>
+                      <div className="ml-auto">
+                        <RowControls
+                          onUp={() => ops.move(i, -1)}
+                          onDown={() => ops.move(i, 1)}
+                          onDelete={() => ops.remove(level.id)}
+                          isFirst={i === 0}
+                          isLast={i === levels.length - 1}
+                        />
+                      </div>
+                    </div>
+
+                    <p className="mb-1.5 text-[10px] text-slate-400">
+                      {FLOW_LEVEL_KINDS.find((k) => k.value === (level.kind || 'split'))?.hint}
+                    </p>
+
+                    {(level.kind || 'split') === 'split' && <SplitLevel level={level} cols={cols} setLevel={setLevel} />}
+                    {level.kind === 'rules' && (
+                      <RulesLevel level={level} tab={tab} tabHeaders={tabHeaders} setLevel={setLevel} />
+                    )}
+                    {level.kind === 'measures' && (
+                      <MeasuresLevel level={level} tab={tab} cols={cols} tabHeaders={tabHeaders} setLevel={setLevel} />
+                    )}
+                    {level.kind === 'values' && (
+                      <ValuesLevel
+                        level={level}
+                        cols={cols}
+                        tabs={tabs}
+                        tabHeaders={tabHeaders}
+                        setLevel={setLevel}
+                        labelFor={labelFor}
+                      />
+                    )}
+                    {level.kind === 'hop' && (
+                      <HopLevel
+                        level={level}
+                        fromTab={tab}
+                        fromCols={cols}
+                        tabs={tabs}
+                        tabHeaders={tabHeaders}
+                        setLevel={setLevel}
+                        labelFor={labelFor}
+                      />
+                    )}
+                    {level.kind === 'tables' && (
+                      <TablesLevel
+                        level={level}
+                        tabs={tabs}
+                        tabHeaders={tabHeaders}
+                        setLevel={setLevel}
+                        labelFor={labelFor}
+                      />
+                    )}
+
+                    {level.kind !== 'measures' && (
+                      <MeasureOverride
+                        level={level}
+                        cols={level.kind === 'hop' ? columnsOf(level.tab || tab) : cols}
+                        setLevel={setLevel}
+                      />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {levels.length > 0 && (
+              <div className="flex justify-center py-1">
+                <ArrowDown size={12} className="text-slate-300" />
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-1.5">
+              {FLOW_LEVEL_KINDS.map((kind) => (
+                <Btn key={kind.value} onClick={() => addLevel(kind.value)}>
+                  <Plus size={12} /> {kind.label}
+                </Btn>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

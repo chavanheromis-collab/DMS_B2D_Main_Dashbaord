@@ -280,6 +280,12 @@ export default function Dashboard() {
   ])
 
   // --- Re-key everything by human label ---------------------------------
+  const headersByLabel = useMemo(() => {
+    const out = {}
+    for (const [ref, data] of Object.entries(dataByRef)) out[labelFor(ref)] = data.headers || []
+    return out
+  }, [dataByRef, labelFor])
+
   const rowsByLabel = useMemo(() => {
     const out = {}
     for (const [ref, rows] of Object.entries(filteredByRef)) out[labelFor(ref)] = rows
@@ -853,6 +859,7 @@ export default function Dashboard() {
                           widget={widget}
                           rowsByTab={rowsByLabel}
                           rawRowsByTab={rawRowsByLabel}
+                          headersByTab={headersByLabel}
                           crossFilters={crossFilters}
                           onCrossFilter={toggleCrossFilter}
                           dateOrder={dateOrder}

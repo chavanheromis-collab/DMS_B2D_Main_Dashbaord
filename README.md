@@ -616,6 +616,46 @@ visible before you have read anything. Nodes are placed by the data — there
 is nothing to drag into position, and nothing to tidy up, so two people
 looking at the same page always see the same picture.
 
+Everything the canvas can do:
+
+| | |
+|---|---|
+| **Full screen** | The whole widget, not just the picture — the view switch, breadcrumb and breakdown pickers come with it, because a diagram you cannot steer is a poster. `Esc` leaves. |
+| **Pan** | Drag anywhere that isn't a card. |
+| **Zoom** | The `+` / `−` buttons, or **⌘/ctrl + scroll** anchored under the cursor — in full screen a plain scroll does it, since there is nothing behind to scroll past. The percentage doubles as a **Fit** button. |
+| **Fit** | Frames everything. It re-frames itself as you open branches, and stops the moment you pan or zoom yourself. |
+| **Keyboard** | `+` `−` zoom, `0` or `F` fit, once the canvas has focus. |
+| **Zoom into a branch** | Double-click it, or use its ⤢ — it becomes the temporary top, with a breadcrumb back out. |
+
+#### Several trees on one canvas
+
+A flow widget holds a **list of trees**, not one. Each has its own table, its
+own starting number, its own conditions and its own levels; they share the
+canvas, the zoom and the set of open branches, and nothing else.
+
+Three related questions belong in one picture — sales, service, reviews —
+and three separate widgets cannot share a canvas or a reader's attention.
+Two separately-scrolling boxes make comparison impossible: you can never get
+both at the same size on the same screen at the same time. So the trees sit
+side by side in **one** coordinate space, each on its own faint plate.
+
+Opening a branch in one tree leaves the others exactly as they were.
+
+#### A tree can join a second table before it starts
+
+A tree isn't limited to the columns its table happens to have. Give it a
+**blend** — the same per-widget join every other widget can do, with the same
+editor: join type, multi-match strategy, prefix, roll-ups and fill-in rules —
+and it runs **once, at the root**. Every level below sees the joined columns
+as if they had always been there, so a tree rooted in MASTER can branch on a
+column that only exists in Quotations.
+
+One consequence is handled for you: a blended column exists on *neither*
+tab under that name, so no condition built from it could describe anything to
+the rest of the page. Every branch of a blended tree therefore drills **by the
+key the blend joined on** — which reaches not only both blended tabs but every
+other tab carrying that key, exactly as a blended chart's drill does.
+
 #### What a click filters
 
 Whatever the branch actually means, expressed in the most portable form
@@ -645,7 +685,7 @@ stacking two contradictory filters.
 |---|---|
 | **KPI Card** | One number from a tab + column + calculation. Counts up on change; with filters active it shows the unfiltered total underneath. Can express a conversion between two tabs. Its mark can be an emoji **or an image URL**. |
 | **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and pop-up KPIs. Click a stage *or one of its KPIs* to drill in. |
-| **Flow (drill-down tree)** | One number that opens, level by level, into the branches under it — by column, by conditions, into named numbers, by a list on a reference tab, across a **key into another tab**, or into other tabs outright. See below. |
+| **Flow (drill-down tree)** | One or more trees on a shared canvas. Each opens level by level — by column, by conditions, into named numbers, by a list on a reference tab, across a **key into another tab**, or into other tabs outright — and each can blend a second table into its rows first. Full screen, pan and zoom. See below. |
 | **Leaderboard** | Ranks any column by any metrics you define. Click a row to drill in. |
 | **Data Table** | Sortable, reorderable, searchable grid with optional inline editing, row detail panel and per-row download actions. |
 | **Chart** | One data shape, **17 styles** — bar, horizontal bar, lollipop, line, step, area, waterfall, pareto, histogram, pie, donut, rose, radar, radial, treemap, funnel, progress list. Plus colour rules, reference lines and axis scaling. Every style is clickable to drill in. |
