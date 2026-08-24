@@ -46,7 +46,11 @@ export function AuthProvider({ children }) {
       ref,
       {
         email: result.user.email,
-        name: result.user.displayName,
+        // Google's display name is NOT taken. It is whatever that account is
+        // called -- a personal one, an initial, a nickname -- and writing it
+        // here on every sign-in would also overwrite the name the person
+        // typed for themselves the moment they logged in again. They enter
+        // their own, and an admin can correct it.
         photoURL: result.user.photoURL,
         lastLogin: serverTimestamp(),
         ...(existing.exists() ? {} : { status: 'pending', role: 'user', createdAt: serverTimestamp() }),
@@ -74,7 +78,7 @@ export function AuthProvider({ children }) {
       await setDoc(
         doc(db, 'users', auth.currentUser.uid),
         {
-          name: String(name || '').trim() || auth.currentUser.displayName || '',
+          name: String(name || '').trim(),
           jobRole: String(jobRole || '').trim(),
           requestedAt: serverTimestamp(),
         },

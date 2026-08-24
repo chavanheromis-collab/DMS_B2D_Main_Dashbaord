@@ -1322,9 +1322,16 @@ browser can't grant itself permission.
 ### Permissions
 
 **Signing in** is Google-only, and a new account lands on a waiting screen
-that asks two things: the **name** their colleagues would recognise (Google
-hands us whatever their personal account is called, which often isn't it) and
-**their role** — *Sales Executive*, *Service Advisor*, *Yard Supervisor*.
+that asks two things: their **name** and **their role** — *Sales Executive*,
+*Service Advisor*, *Yard Supervisor*.
+
+The name is **typed, never taken from Google**. Google's display name is
+whatever that account happens to be called — a personal one, an initial, a
+nickname — and it was previously rewritten on *every* sign-in, so a name
+somebody corrected went back to Google's the next time they logged in. The
+box starts empty rather than pre-filled, because a pre-filled box is accepted
+without reading, which is how a user list fills up with names nobody
+recognises. The request can't be sent without one.
 
 That role is their **job**, typed freely, not an access level. A dealership's
 job titles are its own, and any dropdown written here would be wrong at the

@@ -181,8 +181,17 @@ export default function UsersPanel({ pages }) {
                 <Fragment key={u.id}>
                   <tr className="border-b border-slate-50">
                     <td className="py-2 pr-2">
-                      <p className="font-medium text-ink">{u.name || '—'}</p>
-                      <p className="text-xs text-slate-400">{u.email}</p>
+                      <input
+                        defaultValue={u.name || ''}
+                        onBlur={(e) => {
+                          const next = e.target.value.trim()
+                          if (next !== (u.name || '')) saveUser(u.id, { name: next })
+                        }}
+                        placeholder="— no name yet —"
+                        className="w-40 rounded-lg border border-transparent px-1.5 py-1 text-sm font-medium text-ink hover:border-slate-200 focus:border-slate-300 focus:bg-white"
+                        aria-label={`Name of ${u.email}`}
+                      />
+                      <p className="px-1.5 text-xs text-slate-400">{u.email}</p>
                     </td>
 
                     {/* What they do. Editable, because everyone who signed up

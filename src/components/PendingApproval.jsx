@@ -5,10 +5,11 @@ import { useAuth } from '../context/AuthContext.jsx'
 /**
  * Where a new account waits.
  *
- * Rather than a dead screen, this is where somebody says who they are: the
- * name their colleagues would recognise -- Google hands us whatever their
- * account is called, which is often not it -- and what they need to be able
- * to do.
+ * Rather than a dead screen, this is where somebody says who they are. The
+ * name box starts EMPTY on purpose: Google's display name is whatever that
+ * account happens to be called -- a personal one, an initial, a nickname --
+ * and pre-filling it means most people accept it without reading, which is
+ * how a user list ends up full of names nobody recognises.
  *
  * The role asked for here is their JOB -- "Sales Executive", "Service
  * Advisor" -- and has nothing to do with the access level, which only an
@@ -17,10 +18,10 @@ import { useAuth } from '../context/AuthContext.jsx'
  * wrong at the second dealership that used this.
  */
 export default function PendingApproval() {
-  const { user, userDoc, signOut, submitProfile } = useAuth()
+  const { userDoc, signOut, submitProfile } = useAuth()
   const removed = userDoc?.status === 'removed'
 
-  const [name, setName] = useState(userDoc?.name || user?.displayName || '')
+  const [name, setName] = useState(userDoc?.name || '')
   const [jobRole, setJobRole] = useState(userDoc?.jobRole || '')
   const [busy, setBusy] = useState(false)
   const sent = Boolean(userDoc?.requestedAt)
@@ -68,7 +69,7 @@ export default function PendingApproval() {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={user?.displayName || 'Name'}
+                placeholder="Your full name"
                 className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
               />
             </label>
@@ -89,7 +90,7 @@ export default function PendingApproval() {
 
             <button
               type="submit"
-              disabled={busy}
+              disabled={busy || !name.trim()}
               className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
             >
               {sent && !busy && <Check size={12} />}
