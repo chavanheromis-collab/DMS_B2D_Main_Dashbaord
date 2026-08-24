@@ -5,6 +5,7 @@ import { fetchSpreadsheetTabs, syncSource } from '../../lib/sheetsApi'
 import { emptySource } from '../../lib/workspace'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { Btn, Field, Select, TextInput, stableEqual } from './ui.jsx'
+import ComputedColumns from './ComputedColumns.jsx'
 
 /**
  * Connects any number of spreadsheets to the workspace.
@@ -126,6 +127,10 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
   const [message, setMessage] = useState(null)
   const [syncing, setSyncing] = useState(false)
   const [syncReport, setSyncReport] = useState(null)
+  // A handful of real rows per tab, from the last sync. Component state
+  // only: this is for showing an admin what a formula produces, and rows
+  // have no business being written into the workspace document.
+  const [samples, setSamples] = useState({})
 
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
   const sheetId = extractSheetId(draft.sheetId)
@@ -173,6 +178,9 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
       const idToken = await getIdToken()
       const result = await syncSource(idToken, source.id)
       setSyncReport(result)
+      setSamples(
+        Object.fromEntries(Object.entries(result.tabs || {}).map(([tab, info]) => [tab, info.sample || []]))
+      )
     } catch (e) {
       setMessage({ type: 'error', text: e.message })
     } finally {
@@ -273,6 +281,19 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
           <button className="text-slate-400 underline" onClick={() => set({ tabs: [] })}>
             Clear
           </button>
+        </div>
+      )}
+
+      {selected.length > 0 && (
+        <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/30 p-3">
+          <ComputedColumns
+            tabs={selected}
+            tabHeaders={source.tabHeaders || {}}
+            computed={draft.computed || {}}
+            sampleRows={samples}
+            dateOrder={draft.dateOrder || 'DMY'}
+            onChange={(next) => set({ computed: next })}
+          />
         </div>
       )}
 

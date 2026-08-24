@@ -12,6 +12,7 @@ import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from 
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
+import { applyComputed, computedFor, computedHeaders } from '../lib/computed'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
 import { normalizeKey } from '../lib/dataUtils'
 import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
@@ -275,11 +276,40 @@ export default function Dashboard() {
   // that tab. A filter/button only touches the refs it explicitly names, so
   // a MASTER filter never empties the GOOGLE REVIEW table sitting next to
   // it -- and now, never empties a different sheet's MASTER either.
+  // --- Calculated columns, before anything else -------------------------
+  // A column the sheet does not have -- margin, age in days, a status worked
+  // out from three other fields -- defined once on the TAB and true from
+  // here down. Everything below this line sees an ordinary column: the
+  // filters, the controls, all sixteen widget types, the drill-downs, the
+  // flow, and the blend, which is what lets a calculated column on a parent
+  // table be used in a widget that blends it with another one.
+  //
+  // It has to happen first. A filter cannot mention a column that does not
+  // exist yet, and a per-user row scope has to be able to hide rows BY one.
+  const computedByRef = useMemo(() => {
+    const out = {}
+    for (const [ref, data] of Object.entries(dataByRef)) {
+      const { sourceId, tab } = parseRef(ref)
+      const defs = computedFor(sourcesById[sourceId], tab)
+      if (defs.length === 0) {
+        out[ref] = data
+        continue
+      }
+      const headers = data.headers || []
+      out[ref] = {
+        ...data,
+        headers: computedHeaders(headers, defs),
+        rows: applyComputed(data.rows || [], defs, { headers, dateOrder }),
+      }
+    }
+    return out
+  }, [dataByRef, sourcesById, dateOrder])
+
   const tabColumns = useMemo(() => {
     const out = {}
-    for (const [ref, data] of Object.entries(dataByRef)) out[ref] = data.headers || []
+    for (const [ref, data] of Object.entries(computedByRef)) out[ref] = data.headers || []
     return out
-  }, [dataByRef])
+  }, [computedByRef])
 
   // The scope is applied HERE, at the source, and not alongside the drills.
   // A widget set to ignore filters reads the raw rows, a blend reads them,
@@ -288,13 +318,13 @@ export default function Dashboard() {
   // exactly what it closed at the front. Everything below this line sees a
   // sheet that has never contained the other rows.
   const scopedByRef = useMemo(() => {
-    if (!scope) return dataByRef
+    if (!scope) return computedByRef
     const out = {}
-    for (const [ref, data] of Object.entries(dataByRef)) {
+    for (const [ref, data] of Object.entries(computedByRef)) {
       out[ref] = { ...data, rows: applyFilters(data.rows || [], { tab: ref, crossFilters: [scope], dateOrder, tabColumns }) }
     }
     return out
-  }, [dataByRef, scope, dateOrder, tabColumns])
+  }, [computedByRef, scope, dateOrder, tabColumns])
 
   const filteredByRef = useMemo(() => {
     const first = {}
@@ -424,10 +454,10 @@ export default function Dashboard() {
       const left = filteredByRef[w.tab] || []
       const right = filteredByRef[w.blend.ref] || []
       out[w.id] = {
-        rows: blendRows(left, right, w.blend, dataByRef[w.blend.ref]?.headers || [], dateOrder),
+        rows: blendRows(left, right, w.blend, scopedByRef[w.blend.ref]?.headers || [], dateOrder),
         headers: blendedHeaders(
-          dataByRef[w.tab]?.headers || [],
-          dataByRef[w.blend.ref]?.headers || [],
+          scopedByRef[w.tab]?.headers || [],
+          scopedByRef[w.blend.ref]?.headers || [],
           w.blend
         ),
         // Scoped, not raw: `unfiltered` means "before the page's filters",
@@ -436,13 +466,13 @@ export default function Dashboard() {
           scopedByRef[w.tab]?.rows || [],
           scopedByRef[w.blend.ref]?.rows || [],
           w.blend,
-          dataByRef[w.blend.ref]?.headers || [],
+          scopedByRef[w.blend.ref]?.headers || [],
           dateOrder
         ),
       }
     }
     return out
-  }, [allowedWidgets, filteredByRef, dataByRef, scopedByRef, dateOrder])
+  }, [allowedWidgets, filteredByRef, scopedByRef, dateOrder])
 
   // --- Interaction -------------------------------------------------------
   /**
@@ -631,6 +661,10 @@ export default function Dashboard() {
   }
 
   // Edit / download rights are stored per REF, but widgets ask by label.
+  //
+  // The SHEET's own headers, deliberately, not the calculated ones: an
+  // inline edit is written back to Google by column name, and a calculated
+  // column has no cell there to write to. It is read-only by construction.
   const grantFor = useCallback(
     (kind, label) => {
       const ref = refByLabel[label]

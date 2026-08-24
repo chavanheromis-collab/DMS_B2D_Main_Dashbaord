@@ -7,6 +7,7 @@ import { EMPTY_LAYOUT, PAGES } from '../lib/config'
 import { buildLabelMap, makeRef } from '../lib/refs'
 import { migrateLegacy, newPageId, sortPages } from '../lib/workspace'
 import { normalizeControls } from '../lib/pageControls'
+import { computedFor, computedHeaders } from '../lib/computed'
 import { stripUndefined } from '../lib/firestoreSafe'
 import { Btn, Select, WorkspaceCtx, stableEqual } from './admin/ui.jsx'
 import DataSourcesPanel from './admin/DataSourcesPanel.jsx'
@@ -98,11 +99,14 @@ export default function Admin() {
     [labelByRef]
   )
 
+  // Every column a tab offers -- including the calculated ones, because to
+  // everything downstream of the source they are simply columns, and a
+  // picker that could not offer one would make it useless.
   const tabHeaders = useMemo(() => {
     const out = {}
     for (const source of sources) {
       for (const [tab, headers] of Object.entries(source.tabHeaders || {})) {
-        out[makeRef(source.id, tab)] = headers
+        out[makeRef(source.id, tab)] = computedHeaders(headers, computedFor(source, tab))
       }
     }
     return out

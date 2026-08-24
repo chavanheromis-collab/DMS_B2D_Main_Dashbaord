@@ -41,6 +41,9 @@ export function emptySource(name = 'New spreadsheet') {
     sheetId: '',
     tabs: [],
     tabHeaders: {},
+    // { [tabName]: [ {id, name, formula} ] } -- columns this dashboard works
+    // out that the spreadsheet does not have. See lib/computed.js.
+    computed: {},
     dateOrder: 'DMY',
     color: '#4F46E5',
   }

@@ -489,6 +489,103 @@ cannot drift from what the dashboard will do.
 Buttons narrow only the tabs their conditions name. The **global search box**
 is the other exception — it matches any cell on any tab.
 
+### Calculated columns
+
+A column your sheet doesn't have: **margin**, **age in days**, **share of the
+branch**, a status worked out from three other fields. Adding it to the
+spreadsheet means asking whoever owns the spreadsheet; adding it to one widget
+means adding it again to the next eleven.
+
+So it's defined **once, on the tab**, in **Admin → Data sources**. From that
+moment it is simply one of that tab's columns — it appears in every picker,
+filters like a column, groups like a column, buckets like a column, charts like
+a column, drills like a column, and travels into a **blend** like a column.
+Nothing downstream knows it was calculated, which is exactly why a calculated
+column on a parent table can be used in a widget that blends it with another
+one, with no further setup.
+
+The order is deliberate: **calculate → scope → filter.** A filter can't mention
+a column that doesn't exist yet, and a per-user row scope has to be able to
+hide rows *by* one.
+
+#### Writing one
+
+It reads like a spreadsheet, because everyone using this has spent years in
+one:
+
+```
+[Sale Price] - [Cost]
+ROUND(([Sale] - [Cost]) / [Sale] * 100, 1)
+IF([Status] = "Delivered", "Done", "Pending")
+IFS([Sale] > 100000, "Large", [Sale] > 25000, "Medium", "Small")
+DAYSSINCE([Invoice Date])
+[Branch] & " · " & [Model]
+ROUND(SHAREOF([Amount], [Branch]), 1)
+```
+
+`[Column Name]` is a column — brackets are what let a column be called *Sale
+Price (ex GST)*. A bare word works too, so `Sale - Cost` is a valid formula.
+`&` joins text. `=` compares **without caring about capitals or spaces**,
+because `[Status] = "delivered"` failing on `Delivered` is not a subtlety
+anybody wants to debug.
+
+| Group | What's there |
+|---|---|
+| Logic | `IF` `IFS` `AND` `OR` `NOT` `ISBLANK` `ISNUMBER` `COALESCE` |
+| Numbers | `ROUND` `FLOOR` `CEILING` `ABS` `MIN` `MAX` `NUMBER` `DIVIDE` |
+| Text | `CONCAT` `UPPER` `LOWER` `TRIM` `LEN` `LEFT` `RIGHT` `CONTAINS` `STARTSWITH` `ENDSWITH` `REPLACE` `SPLITPART` |
+| Dates | `TODAY` `DAYSSINCE` `DAYSBETWEEN` `YEAR` `MONTH` `DAY` `MONTHNAME` `WEEKDAY` `ADDDAYS` |
+| Whole table | `TOTAL` `AVERAGE` `MAXOF` `MINOF` `COUNTROWS` `PERCENTOF` `RANK` |
+| Within a group | `TOTALBY` `AVERAGEBY` `COUNTBY` `SHAREOF` `RANKBY` |
+
+The last two groups are the advanced ones, and they're the reason this is more
+than arithmetic. `PERCENTOF([Amount])` is this row's share of the whole tab.
+`RANK([Amount])` is its place in the table — **dense**, so two rows on the same
+number share a rank and the next distinct number is the one after it, and "rank
+3 of 40" always means something. `SHAREOF([Amount], [Branch])` is its share of
+its *own branch*, and `RANKBY([Amount], [Branch])` its place *within* it. Each
+is measured once over the whole tab, not once per row, so a forty-thousand-row
+sheet doesn't pay for it forty thousand times.
+
+**One column can be built from another.** `Margin` from `[Sale] - [Cost]`, then
+`Margin %` from `[Margin] / [Sale]` — which is what keeps a complicated
+calculation readable instead of one enormous formula. They're sorted by what
+they depend on, and two that need each other are reported rather than looped
+over.
+
+#### Three things that make it usable
+
+- **Recipes.** Nine formulas out of ten are one of eight shapes — a difference,
+  a percentage, an age, a banding, a join, a share of the total, a share of the
+  group, a yes/no rule. One click each, pre-written with this tab's own column
+  names, then editable.
+- **The columns are right there.** Click one to insert it, correctly bracketed,
+  instead of typing a name from memory and mistyping the space in it.
+- **It shows the answer,** against real rows pulled by the last **Sync data** —
+  through the same code the dashboard uses, because a second implementation
+  would eventually disagree and the disagreement would be found by whoever
+  trusted the wrong one. Whole-table functions in the preview are measured over
+  the sample rows only, and it says so rather than implying a number it can't
+  know yet.
+
+#### What it won't do
+
+A formula that can't be read **doesn't become a column** — you get the reason
+in a sentence (`No column called "Amont" on this tab`, `ROUND() takes 1 to 2
+arguments`), and every other column on the tab still works. A formula that
+reads but can't be worked out for one row leaves that cell blank rather than
+writing `#VALUE!` down the column.
+
+A calculated column is **read-only**. Inline edit writes a cell back to Google
+by column name, and a calculated column has no cell there — so it's excluded
+from the editable list by construction, not by a check somebody could forget.
+It also can't take the name of a real column, so nothing is ever quietly
+replaced.
+
+Formulas are parsed, not `eval`'d: an admin's string never becomes JavaScript,
+which matters both for what a formula could otherwise reach and for what
+running one forty thousand times would cost.
+
 ### Blending two tabs in one widget
 
 A widget reads one tab. Turn on **🔗 Blend a second tab into this widget** and
@@ -1512,7 +1609,7 @@ Anything prefixed `VITE_` is bundled into the browser. Never prefix a secret.
 | Collection | Document | Contents |
 |---|---|---|
 | `users` | `{uid}` | `email`, `name`, `status` (`pending`/`active`/`removed`), `role` (`user`/`admin`) |
-| `dataSources` | `{sourceId}` | `name`, `sheetId`, `tabs[]`, `tabHeaders{tab: columns[]}`, `dateOrder`, `lastSyncedAt` |
+| `dataSources` | `{sourceId}` | `name`, `sheetId`, `tabs[]`, `tabHeaders{tab: columns[]}`, `computed{tab: [{id,name,formula}]}`, `dateOrder`, `lastSyncedAt` |
 | `dashboards` | `{pageId}` | `name`, `navLabel`, `icon`, `iconUrl`, `group`, `order`, `showInSidebar`, `parentId`, `tabUsesPageName`, `background`, `hideSearch`, `sourceIds[]`, `widgets[]`, `controls[]`, `views[]` |
 | `access` | `{uid}_{pageId}` | `canView`, `hiddenWidgets[]`, `widgetOrder{}`, `editable{ref: columns[]}`, `downloadable{ref: columns[]}`, `scope{match, conditions[]}` |
 | `userPrefs` | `{uid}_{pageId}` | `widgetOrder{widgetId: number}` — one user's own widget arrangement |

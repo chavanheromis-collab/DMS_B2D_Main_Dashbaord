@@ -201,6 +201,12 @@ async function handleGet(req, res, uid) {
         rows: result?.rows?.length ?? 0,
         columns: result?.headers?.length ?? 0,
         error: result?.error || null,
+        // A handful of real rows, so the calculated-column editor can show
+        // what a formula actually produces instead of asking an admin to
+        // save it, open a dashboard and look. The data is already in hand
+        // here -- this costs no extra call to Google -- and it never
+        // touches Firestore, so nothing is cached anywhere it shouldn't be.
+        sample: (result?.rows || []).slice(0, 8),
       }
     }
 
