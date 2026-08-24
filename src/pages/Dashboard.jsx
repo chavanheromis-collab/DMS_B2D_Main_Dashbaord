@@ -861,7 +861,12 @@ export default function Dashboard() {
                 // The page's look, unless this widget states its own.
                 const themed = withPageTheme(widget.style, page?.theme)
 
-                const common = { widget, rows, unfilteredRows: unfiltered, tabError: tabData?.error }
+                // A widget the admin sized has to fill that size, not sit
+                // in the top of it: growing the card and leaving a 260px
+                // chart inside it just moves the empty space around.
+                const fillHeight = Number(widget.heightPx) > 0
+
+                const common = { widget, rows, unfilteredRows: unfiltered, tabError: tabData?.error, fillHeight }
 
                 return {
                   id: widget.id,
@@ -1018,6 +1023,7 @@ export default function Dashboard() {
                           onCrossFilter={toggleCrossFilter}
                           dateOrder={dateOrder}
                           canExport={canExport}
+                          fillHeight={fillHeight}
                         />
                       )}
                       {widget.type === 'filters' && (

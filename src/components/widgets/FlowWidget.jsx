@@ -61,6 +61,7 @@ export default function FlowWidget({
   onCrossFilter,
   dateOrder,
   canExport = false,
+  fillHeight = false,
 }) {
   const flow = { ...DEFAULT_FLOW, ...(widget.flow || {}) }
   const source = widget.ignoreFilters ? rawRowsByTab : rowsByTab
@@ -344,12 +345,12 @@ export default function FlowWidget({
       {forest.depth === 0 ? (
         <p className="empty-state">No levels configured yet</p>
       ) : view === 'diagram' ? (
-        <div className={fullscreen ? 'min-h-0 flex-1' : ''}>
+        <div className={fullscreen || fillHeight ? 'min-h-0 flex-1' : ''}>
           <FlowDiagram
             roots={roots}
             flow={flow}
             orientation={orientation}
-            height={fullscreen ? '100%' : Number(flow.diagramHeight) || 420}
+            height={fullscreen || fillHeight ? '100%' : Number(flow.diagramHeight) || 420}
             fullscreen={fullscreen}
             isDrilled={isDrilled}
             onToggle={toggle}

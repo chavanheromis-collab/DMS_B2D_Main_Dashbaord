@@ -294,7 +294,8 @@ function TreemapCell(props) {
  */
 export default function ChartWidget({
   canExport = false,
-  dateOrder = 'DMY', widget, rows, unfilteredRows, tabError, crossFilters = [], onCrossFilter }) {
+  dateOrder = 'DMY',
+  fillHeight = false, widget, rows, unfilteredRows, tabError, crossFilters = [], onCrossFilter }) {
   const type = widget.chartType || 'bar'
   const caps = chartCaps(type)
   const source = widget.ignoreFilters ? unfilteredRows : rows
@@ -904,7 +905,7 @@ export default function ChartWidget({
           colorFor={colorFor}
           activeName={activeName}
           onDrill={onCrossFilter ? drill : undefined}
-          height={height}
+          height={fillHeight ? '100%' : height}
         />
       ) : type === 'circles' ? (
         <NestedCircleChart
@@ -935,8 +936,14 @@ export default function ChartWidget({
           {/* The inner box is what actually grows. A minimum width lets a
               chart with room still fill its card, and pushes past it only
               when the categories genuinely need more room than there is. */}
-          <div style={extent.axis === 'y' ? { height: extent.height } : { minWidth: extent.minWidth }}>
-            <ResponsiveContainer width="100%" height={extent.axis === 'y' ? extent.height : height}>
+          <div
+            className={fillHeight && extent.axis !== 'y' ? 'h-full' : ''}
+            style={extent.axis === 'y' ? { height: extent.height } : { minWidth: extent.minWidth }}
+          >
+            <ResponsiveContainer
+              width="100%"
+              height={extent.axis === 'y' ? extent.height : fillHeight ? '100%' : height}
+            >
               {renderChart()}
             </ResponsiveContainer>
           </div>

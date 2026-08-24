@@ -79,6 +79,7 @@ export function StackedWidget({
   crossFilters = [],
   onCrossFilter,
   dateOrder = 'DMY',
+  fillHeight = false,
 }) {
   const { data, series } = useMemo(
     () =>
@@ -130,8 +131,11 @@ export function StackedWidget({
         <p className="empty-state">No data to chart</p>
       ) : (
         <div className="min-h-[240px] flex-1 overflow-x-auto overflow-y-hidden">
-          <div style={{ minWidth: chartExtent({ count: data.length, size: widget.categorySize, enabled: widget.scrollChart !== false }).minWidth }}>
-          <ResponsiveContainer width="100%" height={widget.height || 280}>
+          <div
+            className={fillHeight ? 'h-full' : ''}
+            style={{ minWidth: chartExtent({ count: data.length, size: widget.categorySize, enabled: widget.scrollChart !== false }).minWidth }}
+          >
+          <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 280}>
             <BarChart
               data={data}
               margin={{ top: 5, right: 10, bottom: 5, left: -12 }}
@@ -189,7 +193,15 @@ export function StackedWidget({
  * forcing them onto one axis flattens whichever is smaller into a
  * meaningless line along the bottom.
  */
-export function ComboWidget({ widget, rows, unfilteredRows, tabError, crossFilters = [], onCrossFilter }) {
+export function ComboWidget({
+  widget,
+  rows,
+  unfilteredRows,
+  tabError,
+  crossFilters = [],
+  onCrossFilter,
+  fillHeight = false,
+}) {
   const data = useMemo(
     () =>
       groupSeries(sourceRows(widget, rows, unfilteredRows), {
@@ -234,8 +246,11 @@ export function ComboWidget({ widget, rows, unfilteredRows, tabError, crossFilte
         <p className="empty-state">No data to chart</p>
       ) : (
         <div className="min-h-[240px] flex-1 overflow-x-auto overflow-y-hidden">
-          <div style={{ minWidth: chartExtent({ count: data.length, size: widget.categorySize, enabled: widget.scrollChart !== false }).minWidth }}>
-          <ResponsiveContainer width="100%" height={widget.height || 280}>
+          <div
+            className={fillHeight ? 'h-full' : ''}
+            style={{ minWidth: chartExtent({ count: data.length, size: widget.categorySize, enabled: widget.scrollChart !== false }).minWidth }}
+          >
+          <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 280}>
             <ComposedChart
               data={data}
               margin={{ top: 5, right: 6, bottom: 5, left: -12 }}
@@ -297,7 +312,7 @@ export function ComboWidget({ widget, rows, unfilteredRows, tabError, crossFilte
  * rather than aggregates -- useful for spotting outliers that any grouping
  * would average away.
  */
-export function ScatterWidget({ widget, rows, unfilteredRows, tabError }) {
+export function ScatterWidget({ widget, rows, unfilteredRows, tabError, fillHeight = false }) {
   const series = useMemo(
     () =>
       scatterPoints(sourceRows(widget, rows, unfilteredRows), {
@@ -328,7 +343,7 @@ export function ScatterWidget({ widget, rows, unfilteredRows, tabError }) {
         </p>
       ) : (
         <div className="min-h-[240px] flex-1">
-          <ResponsiveContainer width="100%" height={widget.height || 280}>
+          <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 280}>
             <ScatterChart margin={{ top: 8, right: 12, bottom: 5, left: -8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
               <XAxis

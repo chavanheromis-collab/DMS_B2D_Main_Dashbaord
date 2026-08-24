@@ -56,6 +56,7 @@ export function TrendWidget({
   onCrossFilter,
   crossFilters = [],
   canExport = false,
+  fillHeight = false,
 }) {
   const source = widget.ignoreFilters ? unfilteredRows : rows
   const breakdown = widget.breakdown || ''
@@ -358,7 +359,7 @@ export function TrendWidget({
       ) : (
         <>
           <div className="min-h-[200px] flex-1">
-            <ResponsiveContainer width="100%" height={widget.height || 240}>
+            <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 240}>
               <ComposedChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: -14 }} onClick={onClick} {...cursor}>
                 <defs>
                   <linearGradient id={`tg_${widget.id}`} x1="0" y1="0" x2="0" y2="1">

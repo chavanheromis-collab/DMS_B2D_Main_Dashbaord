@@ -322,6 +322,11 @@ promise a phone cannot keep:
   instruction. Blank clears the pin and lets the masonry size the widget from
   its content, which is what most widgets want.
 
+The **content fills the size too** — a chart, a trend, a stacked chart, a
+pie and a flow canvas all stretch to the height you set instead of keeping
+their own default and leaving the rest of the card empty. A table or a pivot
+scrolls inside it instead, which is what a fixed height means for a list.
+
 Only admins see the button, and the Firestore rules say the same thing
 independently — so the missing button is a convenience, not the security.
 
