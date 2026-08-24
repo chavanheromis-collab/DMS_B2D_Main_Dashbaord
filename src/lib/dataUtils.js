@@ -451,14 +451,67 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 const WEEKDAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-export const DATE_BUCKETS = [
-  { value: '', label: 'Not a date — list the values' },
-  { value: 'year', label: 'Year (2026)' },
-  { value: 'quarter', label: 'Quarter (2026 Q1)' },
-  { value: 'month', label: 'Month (Mar 2026)' },
-  { value: 'monthOfYear', label: 'Month name (March)' },
-  { value: 'dayOfWeek', label: 'Day of week (Monday)' },
+// A bucket is not only a date thing. A column of amounts wants bands, a
+// column of four hundred names wants its first letter, and a column nobody
+// has finished filling in wants "filled or not" -- all of them the same
+// idea: too many distinct values to choose between, grouped into a list
+// somebody can actually use.
+export const BUCKET_GROUPS = [
+  {
+    label: 'Dates',
+    kinds: [
+      { value: 'year', label: 'Year (2026)' },
+      { value: 'quarter', label: 'Quarter (2026 Q1)' },
+      { value: 'month', label: 'Month (Mar 2026)' },
+      { value: 'monthOfYear', label: 'Month name (March)' },
+      { value: 'dayOfWeek', label: 'Day of week (Monday)' },
+    ],
+  },
+  {
+    label: 'Numbers',
+    kinds: [
+      { value: 'band', label: 'Bands of a fixed size', needs: 'size' },
+      { value: 'breaks', label: 'My own breakpoints', needs: 'breaks' },
+      { value: 'sign', label: 'Negative / zero / positive' },
+    ],
+  },
+  {
+    label: 'Text',
+    kinds: [
+      { value: 'firstLetter', label: 'First letter (A, B, C…)' },
+      { value: 'firstWord', label: 'First word' },
+      { value: 'prefix', label: 'First few characters', needs: 'size' },
+    ],
+  },
+  {
+    label: 'Anything',
+    kinds: [{ value: 'filled', label: 'Filled or blank' }],
+  },
 ]
+
+export const BUCKET_KINDS = BUCKET_GROUPS.flatMap((g) =>
+  g.kinds.map((k) => ({ ...k, label: `${g.label} · ${k.label}` }))
+)
+
+export const DATE_BUCKETS = [
+  { value: '', label: 'No bucket — list the values' },
+  ...BUCKET_KINDS,
+]
+
+export function bucketNeeds(grain) {
+  return BUCKET_KINDS.find((k) => k.value === grain)?.needs || null
+}
+
+/** "0, 25, 50" -> [0, 25, 50], in order, ignoring anything unparseable. */
+function parseBreaks(text) {
+  return String(text ?? '')
+    .split(',')
+    .map((part) => toNumber(part))
+    .filter((n) => n !== null)
+    .sort((a, b) => a - b)
+}
+
+const NUM_FMT = (n) => n.toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
 /**
  * The label a date falls under, and a number to sort those labels by.
@@ -486,6 +539,91 @@ export function dateBucket(date, grain) {
       const i = (date.getDay() + 6) % 7
       return { label: WEEKDAY_NAMES[i], sort: i }
     }
+    default:
+      return null
+  }
+}
+
+/**
+ * Which bucket a raw value falls in, and what to sort that bucket by.
+ *
+ * Returns null when the bucket does not apply to this value -- a band asked
+ * of the word "pending", a year asked of a blank. The caller then falls back
+ * to the value's own text, because a cell that does not fit the rule is a
+ * data-quality finding and hiding it would hide the rows somebody needs to
+ * fix.
+ */
+export function valueBucket(value, spec, dateOrder = 'DMY') {
+  const grain = typeof spec === 'string' ? spec : spec?.bucket
+  if (!grain) return null
+
+  const size = Number(typeof spec === 'string' ? 0 : spec?.bucketSize) || 0
+  const breaks = typeof spec === 'string' ? '' : spec?.bucketBreaks
+
+  // "Filled or blank" is the one bucket a blank belongs in rather than
+  // falling out of.
+  if (grain === 'filled') {
+    return isBlank(value) ? { label: 'Blank', sort: 1 } : { label: 'Filled', sort: 0 }
+  }
+  if (isBlank(value)) return null
+
+  switch (grain) {
+    case 'year':
+    case 'quarter':
+    case 'month':
+    case 'monthOfYear':
+    case 'dayOfWeek':
+      return dateBucket(toDate(value, dateOrder), grain)
+
+    case 'band': {
+      const n = toNumber(value)
+      if (n === null) return null
+      const width = size > 0 ? size : 100
+      const lo = Math.floor(n / width) * width
+      // Half open: 100-200 holds 100 up to but not including 200, so a value
+      // can never fall in two bands.
+      return { label: `${NUM_FMT(lo)} – ${NUM_FMT(lo + width)}`, sort: lo }
+    }
+
+    case 'breaks': {
+      const n = toNumber(value)
+      const points = parseBreaks(breaks)
+      if (n === null || points.length === 0) return null
+      if (n < points[0]) return { label: `< ${NUM_FMT(points[0])}`, sort: -Infinity }
+      for (let i = 0; i < points.length - 1; i += 1) {
+        if (n < points[i + 1]) return { label: `${NUM_FMT(points[i])} – ${NUM_FMT(points[i + 1])}`, sort: points[i] }
+      }
+      return { label: `${NUM_FMT(points.at(-1))}+`, sort: points.at(-1) }
+    }
+
+    case 'sign': {
+      const n = toNumber(value)
+      if (n === null) return null
+      if (n < 0) return { label: 'Negative', sort: 0 }
+      if (n === 0) return { label: 'Zero', sort: 1 }
+      return { label: 'Positive', sort: 2 }
+    }
+
+    case 'firstLetter': {
+      const first = String(value).trim().charAt(0).toUpperCase()
+      if (!first) return null
+      // Everything that is not a letter shares one bucket rather than each
+      // punctuation mark getting its own.
+      const letter = /[A-Z]/.test(first) ? first : '#'
+      return { label: letter, sort: letter === '#' ? 1e6 : letter.charCodeAt(0) }
+    }
+
+    case 'firstWord': {
+      const word = String(value).trim().split(/\s+/)[0]
+      return word ? { label: word, sort: null } : null
+    }
+
+    case 'prefix': {
+      const chars = size > 0 ? size : 3
+      const text = String(value).trim().slice(0, chars)
+      return text ? { label: text, sort: null } : null
+    }
+
     default:
       return null
   }
@@ -521,40 +659,50 @@ export function joinedCell(row, columns, separator = ' · ') {
 export function shownValue(row, control, dateOrder = 'DMY', columnOverride) {
   const joined = (control?.columns || []).filter(Boolean)
   if (joined.length > 1) return joinedCell(row, joined, control.join || ' · ')
-  return bucketedCell(row?.[columnOverride ?? control?.column], control?.bucket, dateOrder)
+  return bucketedCell(row?.[columnOverride ?? control?.column], control, dateOrder)
 }
 
 /** What one cell counts as, once its column is bucketed. */
-export function bucketedCell(value, grain, dateOrder = 'DMY') {
+export function bucketedCell(value, spec, dateOrder = 'DMY') {
+  const grain = typeof spec === 'string' ? spec : spec?.bucket
   if (!grain) return isBlank(value) ? '' : String(value).trim()
-  const bucket = dateBucket(toDate(value, dateOrder), grain)
-  // A cell that will not parse keeps its own text: "31/02/2026" is a
-  // data-quality finding, and a filter that silently ignored it would hide
-  // exactly the rows somebody needs to fix.
+  const bucket = valueBucket(value, spec, dateOrder)
+  // A cell the bucket does not fit keeps its own text: "31/02/2026" in a
+  // date column, or "n/a" in a column of amounts, is a data-quality finding,
+  // and a filter that silently swallowed it would hide exactly the rows
+  // somebody needs to fix.
   return bucket ? bucket.label : isBlank(value) ? '' : String(value).trim()
 }
 
 /**
  * The distinct bucket labels in a column, in their own natural order.
  */
-export function bucketedValues(rows, column, grain, dateOrder = 'DMY', cap = 500) {
+export function bucketedValues(rows, column, spec, dateOrder = 'DMY', cap = 500) {
+  const grain = typeof spec === 'string' ? spec : spec?.bucket
   if (!column) return []
   if (!grain) return distinctValues(rows, column, cap)
 
   const seen = new Map()
   for (const row of rows || []) {
     const raw = row[column]
-    if (isBlank(raw)) continue
-    const bucket = dateBucket(toDate(raw, dateOrder), grain)
+    const bucket = valueBucket(raw, spec, dateOrder)
+    if (!bucket && isBlank(raw)) continue
     const label = bucket ? bucket.label : String(raw).trim()
-    // Unparseable values sort last, together, out of the way of the real
-    // buckets but still reachable.
-    if (!seen.has(label)) seen.set(label, bucket ? bucket.sort : Number.MAX_SAFE_INTEGER)
+    // A bucket with no natural order sorts by its own text; one the rule did
+    // not fit sorts last, out of the way but still reachable.
+    const sort = bucket ? (bucket.sort === null ? undefined : bucket.sort) : Number.MAX_SAFE_INTEGER
+    if (!seen.has(label)) seen.set(label, sort)
     if (seen.size >= cap) break
   }
 
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
   return Array.from(seen.entries())
-    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+    .sort((a, b) => {
+      if (a[1] === undefined && b[1] === undefined) return collator.compare(a[0], b[0])
+      if (a[1] === undefined) return 1
+      if (b[1] === undefined) return -1
+      return a[1] - b[1] || collator.compare(a[0], b[0])
+    })
     .map((e) => e[0])
 }
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Plus, SlidersHorizontal, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, uid } from '../../lib/config'
-import { DATE_BUCKETS } from '../../lib/dataUtils'
+import { DATE_BUCKETS, bucketNeeds } from '../../lib/dataUtils'
 import { CONTROL_KINDS, controlMeta, controlNeedsColumn } from '../../lib/widgetControls'
 import { Btn, Field, Select, TextInput, useWorkspaceCtx } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
@@ -114,6 +114,24 @@ export default function WidgetControlsEditor({ widget, cols, tabHeaders, set }) 
                     onChange={(v) => setControl({ bucket: v })}
                     options={DATE_BUCKETS}
                     className="w-44"
+                  />
+                )}
+
+                {bucketNeeds(control.bucket) === 'size' && (
+                  <TextInput
+                    type="number"
+                    value={control.bucketSize ?? ''}
+                    onChange={(v) => setControl({ bucketSize: Number(v) || null })}
+                    placeholder={control.bucket === 'prefix' ? 'chars' : 'band'}
+                    className="w-20"
+                  />
+                )}
+                {bucketNeeds(control.bucket) === 'breaks' && (
+                  <TextInput
+                    value={control.bucketBreaks ?? ''}
+                    onChange={(v) => setControl({ bucketBreaks: v })}
+                    placeholder="0, 100, 250"
+                    className="w-36"
                   />
                 )}
 

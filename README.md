@@ -760,16 +760,28 @@ Each control also has:
   an admin chooses, and a capped list says `+N more` rather than pretending
   those values don't exist. Uncapped, the chip row scrolls instead of pushing
   the rest of the bar off the page.
-- **Bucket by** — for a dropdown, multi-choice or chip control on a **date
-  column**. Without it, a date column offers four hundred options, one per
-  day, and nobody wants to filter to the 6th of January. Bucketed, it offers
-  *Year* (2026), *Quarter* (2026 Q1), *Month* (Mar 2026), *Month name*
-  (March) or *Day of week* (Monday) — and the options come out in their own
-  order, because "April" before "August" is alphabetical nonsense and "Mar
-  2026" before "Mar 2025" is worse. A value that won't parse as a date keeps
-  its own text and sorts last, since a malformed date is a finding, not a row
-  to hide. Available on page controls, the filter panel and a widget's own
-  controls, all matching on the bucket rather than the cell.
+- **Bucket by** — group a control's values instead of listing every one.
+  Four hundred dates, or nine hundred amounts, or a column of four hundred
+  names are all the same problem: too many distinct values to choose between.
+
+  | Column | Buckets |
+  |---|---|
+  | **Dates** | Year (2026), Quarter (2026 Q1), Month (Mar 2026), Month name (March), Day of week (Monday) |
+  | **Numbers** | Bands of a fixed size (`0 – 100`, `100 – 200`…), your own breakpoints (`< 0`, `0 – 100`, `250+`), negative / zero / positive |
+  | **Text** | First letter (A, B, C… with everything non-alphabetic under `#`), first word, first *N* characters |
+  | **Anything** | Filled or blank |
+
+  Options come out in **their own order** — "April" before "August" is
+  alphabetical nonsense, `1,000 – 1,100` before `200 – 300` is worse. Bands
+  are **half open**, so `100 – 200` holds 100 up to but not including 200 and
+  nothing can fall in two of them. A value the rule doesn't fit — a malformed
+  date, an `n/a` in a column of amounts — **keeps its own text and sorts
+  last**: it's a data-quality finding, and swallowing it would hide exactly
+  the rows somebody needs to fix. It's still selectable, so you can filter
+  *to* the broken ones.
+
+  Available on page controls, the filter panel and a widget's own controls,
+  all matching on the bucket rather than the cell.
 - **How far this reaches** — its own tab, every tab sharing the column name,
   or the whole page via a key. See *How far a control reaches* above.
 - **Bind a specific tab to a differently-named column** — one control driving

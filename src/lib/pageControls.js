@@ -99,7 +99,7 @@ export function controlOptions(control, rows, dateOrder = 'DMY', selected) {
       ? Array.from(new Set((rows || []).map((row) => shownValue(row, control, dateOrder))))
           .filter(Boolean)
           .sort(new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare)
-      : bucketedValues(rows, columns[0], control?.bucket, dateOrder)
+      : bucketedValues(rows, columns[0], control, dateOrder)
 
   // A value that is CURRENTLY SELECTED always stays on the list, even after
   // the other filters have narrowed it out of existence. Without this rule,

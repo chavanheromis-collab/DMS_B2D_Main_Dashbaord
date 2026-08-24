@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Bookmark, ChevronRight, Copy, Link as LinkIcon, Lock, Plus, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, SLIDER_FILTER_KINDS, uid } from '../../lib/config'
-import { DATE_BUCKETS, looksLikeDateColumn } from '../../lib/dataUtils'
+import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUtils'
 import { controlCoverage } from '../../lib/filterEngine'
 import {
   CONTROL_GROUPS,
@@ -382,14 +382,33 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                       </Field>
                     )}
                     {['select', 'multi', 'chips'].includes(control.kind) && (
-                      <Field
-                        label="Bucket by"
-                        hint="A date column, grouped."
-                      >
+                      <Field label="Bucket by" hint="Group the values.">
                         <Select
                           value={control.bucket || ''}
                           onChange={(v) => set({ bucket: v })}
                           options={DATE_BUCKETS}
+                        />
+                      </Field>
+                    )}
+                    {bucketNeeds(control.bucket) === 'size' && (
+                      <Field
+                        label={control.bucket === 'prefix' ? 'How many characters' : 'Band size'}
+                        className="w-32"
+                      >
+                        <TextInput
+                          type="number"
+                          value={control.bucketSize ?? ''}
+                          onChange={(v) => set({ bucketSize: Number(v) || null })}
+                          placeholder={control.bucket === 'prefix' ? '3' : '100'}
+                        />
+                      </Field>
+                    )}
+                    {bucketNeeds(control.bucket) === 'breaks' && (
+                      <Field label="Breakpoints" className="w-48" hint="Comma separated.">
+                        <TextInput
+                          value={control.bucketBreaks ?? ''}
+                          onChange={(v) => set({ bucketBreaks: v })}
+                          placeholder="0, 100, 250"
                         />
                       </Field>
                     )}
