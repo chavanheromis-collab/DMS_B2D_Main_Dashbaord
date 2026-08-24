@@ -33,6 +33,7 @@ import { PALETTE } from '../../lib/config'
 import ExportButton from '../ExportButton.jsx'
 import PiePanel from './PiePanel.jsx'
 import { arrowRightPath, arrowUpPath, cylinderCapRadius, nestedCircles } from '../../lib/chartShapes.js'
+import { chartExtent, legendHeight } from '../../lib/chartScroll.js'
 import {
   axisTicks,
   chartCaps,
@@ -68,6 +69,8 @@ function nameFromChartEvent(state) {
 /** A click straight on a shape (slice, tile, segment). */
 // The part-of-whole family, which needs a layout rather than a shape.
 const PIE_TYPES = new Set(['pie', 'donut', 'rose'])
+// Styles whose CATEGORY axis is the vertical one, so they grow downwards.
+const HORIZONTAL_TYPES = new Set(['hbar', 'arrowRow'])
 
 /**
  * A bar drawn as an arrow.
@@ -314,7 +317,10 @@ export default function ChartWidget({
       // percentages of a truncated list and the roll-up below has nothing
       // real to roll up. Cutting the tail is that chart's own job, and it
       // groups the tail rather than dropping it (lib/pieData.js).
-      limit: PIE_TYPES.has(type) ? 0 : widget.limit || 12,
+      //
+      // Everywhere else, `0` means "every category" -- the chart then grows
+      // and its frame scrolls, rather than the tail being dropped.
+      limit: PIE_TYPES.has(type) ? 0 : (widget.limit ?? 12),
       sort: widget.sort || 'value_desc',
     })
   }, [caps.binned, source, widget, type])
@@ -449,6 +455,20 @@ export default function ChartWidget({
   )
 
   const height = widget.height || 260
+  // What the chart WANTS to be, given how many categories it has. When that
+  // is more than the card, the card scrolls rather than the bars shrinking.
+  const extent = chartExtent({
+    count: data.length,
+    horizontal: HORIZONTAL_TYPES.has(type),
+    frame: height,
+  })
+  const legendStyle = {
+    fontSize: 11,
+    maxHeight: legendHeight(data.length),
+    overflowY: 'auto',
+    // The legend keeps its own scrollbar off the plot area.
+    paddingLeft: 4,
+  }
   const topMargin = showLabels ? 20 : 6
   const cursorProp = onCrossFilter ? { cursor: 'pointer' } : {}
 
@@ -462,7 +482,7 @@ export default function ChartWidget({
             <PolarAngleAxis dataKey="name" tick={{ fontSize: 10 }} />
             <PolarRadiusAxis tick={{ fontSize: 9 }} {...(scale ? { domain: scale.domain, ticks: scale.ticks } : {})} />
             <Tooltip {...tooltipStyle} />
-            {showLegend && <Legend wrapperStyle={{ fontSize: 11 }} />}
+            {showLegend && <Legend wrapperStyle={legendStyle} />}
             <Radar
               name={widget.valueLabel || 'Value'}
               dataKey="value"
@@ -490,7 +510,7 @@ export default function ChartWidget({
             {...cursorProp}
           >
             <Tooltip {...tooltipStyle} />
-            {showLegend && <Legend wrapperStyle={{ fontSize: 11 }} />}
+            {showLegend && <Legend wrapperStyle={legendStyle} />}
             <RadialBar
               dataKey="value"
               background
@@ -567,7 +587,7 @@ export default function ChartWidget({
               unit="%"
             />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
-            {showLegend && <Legend wrapperStyle={{ fontSize: 11 }} />}
+            {showLegend && <Legend wrapperStyle={legendStyle} />}
             {refLines('y')}
             {widget.showPareto80 !== false && (
               <ReferenceLine
@@ -687,7 +707,7 @@ export default function ChartWidget({
             <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
             <Tooltip {...tooltipStyle} />
-            {showLegend && <Legend wrapperStyle={{ fontSize: 11 }} />}
+            {showLegend && <Legend wrapperStyle={legendStyle} />}
             {refLines('y')}
             <Line
               type={type === 'step' ? 'stepAfter' : 'monotone'}
@@ -720,7 +740,7 @@ export default function ChartWidget({
             <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
             <Tooltip {...tooltipStyle} />
-            {showLegend && <Legend wrapperStyle={{ fontSize: 11 }} />}
+            {showLegend && <Legend wrapperStyle={legendStyle} />}
             {refLines('y')}
             <Area
               type="monotone"
@@ -750,7 +770,15 @@ export default function ChartWidget({
             {/* On a horizontal bar chart the VALUE axis is x, so the scale
                 and the reference lines move with it. */}
             <XAxis type="number" tick={{ fontSize: 11 }} {...valueAxis} />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
+            <YAxis
+              type="category"
+              dataKey="name"
+              tick={{ fontSize: 11 }}
+              width={110}
+              // Given the room, every bar is named. Recharts otherwise thins
+              // them out, and a dropped label is a category nobody can name.
+              interval={extent.scrolls ? 0 : 'preserveStartEnd'}
+            />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
             {refLines('x')}
             <Bar
@@ -856,10 +884,20 @@ export default function ChartWidget({
           showLabels={widget.showLabels !== false}
         />
       ) : (
-        <div className="min-h-[240px] flex-1">
-          <ResponsiveContainer width="100%" height={height}>
-            {renderChart()}
-          </ResponsiveContainer>
+        <div
+          className={`min-h-[240px] flex-1 ${
+            extent.axis === 'y' ? 'overflow-y-auto overflow-x-hidden' : 'overflow-x-auto overflow-y-hidden'
+          }`}
+          style={extent.axis === 'y' ? { maxHeight: height } : undefined}
+        >
+          {/* The inner box is what actually grows. A minimum width lets a
+              chart with room still fill its card, and pushes past it only
+              when the categories genuinely need more room than there is. */}
+          <div style={extent.axis === 'y' ? { height: extent.height } : { minWidth: extent.minWidth }}>
+            <ResponsiveContainer width="100%" height={extent.axis === 'y' ? extent.height : height}>
+              {renderChart()}
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
     </div>

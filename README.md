@@ -852,6 +852,27 @@ what keeps twenty categories readable. A **histogram** is the one style that
 bins a numeric column instead of grouping by a category, so it gets its own
 fields (column, bin count, optional fixed range).
 
+### Long charts scroll; they don't squash
+
+A chart of forty categories has two honest options and one dishonest one.
+Honest: show the top N and say so. Honest: give every category the room it
+needs and let the reader scroll. Dishonest: fit forty bars into the height of
+twelve — the bars become hairlines, the axis silently drops four labels in
+five, and nothing on screen tells the reader whether they're seeing
+everything.
+
+So every category gets a fixed amount of room. If they all fit, the chart
+looks exactly as it did. If they don't, it grows past its frame and the frame
+scrolls — **down** for horizontal bars, **across** for vertical ones — and the
+scrollbar is itself the signal that there's more. Once a chart has been given
+room for every bar, **every bar is labelled**: Recharts thins axis labels when
+they collide, which is right inside a fixed frame and wrong once the room
+exists, where a dropped label is a category nobody can name.
+
+Set **Max bars/slices** to `0` for every category. Legends scroll too, capped
+at a few rows — a legend is a key, not the chart, and forty series would push
+the plot off the bottom of the card.
+
 ### Clicking a chart
 
 **Every** style drills, and on the cartesian ones a click anywhere in a

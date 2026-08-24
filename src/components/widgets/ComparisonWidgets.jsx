@@ -18,6 +18,7 @@ import {
 import { formatNumber, groupSeries, groupStacked, pivot, scatterPoints } from '../../lib/dataUtils'
 import { HEAT_SCALES, PALETTE } from '../../lib/config'
 import { seriesColor } from '../../lib/seriesData.js'
+import { chartExtent, legendHeight } from '../../lib/chartScroll.js'
 
 const tooltipBox = { borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }
 
@@ -129,7 +130,7 @@ export function StackedWidget({ widget, rows, unfilteredRows, tabError, crossFil
                 cursor={{ fill: '#f8fafc' }}
                 formatter={(v, n) => [formatNumber(v, widget.format, widget.aggregation), n]}
               />
-              {widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11 }} />}
+              {widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11, maxHeight: legendHeight(series.length), overflowY: 'auto' }} />}
               {series.map((key, i) => (
                 <Bar
                   key={key}
@@ -231,7 +232,7 @@ export function ComboWidget({ widget, rows, unfilteredRows, tabError, crossFilte
                     : [formatNumber(v, widget.lineFormat, widget.lineAggregation), widget.lineLabel || 'Line']
                 }
               />
-              {widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11 }} />}
+              {widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11, maxHeight: legendHeight(series.length), overflowY: 'auto' }} />}
               <Bar
                 yAxisId="left"
                 dataKey="barValue"
@@ -319,7 +320,7 @@ export function ScatterWidget({ widget, rows, unfilteredRows, tabError }) {
                 cursor={{ strokeDasharray: '3 3' }}
                 formatter={(v, n) => [formatNumber(v, widget.format), n]}
               />
-              {series.length > 1 && widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11 }} />}
+              {series.length > 1 && widget.showLegend !== false && <Legend wrapperStyle={{ fontSize: 11, maxHeight: legendHeight(series.length), overflowY: 'auto' }} />}
               {series.map((s, i) => (
                 <Scatter
                   key={s.name}

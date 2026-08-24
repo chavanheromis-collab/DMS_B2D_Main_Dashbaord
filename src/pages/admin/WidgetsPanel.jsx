@@ -1264,8 +1264,8 @@ function ChartEditor({ widget, cols, set }) {
           disabled={!aggNeedsColumn(widget.aggregation)}
         />
       </Field>
-      <Field label="Max bars/slices">
-        <TextInput type="number" value={widget.limit} onChange={(v) => set({ limit: Number(v) || 12 })} />
+      <Field label="Max bars/slices" hint="0 = every category; the chart scrolls.">
+        <TextInput type="number" value={widget.limit} onChange={(v) => set({ limit: Math.max(0, Number(v) || 0) })} />
       </Field>
       <Field label="Sort by">
         <Select

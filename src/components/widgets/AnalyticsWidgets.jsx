@@ -466,7 +466,7 @@ function TrendTooltip({ active, payload, label, single, valueLabel, percentMode,
  */
 function SeriesLegend({ series, hidden, hover, colorOf, onHover, onToggle }) {
   return (
-    <div className="mt-1 flex flex-wrap gap-1">
+    <div className="mt-1 flex max-h-[76px] flex-wrap gap-1 overflow-y-auto">
       {series.map((name, i) => {
         const off = hidden.has(name)
         return (
