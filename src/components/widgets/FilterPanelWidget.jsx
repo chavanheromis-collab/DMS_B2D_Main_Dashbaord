@@ -1,6 +1,6 @@
 import { CheckCheck, FilterX } from 'lucide-react'
-import { distinctValues } from '../../lib/dataUtils'
-import { controlMode, isButton } from '../../lib/pageControls'
+
+import { controlMode, controlOptions, isButton } from '../../lib/pageControls'
 
 /**
  * The page's filters, as a panel of buttons on the canvas.
@@ -16,7 +16,15 @@ import { controlMode, isButton } from '../../lib/pageControls'
  * same control can appear in both, a saved view still restores it, and Reset
  * still clears it. Nothing here knows how filtering works.
  */
-export default function FilterPanelWidget({ widget, controls, values, onChange, tabsData, onReset }) {
+export default function FilterPanelWidget({
+  widget,
+  controls,
+  values,
+  onChange,
+  tabsData,
+  onReset,
+  dateOrder = 'DMY',
+}) {
   const chosen = widget.controlIds?.length ? widget.controlIds : null
 
   const panelControls = (controls || [])
@@ -66,6 +74,7 @@ export default function FilterPanelWidget({ widget, controls, values, onChange, 
               rows={tabsData?.[control.tab]?.rows || []}
               columns={Number(widget.buttonColumns) > 0 ? Number(widget.buttonColumns) : 0}
               showSelectAll={widget.showSelectAll !== false}
+              dateOrder={dateOrder}
               onChange={(next) => onChange(control.id, next)}
             />
           ))}
@@ -84,9 +93,9 @@ export default function FilterPanelWidget({ widget, controls, values, onChange, 
  * whichever it is, and that consistency is worth more than signalling the
  * difference.
  */
-function FilterGroup({ control, value, rows, columns, showSelectAll, onChange }) {
+function FilterGroup({ control, value, rows, columns, showSelectAll, onChange, dateOrder }) {
   const multi = control.kind !== 'select'
-  const options = distinctValues(rows, control.column).slice(0, control.maxChips || 60)
+  const options = controlOptions(control, rows, dateOrder).slice(0, control.maxChips || 60)
   const selected = multi ? value || [] : value ? [value] : []
   const all = selected.length > 0 && multi && selected.length >= options.length
 

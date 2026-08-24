@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, SlidersHorizontal, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, uid } from '../../lib/config'
+import { DATE_BUCKETS } from '../../lib/dataUtils'
 import { CONTROL_KINDS, controlMeta, controlNeedsColumn } from '../../lib/widgetControls'
 import { Btn, Field, Select, TextInput, useWorkspaceCtx } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
@@ -104,6 +105,15 @@ export default function WidgetControlsEditor({ widget, cols, tabHeaders, set }) 
                     options={cols}
                     placeholder="— column —"
                     className="w-48"
+                  />
+                )}
+
+                {['select', 'multi'].includes(control.kind) && (
+                  <Select
+                    value={control.bucket || ''}
+                    onChange={(v) => setControl({ bucket: v })}
+                    options={DATE_BUCKETS}
+                    className="w-44"
                   />
                 )}
 

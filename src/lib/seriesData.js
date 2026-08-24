@@ -1,4 +1,4 @@
-import { aggregate, bucketLabel, bucketStart, isBlank, nextBucket, toDate } from './dataUtils.js'
+import { aggregate, bucketLabel, bucketStart, dateBucket, isBlank, nextBucket, toDate } from './dataUtils.js'
 import { PALETTE } from './config.js'
 
 // ---------------------------------------------------------------------
@@ -118,21 +118,9 @@ export const BREAKDOWN_GRAINS = [
 ]
 
 export function dateSeriesLabel(date, grain) {
-  if (!date) return null
-  switch (grain) {
-    case 'year':
-      return String(date.getFullYear())
-    case 'quarter':
-      return `${date.getFullYear()} Q${Math.floor(date.getMonth() / 3) + 1}`
-    case 'month':
-      return `${CYCLE_GRAINS.monthOfYear.short(date.getMonth())} ${date.getFullYear()}`
-    case 'monthOfYear':
-      return CYCLE_GRAINS.monthOfYear.name(date.getMonth())
-    case 'dayOfWeek':
-      return CYCLE_GRAINS.dayOfWeek.name((date.getDay() + 6) % 7)
-    default:
-      return null
-  }
+  // The same buckets a page control offers, so "2026" means the same thing
+  // in a legend and in a dropdown.
+  return dateBucket(date, grain)?.label ?? null
 }
 
 export const SERIES_SORTS = [

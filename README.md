@@ -738,6 +738,16 @@ Each control also has:
 - **Default value** (or *On by default* for a button) — the page opens with it
   applied. **Reset** returns to *these* defaults, not to blank: a control the
   admin meant to be on shouldn't be switched off by a reset.
+- **Bucket by** — for a dropdown, multi-choice or chip control on a **date
+  column**. Without it, a date column offers four hundred options, one per
+  day, and nobody wants to filter to the 6th of January. Bucketed, it offers
+  *Year* (2026), *Quarter* (2026 Q1), *Month* (Mar 2026), *Month name*
+  (March) or *Day of week* (Monday) — and the options come out in their own
+  order, because "April" before "August" is alphabetical nonsense and "Mar
+  2026" before "Mar 2025" is worse. A value that won't parse as a date keeps
+  its own text and sorts last, since a malformed date is a finding, not a row
+  to hide. Available on page controls, the filter panel and a widget's own
+  controls, all matching on the bucket rather than the cell.
 - **How far this reaches** — its own tab, every tab sharing the column name,
   or the whole page via a key. See *How far a control reaches* above.
 - **Bind a specific tab to a differently-named column** — one control driving

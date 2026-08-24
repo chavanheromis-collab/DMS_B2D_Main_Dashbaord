@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { RotateCcw, X } from 'lucide-react'
-import { distinctValues } from '../lib/dataUtils'
+import { bucketedValues } from '../lib/dataUtils'
 import {
   anyControlActive,
   controlIsActive,
@@ -64,7 +64,7 @@ export default function WidgetControls({ controls, values, onChange, onReset, ro
   )
 }
 
-function OneControl({ control, value, rows, onChange, sized }) {
+function OneControl({ control, value, rows, onChange, sized, dateOrder }) {
   const isLive = controlIsActive(control, value)
   const fmt = sliderFormat(control.format)
   // A pinned width has to beat the kind's own minimum, or the number the
@@ -98,7 +98,7 @@ function OneControl({ control, value, rows, onChange, sized }) {
     }
 
     case 'multi': {
-      const options = distinctValues(rows, control.column).slice(0, control.maxChips || 8)
+      const options = bucketedValues(rows, control.column, control.bucket, dateOrder).slice(0, control.maxChips || 8)
       const selected = value || []
       return (
         <span className="flex flex-wrap items-center gap-1">
@@ -292,7 +292,7 @@ function OneControl({ control, value, rows, onChange, sized }) {
 
     case 'select':
     default: {
-      const options = distinctValues(rows, control.column)
+      const options = bucketedValues(rows, control.column, control.bucket, dateOrder)
       return (
         <select
           value={value ?? '__ALL__'}

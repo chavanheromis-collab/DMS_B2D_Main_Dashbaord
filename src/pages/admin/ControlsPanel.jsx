@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Bookmark, ChevronRight, Copy, Link as LinkIcon, Lock, Plus, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, SLIDER_FILTER_KINDS, uid } from '../../lib/config'
-import { looksLikeDateColumn } from '../../lib/dataUtils'
+import { DATE_BUCKETS, looksLikeDateColumn } from '../../lib/dataUtils'
 import { controlCoverage } from '../../lib/filterEngine'
 import {
   CONTROL_GROUPS,
@@ -285,6 +285,18 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                           onChange={(v) => set({ column: v, label: control.label || v })}
                           options={cols}
                           placeholder="— pick a column —"
+                        />
+                      </Field>
+                    )}
+                    {['select', 'multi', 'chips'].includes(control.kind) && (
+                      <Field
+                        label="Bucket by"
+                        hint="A date column, grouped."
+                      >
+                        <Select
+                          value={control.bucket || ''}
+                          onChange={(v) => set({ bucket: v })}
+                          options={DATE_BUCKETS}
                         />
                       </Field>
                     )}

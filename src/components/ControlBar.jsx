@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bookmark, ChevronDown, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
-import { distinctValues } from '../lib/dataUtils'
+
 import { filterIsActive } from '../lib/filterEngine'
 import { numericBounds, stepFor, stepperTicks } from '../lib/widgetControls'
 import {
   activeCount,
   controlActive,
+  controlOptions,
   controlWidth,
   isButton,
   partitionByProminence,
@@ -93,7 +94,7 @@ function MultiSelect({ control, value, options, onChange, fill = '' }) {
  * -- a `min-w-[220px]` baked into a slider would otherwise silently override
  * an admin who asked for 150px, and the number they typed would be a lie.
  */
-function Control({ control, value, rows, onChange, isOn, onToggleButton, sized }) {
+function Control({ control, value, rows, onChange, isOn, onToggleButton, sized, dateOrder }) {
   const active = isButton(control) ? isOn : filterIsActive(control, value)
   const fmt = sliderFormat(control.format)
 
@@ -218,7 +219,7 @@ function Control({ control, value, rows, onChange, isOn, onToggleButton, sized }
       <MultiSelect
         control={control}
         value={value}
-        options={distinctValues(rows, control.column)}
+        options={controlOptions(control, rows, dateOrder)}
         onChange={onChange}
         fill={fill}
       />
@@ -227,7 +228,7 @@ function Control({ control, value, rows, onChange, isOn, onToggleButton, sized }
 
   if (control.kind === 'chips') {
     const selected = value || []
-    const options = distinctValues(rows, control.column).slice(0, control.maxChips || 12)
+    const options = controlOptions(control, rows, dateOrder).slice(0, control.maxChips || 12)
     return (
       <div className="flex flex-wrap items-center gap-1">
         <span className="text-[11px] font-medium text-slate-500">{control.label}:</span>
@@ -310,7 +311,7 @@ function Control({ control, value, rows, onChange, isOn, onToggleButton, sized }
       }`}
     >
       <option value="__ALL__">{control.label}: All</option>
-      {distinctValues(rows, control.column).map((opt) => (
+      {controlOptions(control, rows, dateOrder).map((opt) => (
         <option key={opt} value={opt}>
           {opt}
         </option>
@@ -343,6 +344,7 @@ export default function ControlBar({
   onApplyView,
   tabsData,
   totalLabel,
+  dateOrder = 'DMY',
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
 
@@ -373,6 +375,7 @@ export default function ControlBar({
           isOn={(activeButtonIds || []).includes(control.id)}
           onToggleButton={() => onToggleButton(control)}
           sized={!!px}
+          dateOrder={dateOrder}
         />
       </div>
     )

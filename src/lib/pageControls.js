@@ -1,4 +1,5 @@
 import { uid } from './config.js'
+import { bucketedValues } from './dataUtils.js'
 import { filterIsActive } from './filterEngine.js'
 
 // ---------------------------------------------------------------------
@@ -64,6 +65,17 @@ export function kindNeedsColumn(kind) {
 }
 
 export const isButton = (control) => control?.kind === 'button'
+
+/**
+ * The values a control offers.
+ *
+ * Both the bar and the filter panel ask this, so a control bucketed by year
+ * cannot list months in one place and days in the other -- and neither has
+ * to know what bucketing is.
+ */
+export function controlOptions(control, rows, dateOrder = 'DMY') {
+  return bucketedValues(rows, control?.column, control?.bucket, dateOrder)
+}
 
 // ---------------------------------------------------------------------
 // What a control IS to the person looking at the page

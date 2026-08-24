@@ -717,6 +717,7 @@ export default function Dashboard() {
               onApplyView={applyView}
               tabsData={dataByLabel}
               totalLabel={totalLabel}
+              dateOrder={dateOrder}
             />
 
             <CrossFilterChips
@@ -884,6 +885,7 @@ export default function Dashboard() {
                           values={filterValues}
                           onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
                           tabsData={dataByLabel}
+                          dateOrder={dateOrder}
                         />
                       )}
                       {widget.type === 'leaderboard' && (

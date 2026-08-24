@@ -1,4 +1,4 @@
-import { isBlank, toDate, toNumber, startOfDay, endOfDay, fromDateInput } from './dataUtils.js'
+import { bucketedCell, isBlank, toDate, toNumber, startOfDay, endOfDay, fromDateInput } from './dataUtils.js'
 import { matchesConditions } from './filterEngine.js'
 
 // ---------------------------------------------------------------------
@@ -129,7 +129,9 @@ function applyOne(rows, control, value, dateOrder) {
 
     case 'multi': {
       const wanted = new Set(value.map((v) => String(v).trim()))
-      return rows.filter((row) => wanted.has(String(row[column] ?? '').trim()))
+      // Bucketed, the control lists "2026" rather than four hundred dates,
+      // so what it compares against is the bucket, not the cell.
+      return rows.filter((row) => wanted.has(bucketedCell(row[column], control.bucket, dateOrder)))
     }
 
     case 'search': {
@@ -191,7 +193,7 @@ function applyOne(rows, control, value, dateOrder) {
 
     case 'select':
     default:
-      return rows.filter((row) => String(row[column] ?? '').trim() === String(value).trim())
+      return rows.filter((row) => bucketedCell(row[column], control.bucket, dateOrder) === String(value).trim())
   }
 }
 

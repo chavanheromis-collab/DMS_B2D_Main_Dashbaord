@@ -1,4 +1,13 @@
-import { isBlank, normalizeKey, toNumber, toDate, fromDateInput, startOfDay, endOfDay } from './dataUtils.js'
+import {
+  bucketedCell,
+  isBlank,
+  normalizeKey,
+  toNumber,
+  toDate,
+  fromDateInput,
+  startOfDay,
+  endOfDay,
+} from './dataUtils.js'
 
 // ---------------------------------------------------------------------
 // How filtering works across a multi-tab page
@@ -171,14 +180,18 @@ export function filterIsActive(filter, value) {
 
 function matchesFilterValue(row, column, filter, value, dateOrder) {
   const cell = row[column]
+  // A bucketed control offers "2026", not four hundred dates -- so what it
+  // compares against is the bucket the cell falls in, not the cell.
+  const asShown = () => bucketedCell(cell, filter.bucket, dateOrder)
+
   switch (filter.kind) {
     case 'select':
-      return String(cell ?? '').trim() === String(value).trim()
+      return asShown() === String(value).trim()
 
     case 'multi':
     case 'chips': {
       const wanted = new Set(value.map((v) => String(v).trim()))
-      return wanted.has(String(cell ?? '').trim())
+      return wanted.has(asShown())
     }
 
     case 'text':

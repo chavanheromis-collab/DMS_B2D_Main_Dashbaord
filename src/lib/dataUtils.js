@@ -439,6 +439,92 @@ export function distinctValues(rows, column, cap = 500) {
   return Array.from(set).sort(new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare)
 }
 
+// ---------------------------------------------------------------------
+// Date buckets
+// ---------------------------------------------------------------------
+// A dropdown built on a date column is useless: four hundred options, each
+// one day, and nobody wants to filter to the 6th of January. What they want
+// is the year, or the month, or "Mondays" -- so the same bucketing the trend
+// chart uses is available to a control, and lives here because both need it.
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const WEEKDAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+export const DATE_BUCKETS = [
+  { value: '', label: 'Not a date — list the values' },
+  { value: 'year', label: 'Year (2026)' },
+  { value: 'quarter', label: 'Quarter (2026 Q1)' },
+  { value: 'month', label: 'Month (Mar 2026)' },
+  { value: 'monthOfYear', label: 'Month name (March)' },
+  { value: 'dayOfWeek', label: 'Day of week (Monday)' },
+]
+
+/**
+ * The label a date falls under, and a number to sort those labels by.
+ *
+ * The sort key is the point: "April" before "August" is alphabetical
+ * nonsense, and "Mar 2026" before "Mar 2025" is worse. Every bucket knows
+ * its own order, and it is never the order of its own text.
+ */
+export function dateBucket(date, grain) {
+  if (!date || !grain) return null
+  const y = date.getFullYear()
+  const m = date.getMonth()
+
+  switch (grain) {
+    case 'year':
+      return { label: String(y), sort: y }
+    case 'quarter':
+      return { label: `${y} Q${Math.floor(m / 3) + 1}`, sort: y * 10 + Math.floor(m / 3) }
+    case 'month':
+      return { label: `${MONTH_ABBR[m]} ${y}`, sort: y * 100 + m }
+    case 'monthOfYear':
+      return { label: MONTH_NAMES[m], sort: m }
+    case 'dayOfWeek': {
+      // Monday first, so a week reads as five days and then a weekend.
+      const i = (date.getDay() + 6) % 7
+      return { label: WEEKDAY_NAMES[i], sort: i }
+    }
+    default:
+      return null
+  }
+}
+
+/** What one cell counts as, once its column is bucketed. */
+export function bucketedCell(value, grain, dateOrder = 'DMY') {
+  if (!grain) return isBlank(value) ? '' : String(value).trim()
+  const bucket = dateBucket(toDate(value, dateOrder), grain)
+  // A cell that will not parse keeps its own text: "31/02/2026" is a
+  // data-quality finding, and a filter that silently ignored it would hide
+  // exactly the rows somebody needs to fix.
+  return bucket ? bucket.label : isBlank(value) ? '' : String(value).trim()
+}
+
+/**
+ * The distinct bucket labels in a column, in their own natural order.
+ */
+export function bucketedValues(rows, column, grain, dateOrder = 'DMY', cap = 500) {
+  if (!column) return []
+  if (!grain) return distinctValues(rows, column, cap)
+
+  const seen = new Map()
+  for (const row of rows || []) {
+    const raw = row[column]
+    if (isBlank(raw)) continue
+    const bucket = dateBucket(toDate(raw, dateOrder), grain)
+    const label = bucket ? bucket.label : String(raw).trim()
+    // Unparseable values sort last, together, out of the way of the real
+    // buckets but still reachable.
+    if (!seen.has(label)) seen.set(label, bucket ? bucket.sort : Number.MAX_SAFE_INTEGER)
+    if (seen.size >= cap) break
+  }
+
+  return Array.from(seen.entries())
+    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+    .map((e) => e[0])
+}
+
 /** Columns that look like they hold dates -- used to pre-select in admin. */
 export function looksLikeDateColumn(name) {
   return /date|day|時|timestamp|created|updated|on$/i.test(String(name || ''))
