@@ -1276,6 +1276,12 @@ Two details that make it behave the way a spreadsheet does:
 - **Filters store what's excluded, not what's included.** A value added to the
   sheet tomorrow shows up rather than being silently hidden — which is what
   someone who left "select all" ticked actually meant.
+- **"Select all" toggles.** Press it once to tick everything, again to untick
+  everything. Unticking the last value *one at a time* still clears the filter
+  instead of emptying the table — that is usually a slip — but pressing the
+  box itself is not a slip, and both the box and *Clear filter* are in plain
+  sight as the way back. With a search active it reads *Select shown* and
+  touches only what's listed.
 
 The *contains* box doubles as a numeric test: type `>100`, `<=5`, `=85`.
 Matching that as literal text would never find anything, so it's taken as the

@@ -139,7 +139,7 @@ export default function ColumnFilterMenu({ column, anchorRect, rows, filters, on
                 // when it will actually toggle.
                 if (el) el.indeterminate = !allShown && !noneShown
               }}
-              onChange={() => onChange(column, setAllOptions(filter, shown, !allShown, options))}
+              onChange={() => onChange(column, setAllOptions(filter, shown, !allShown))}
             />
             {query ? 'Select shown' : 'Select all'}
           </label>

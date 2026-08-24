@@ -148,14 +148,21 @@ export function toggleOption(filter, key, options, allOptions = options) {
  *
  * Only `options` is touched, so "deselect shown" during a search adds just
  * those to the exclude list and leaves any other exclusions alone.
+ *
+ * Unlike a single click, this one is allowed to end with EVERYTHING
+ * excluded. The dead-end rule exists because unticking the last value one
+ * by one is usually a slip, and an empty table with no obvious way back is a
+ * bad place to leave somebody. Pressing "select all" when everything is
+ * already selected is not a slip -- it is the second half of a toggle -- and
+ * there are two ways back in plain sight: the same box, and "Clear filter"
+ * underneath it. Snapping straight back to all-selected made the box look
+ * broken, which is what it was reported as.
  */
-export function setAllOptions(filter, options, selected, allOptions = options) {
+export function setAllOptions(filter, options, selected) {
   const exclude = new Set(filter?.exclude || [])
   for (const option of options) {
     if (selected) exclude.delete(option.key)
     else exclude.add(option.key)
   }
-
-  if (excludesEverything(exclude, allOptions)) return { ...filter, exclude: [] }
   return { ...filter, exclude: Array.from(exclude) }
 }

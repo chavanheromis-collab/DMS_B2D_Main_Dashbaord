@@ -151,10 +151,18 @@ test('deselecting the shown values leaves other exclusions alone', () => {
   assert.equal(filter.exclude.length, 2)
 })
 
-test('excluding every value really does clear, rather than emptying the table', () => {
+test('“select all” a second time deselects all', () => {
+  // The second half of a toggle. It used to snap back to everything
+  // selected, which made the box look broken -- and unlike unticking the
+  // last value one by one, this is deliberate, with the same box and
+  // "Clear filter" both in plain sight as the way back.
   const all = columnOptions(rows, 'Model', {})
-  const filter = setAllOptions({}, all, false, all)
-  assert.deepEqual(filter.exclude, [])
+  const cleared = setAllOptions({}, all, false)
+  assert.deepEqual(cleared.exclude.sort(), all.map((o) => o.key).sort())
+  assert.equal(applyColumnFilters(rows, { Model: cleared }).length, 0)
+
+  // ...and a third press puts them all back.
+  assert.deepEqual(setAllOptions(cleared, all, true).exclude, [])
 })
 
 test('unticking the last SEARCH result does not wipe unrelated exclusions', () => {
