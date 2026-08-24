@@ -1328,9 +1328,15 @@ hands us whatever their personal account is called, which often isn't it) and
 
 That role is their **job**, typed freely, not an access level. A dealership's
 job titles are its own, and any dropdown written here would be wrong at the
-second dealership that used this. It shows as a chip beside their name in the
-Users list and is searchable, because "the service advisor who joined last
-week" is how an admin actually remembers somebody.
+second dealership that used this.
+
+**Admin → Users** shows it as its own column beside the name, and it's
+**editable there** — everybody who signed up before the field existed has
+none, and an admin who knows the answer shouldn't have to wait for them to
+sign in again and type it. It's searchable too, because "the service advisor
+who joined last week" is how an admin actually remembers somebody. The
+columns are named apart on purpose: **Work role** for what somebody does,
+**Access** for what they may see.
 
 Nothing a user types about themselves changes what they can see: `jobRole` is
 deliberately not `role`, and the security rules freeze `role` and `status` at
