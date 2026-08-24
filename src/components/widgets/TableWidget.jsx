@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Download, Filter, GripVertical, Rows3, Search, X } from 'lucide-react'
 import { badgeColor } from '../../lib/dataUtils'
+import ExportButton from '../ExportButton.jsx'
 import { fetchDownloadMeta, getDownloadActions, triggerDownload } from '../../lib/downloadActions.js'
 import RowDetailPanel from '../RowDetailPanel.jsx'
 import ColumnFilterMenu from '../ColumnFilterMenu.jsx'

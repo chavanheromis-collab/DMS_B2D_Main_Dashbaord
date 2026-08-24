@@ -16,8 +16,6 @@ import {
   PolarAngleAxis,
   PolarGrid,
   PolarRadiusAxis,
-  Pie,
-  PieChart,
   Radar,
   RadarChart,
   RadialBar,
@@ -32,6 +30,8 @@ import {
 } from 'recharts'
 import { groupRows, histogram, formatNumber } from '../../lib/dataUtils'
 import { PALETTE } from '../../lib/config'
+import ExportButton from '../ExportButton.jsx'
+import PiePanel from './PiePanel.jsx'
 import {
   axisTicks,
   chartCaps,
@@ -65,6 +65,9 @@ function nameFromChartEvent(state) {
 }
 
 /** A click straight on a shape (slice, tile, segment). */
+// The part-of-whole family, which needs a layout rather than a shape.
+const PIE_TYPES = new Set(['pie', 'donut', 'rose'])
+
 function nameFromShapeEvent(entry) {
   if (!entry) return null
   return entry.name ?? entry.payload?.name ?? null
@@ -185,10 +188,14 @@ export default function ChartWidget({
       groupBy: widget.groupBy,
       valueColumn: widget.column,
       aggregation: widget.aggregation || 'count',
-      limit: widget.limit || 12,
+      // A part-of-whole chart must see EVERYTHING, or its percentages are
+      // percentages of a truncated list and the roll-up below has nothing
+      // real to roll up. Cutting the tail is that chart's own job, and it
+      // groups the tail rather than dropping it (lib/pieData.js).
+      limit: PIE_TYPES.has(type) ? 0 : widget.limit || 12,
       sort: widget.sort || 'value_desc',
     })
-  }, [caps.binned, source, widget])
+  }, [caps.binned, source, widget, type])
 
   // Waterfall and Pareto are the same grouped numbers rearranged, so they
   // reuse everything above and only reshape at the last moment.
@@ -415,48 +422,6 @@ export default function ChartWidget({
             </Funnel>
           </FunnelChart>
         )
-
-      case 'pie':
-      case 'donut':
-      case 'rose': {
-        // A rose encodes value as RADIUS with equal angles, so a small value
-        // is a short petal rather than a thin sliver -- easier to compare
-        // than a pie once there are more than a handful of categories.
-        const max = Math.max(...data.map((d) => d.value), 0) || 1
-        return (
-          <PieChart onClick={onChartClick} {...cursorProp}>
-            <Pie
-              data={data}
-              dataKey="value"
-              nameKey="name"
-              innerRadius={type === 'donut' ? '52%' : type === 'rose' ? '12%' : 0}
-              outerRadius="78%"
-              paddingAngle={type === 'rose' ? 2 : 1}
-              label={
-                showLabels
-                  ? ({ name, value, percent }) =>
-                      widget.labelStyle === 'value' ? `${name} ${fmt(value)}` : `${name} ${(percent * 100).toFixed(0)}%`
-                  : false
-              }
-              labelLine={false}
-              onClick={(entry) => drill(nameFromShapeEvent(entry))}
-            >
-              {data.map((entry, i) => (
-                <Cell
-                  key={`${entry.name}-${i}`}
-                  fill={colorFor(entry, i)}
-                  fillOpacity={dimFor(entry)}
-                  cursor={onCrossFilter ? 'pointer' : 'default'}
-                  // Only a rose varies the petal length.
-                  {...(type === 'rose' ? { outerRadius: `${20 + (entry.value / max) * 58}%` } : null)}
-                />
-              ))}
-            </Pie>
-            <Tooltip {...tooltipStyle} />
-            {showLegend && <Legend wrapperStyle={{ fontSize: 11 }} />}
-          </PieChart>
-        )
-      }
 
       case 'pareto':
         return (
@@ -724,6 +689,17 @@ export default function ChartWidget({
         <p className="empty-state">
           {caps.binned && !subject ? 'Pick a numeric column in the admin panel' : 'No data to chart'}
         </p>
+      ) : PIE_TYPES.has(type) ? (
+        <PiePanel
+          type={type}
+          data={data}
+          widget={widget}
+          fmt={fmt}
+          colorFor={colorFor}
+          activeName={activeName}
+          onDrill={onCrossFilter ? drill : undefined}
+          height={height}
+        />
       ) : type === 'progress' ? (
         <ProgressList
           data={data}

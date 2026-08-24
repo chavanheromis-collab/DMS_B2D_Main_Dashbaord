@@ -17,6 +17,7 @@ import {
   widthUnitsLabel,
 } from '../../lib/config'
 import { looksLikeDateColumn } from '../../lib/dataUtils'
+import { DEFAULT_PIE_OPTIONS, PIE_LABEL_STYLES } from '../../lib/pieData'
 import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
 import { hasCustomStyle } from '../../lib/widgetStyle'
 import { COLOR_MODES, DEFAULT_REFERENCE, REFERENCE_KINDS, chartCaps, unsupportedNote } from '../../lib/chartOptions'
@@ -1260,20 +1261,74 @@ function ChartEditor({ widget, cols, set }) {
     )}
 
     {['pie', 'donut', 'rose'].includes(type) && (
-      <div className="mt-2 flex flex-wrap items-end gap-3 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
-        <Field label="Slice labels show" className="w-40">
-          <Select
-            value={widget.labelStyle || 'percent'}
-            onChange={(v) => set({ labelStyle: v })}
-            options={[
-              { value: 'percent', label: 'Share (%)' },
-              { value: 'value', label: 'The value' },
-            ]}
-          />
-        </Field>
-        <p className="pb-2 text-[10px] text-slate-400">
-          Turn labels on under Advanced. A rose varies petal <strong>length</strong> instead of angle, which is easier
-          to compare once there are more than a handful of slices.
+      <div className="mt-2 space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Slice labels show" className="w-44">
+            <Select
+              value={widget.labelStyle || 'name_percent'}
+              onChange={(v) => set({ labelStyle: v })}
+              options={PIE_LABEL_STYLES}
+            />
+          </Field>
+          <Field label="Label slices over" className="w-32" hint="% of the total.">
+            <TextInput
+              type="number"
+              value={widget.pieLabelMinPercent ?? DEFAULT_PIE_OPTIONS.labelMinPercent}
+              onChange={(v) => set({ pieLabelMinPercent: Number(v) || 0 })}
+            />
+          </Field>
+          <div className="pb-1.5">
+            <Toggle
+              checked={widget.pieLegend !== false}
+              onChange={(v) => set({ pieLegend: v })}
+              label="Show the category list beside it"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3 border-t border-slate-200/70 pt-2">
+          <div className="pb-1.5">
+            <Toggle
+              checked={widget.pieRollup !== false}
+              onChange={(v) => set({ pieRollup: v })}
+              label="Group the small ones into “Other”"
+            />
+          </div>
+          {widget.pieRollup !== false && (
+            <>
+              <Field label="Slices to draw" className="w-32" hint="Including Other.">
+                <TextInput
+                  type="number"
+                  value={widget.pieMaxSlices ?? DEFAULT_PIE_OPTIONS.maxSlices}
+                  onChange={(v) => set({ pieMaxSlices: Number(v) || 0 })}
+                />
+              </Field>
+              <Field label="Smallest slice" className="w-32" hint="% — under this goes to Other.">
+                <TextInput
+                  type="number"
+                  value={widget.pieMinPercent ?? DEFAULT_PIE_OPTIONS.minPercent}
+                  onChange={(v) => set({ pieMinPercent: Number(v) || 0 })}
+                />
+              </Field>
+            </>
+          )}
+        </div>
+
+        <p className="text-[10px] text-slate-400">
+          {widget.pieRollup !== false ? (
+            <>
+              Everything past the cut is <strong>grouped</strong>, never dropped, so every percentage is a percentage
+              of the real total. A pie that keeps its top 12 of 120 and throws the rest away is not a simpler chart —
+              it is a wrong one, and nothing on screen says so.
+            </>
+          ) : (
+            <>
+              Off: every category gets a slice. With more than about a dozen that is a grey smear — the list beside
+              the chart stays readable, but the circle will not.
+            </>
+          )}{' '}
+          The list shows every slice with its value and share, and hovering either half highlights the other. A rose
+          varies petal <strong>length</strong> instead of angle, which is easier to compare.
         </p>
       </div>
     )}

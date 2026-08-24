@@ -868,6 +868,46 @@ as their cells — "all of March" and "everything for West" are the two
 questions those charts invite most, and neither should need a trip to the
 filter bar.
 
+### Pie, donut and rose — built for real data
+
+A pie of 120 categories is not a hard chart to read, it is an unreadable one:
+the labels overlap into a grey smear, the slices under ~2% are thinner than
+their own outline, and the palette has long since started repeating.
+
+The usual fix — keep the top 12 — is **worse**, because it is wrong rather
+than merely ugly. Keep 12 of 120 and every percentage on screen becomes a
+percentage of those twelve. A slice reading 34% might be 4% of the data, and
+nothing says so.
+
+So the rule here: **a part-of-whole chart may hide a category, but it may
+never lose one.**
+
+- Everything past the cut is **grouped into "Other"**, never dropped, and
+  every percentage is computed against the real total. The circle adds up to
+  the thing it claims to be a picture of. A caption underneath says how many
+  categories were grouped and what share of the total they are.
+- **Labels only where one fits** (default: slices over 4%). The rest are
+  still slices — hoverable, clickable, in the list. It is the *text* that is
+  dropped, not the category.
+- **The names live in a list beside the chart.** A list holds 120 rows and
+  stays readable; a circle does not, and no label-placement algorithm will
+  change that. It shows every slice with its value and share, scrolls, and is
+  bound to the same hover and click as the circle — hovering either half
+  highlights the other, so it is one chart rather than a legend to
+  cross-reference.
+- **The hovered slice lifts out** of the circle, and a donut's centre reads
+  the total until you point at a part, then reads that part.
+- Slices run **clockwise from twelve, biggest first**, because that is how a
+  pie is read.
+- Hovering **"Other"** lists what is in it; clicking it does nothing, because
+  it is a bucket the chart invented and there is no coherent thing to filter
+  the page to.
+
+All of it is adjustable: how many slices to draw, the smallest slice worth
+its own wedge, the label threshold, what the labels say, and whether to roll
+up at all. Turn the roll-up off and you get all 120 — the list stays
+readable, the circle will not.
+
 ### Advanced charts
 
 Under every chart's **Advanced** section. Options that a given style can't
@@ -964,7 +1004,7 @@ because the disagreement is invisible until somebody acts on it.
 | Widget | What comes out |
 |---|---|
 | **Data Table** | Every row the filters left — not just the page you're looking at, which is a paging artefact — in your current column order and sort. |
-| **Chart** | The plotted series: one row per bar/slice, with its label and value. The aggregate is the point of a chart, and it's what people paste into a deck. |
+| **Chart** | The grouped series: one row per category, with its label and value — every category, including any the chart rolled into “Other”. The aggregate is the point of a chart, and it's what people paste into a deck. |
 | **Leaderboard** | The ranking, with a column per metric. |
 | **Pivot Table** | The grid as a grid: one column per row dimension, one per column heading, plus totals. |
 | **Flow** | The branches you have **opened** — tree, level, branch, full path, table, value, rows, share of parent, share of total. A flow's premise is that you choose the depth, so an export that walked past that choice would not be the thing on screen. |
@@ -1210,6 +1250,7 @@ src/
   lib/pageBackground.js   Per-page canvas backdrop + automatic text contrast
   lib/widgetControls.js   Per-widget dropdowns, buttons and sliders
   lib/csv.js              CSV export: escaping, file names, the download
+  lib/pieData.js          Part-of-whole slicing: roll-up, labels, honesty
   lib/imageUrl.js         Drive-link rewriting + the image URL allow-list
   lib/pageControls.js     The unified page control list + saved views
   lib/chartOptions.js     Colour rules, reference lines, axis scaling
