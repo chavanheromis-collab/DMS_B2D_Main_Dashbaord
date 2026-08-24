@@ -87,23 +87,6 @@ export default function Dashboard() {
   const [arranging, setArranging] = useState(false)
   const [savingLayout, setSavingLayout] = useState(false)
 
-  /**
-   * The rows this person is allowed to see on this page at all.
-   *
-   * Applied with the drills rather than with the controls, because it is
-   * not a control: nothing on the page clears it, no saved view restores
-   * past it, and Reset does not touch it. It is the extent of their data.
-   *
-   * Admins are not scoped -- somebody has to be able to see the whole sheet
-   * to know whether a scope is doing what they meant.
-   */
-  const scope = useMemo(
-    () =>
-      isAdmin
-        ? null
-        : scopeFilter(access?.scope, { ...(userDoc || {}), uid: user?.uid }, `scope_${pageId}`),
-    [isAdmin, access, userDoc, user, pageId]
-  )
   // What each widget currently measures, so the size boxes can show the
   // number a widget IS rather than an empty box.
   //
@@ -140,6 +123,24 @@ export default function Dashboard() {
   const page = pages.find((p) => p.id === pageId) || null
   const access = accessByPage[pageId]
   const canView = canViewPage(access, isAdmin)
+
+  /**
+   * The rows this person is allowed to see on this page at all.
+   *
+   * Applied with the drills rather than with the controls, because it is
+   * not a control: nothing on the page clears it, no saved view restores
+   * past it, and Reset does not touch it. It is the extent of their data.
+   *
+   * Admins are not scoped -- somebody has to be able to see the whole sheet
+   * to know whether a scope is doing what they meant.
+   */
+  const scope = useMemo(
+    () =>
+      isAdmin
+        ? null
+        : scopeFilter(access?.scope, { ...(userDoc || {}), uid: user?.uid }, `scope_${pageId}`),
+    [isAdmin, access, userDoc, user, pageId]
+  )
 
   // This user's own widget arrangement for this page.
   const { widgetOrder, setWidgetOrder, clearOrder } = useUserPrefs(user?.uid, pageId)

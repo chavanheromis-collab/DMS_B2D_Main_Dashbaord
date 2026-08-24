@@ -102,3 +102,56 @@ test('every component a file renders is a component it can see', () => {
 
   assert.deepEqual(Array.from(new Set(problems)), [], `\n${problems.join('\n')}\n`)
 })
+
+// And the third face of it: a hook that reads something declared further
+// down the same component. `const scope = useMemo(..., [access])` written
+// above `const access = ...` compiles, builds, and throws "Cannot access
+// 'access' before initialization" the moment the page mounts -- because a
+// dependency array is evaluated during render, not later like the callback
+// bodies around it.
+//
+// Only dependency arrays are checked, and only against consts declared in
+// the same function. A handler that mentions something declared below it is
+// perfectly fine -- it runs after the render that defines it -- so looking
+// at ordinary code here would be all false alarms.
+const HOOK_DEPS = /\b(?:useMemo|useCallback|useEffect|useLayoutEffect)\s*\([\s\S]*?,\s*\[([^\]]*)\]\s*\)/g
+
+/** Each top-level function in a file, as [name, body, offset]. */
+function topLevelFunctions(text) {
+  const out = []
+  const starts = [...text.matchAll(/^(?:export (?:default )?)?function ([A-Za-z_$][\w$]*)/gm)]
+  starts.forEach((m, i) => {
+    const from = m.index
+    const to = i + 1 < starts.length ? starts[i + 1].index : text.length
+    out.push([m[1], text.slice(from, to), from])
+  })
+  return out
+}
+
+test('no hook depends on something declared below it', () => {
+  const problems = []
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8')
+
+    for (const [fn, body] of topLevelFunctions(text)) {
+      // Where each const in this function is introduced.
+      const declaredAt = new Map()
+      for (const m of body.matchAll(/^\s{2}const\s+([A-Za-z_$][\w$]*)\s*=/gm)) {
+        if (!declaredAt.has(m[1])) declaredAt.set(m[1], m.index)
+      }
+
+      HOOK_DEPS.lastIndex = 0
+      for (const m of body.matchAll(HOOK_DEPS)) {
+        for (const raw of m[1].split(',')) {
+          const dep = raw.trim().split(/[.?[]/)[0]
+          const at = declaredAt.get(dep)
+          if (at !== undefined && at > m.index) {
+            problems.push(`${path.relative(SRC, file)}: ${fn}() has a hook depending on '${dep}', declared below it`)
+          }
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(Array.from(new Set(problems)), [], `\n${problems.join('\n')}\n`)
+})
