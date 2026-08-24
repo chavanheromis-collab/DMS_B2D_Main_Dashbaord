@@ -539,7 +539,7 @@ export function timeSeries(rows, { dateColumn, grain = 'month', valueColumn, agg
   return out.length > maxBuckets ? out.slice(out.length - maxBuckets) : out
 }
 
-function bucketStart(d, grain) {
+export function bucketStart(d, grain) {
   const x = startOfDay(d)
   if (grain === 'week') return startOfWeek(x)
   if (grain === 'month') return new Date(x.getFullYear(), x.getMonth(), 1)
@@ -548,7 +548,7 @@ function bucketStart(d, grain) {
   return x
 }
 
-function nextBucket(d, grain) {
+export function nextBucket(d, grain) {
   const x = new Date(d)
   if (grain === 'week') x.setDate(x.getDate() + 7)
   else if (grain === 'month') x.setMonth(x.getMonth() + 1)
@@ -560,7 +560,7 @@ function nextBucket(d, grain) {
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-function bucketLabel(d, grain) {
+export function bucketLabel(d, grain) {
   if (grain === 'year') return String(d.getFullYear())
   if (grain === 'quarter') return `Q${Math.floor(d.getMonth() / 3) + 1} ${String(d.getFullYear()).slice(2)}`
   if (grain === 'month') return `${MONTH_LABELS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`

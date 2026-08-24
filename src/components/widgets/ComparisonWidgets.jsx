@@ -17,6 +17,7 @@ import {
 } from 'recharts'
 import { formatNumber, groupSeries, groupStacked, pivot, scatterPoints } from '../../lib/dataUtils'
 import { HEAT_SCALES, PALETTE } from '../../lib/config'
+import { seriesColor } from '../../lib/seriesData.js'
 
 const tooltipBox = { borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }
 
@@ -136,7 +137,7 @@ export function StackedWidget({ widget, rows, unfilteredRows, tabError, crossFil
                   // A shared stackId is the only difference between a stacked
                   // and a grouped chart in recharts.
                   stackId={grouped ? undefined : 'a'}
-                  fill={PALETTE[i % PALETTE.length]}
+                  fill={seriesColor(key, i, widget.seriesColors, widget.palette)}
                   radius={grouped || i === series.length - 1 ? [5, 5, 0, 0] : 0}
                   onClick={(entry) => drill(entry?.name ?? entry?.payload?.name)}
                   cursor="pointer"

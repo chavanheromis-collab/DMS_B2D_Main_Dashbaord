@@ -1,4 +1,6 @@
 import { AGGREGATIONS, HEAT_SCALES, NUMBER_FORMATS, PALETTE, aggNeedsColumn } from '../../lib/config'
+import { SERIES_PALETTES } from '../../lib/seriesData'
+import { SeriesColorEditor } from './WidgetEditors.jsx'
 import { Field, Select, TextInput, Toggle } from './ui.jsx'
 
 const SORTS = [
@@ -44,7 +46,16 @@ export function StackedEditor({ widget, cols, set }) {
         </Field>
       </div>
 
+      <SeriesColorEditor widget={widget} set={set} />
+
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <Field label="Palette" hint="For anything unassigned.">
+          <Select
+            value={widget.palette || 'default'}
+            onChange={(v) => set({ palette: v })}
+            options={SERIES_PALETTES}
+          />
+        </Field>
         <Field label="Layout">
           <Select
             value={widget.layout || 'stacked'}

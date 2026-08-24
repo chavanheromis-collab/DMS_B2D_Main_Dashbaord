@@ -828,6 +828,7 @@ export default function Dashboard() {
                           dateOrder={dateOrder}
                           crossFilters={crossFilters}
                           onCrossFilter={drill}
+                          canExport={canExport}
                         />
                       )}
                       {widget.type === 'gauge' && (

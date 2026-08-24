@@ -693,7 +693,7 @@ stacking two contradictory filters.
 | **Combo Chart** | Bars and a line on **two independent axes** — volume against rate, which one axis would flatten. |
 | **Scatter / Bubble** | Two numeric columns plotted against each other, optionally sized by a third and coloured by a fourth. The one widget that shows individual rows, so outliers survive. |
 | **Heat Map** | The pivot's cross-tabulation as colour intensity, with five ramps. Click a cell to filter to that row × column. |
-| **Trend Over Time** | Buckets a date column by day / week / month / quarter / year, filling empty periods with zero. Click a period to filter to it. |
+| **Trend Over Time** | Buckets a date column by day / week / month / quarter / year, filling empty periods with zero. **Split it into series** by any second column, each with its own colour. Running totals, a moving-average line, and a legend you can switch series off in. Click a period to filter to it. |
 | **Pivot Table** | Cross-tabulates columns, with totals. Either axis can cross **several** columns. Renders as a full matrix, or as a grouped list with parent values merged down their children. |
 | **Gauge / Target** | Progress toward a target, with zones and click-to-filter. |
 | **Activity Feed** | A chronological feed of the newest rows. |
@@ -867,6 +867,30 @@ Pivot tables and heat maps drill from their **row and column headers** as well
 as their cells — "all of March" and "everything for West" are the two
 questions those charts invite most, and neither should need a trip to the
 filter bar.
+
+### Breaking a chart into series
+
+"Sales by month" answers a question. "Sales by month, **split by model**"
+answers the one everybody asks straight afterwards — and it's a different
+chart, not a filtered version of the first, because a flat total can hide one
+category collapsing while another takes its place.
+
+Pick any second column as the **breakdown** on a Trend widget and you get one
+series per value. Then:
+
+| | |
+|---|---|
+| **How they're drawn** | Lines (compare shapes), stacked areas (total *and* mix), 100% stacked (mix only), stacked bars, or grouped bars. |
+| **Colours** | Pin a colour to a value — red for *Cancelled*, green for *Delivered* — and it keeps it whatever the data does. Matched ignoring case and spaces. Everything unpinned cycles a palette you choose (Standard / Cool / Warm / Earth / One hue). Same controls on **Stacked / Grouped Bars**. |
+| **Too many series** | The tail is grouped into **"Other"**, never dropped, so the stack still adds up — with a caption naming what went in. Series are ranked by their total across the *whole window*, so a one-off spike in March can't evict something that's steadily second all year. |
+| **The legend is a control** | Click a series to switch it off, hover to bring it forward. It's a question ("what does this look like without X"), not a filter — nothing else on the page moves, and the last visible series can't be switched off. |
+| **Running total** | Answers "how are we doing against the year" without making anyone add up twelve bars. |
+| **Moving average** | A dashed overlay, **trailing** so the newest period is always drawable, and it waits for a full window rather than drawing an "average" of one point. Shown when a single series is visible — six smoothed lines on top of six real ones is not a chart. |
+| **Tooltip** | Every series in that period, biggest first, with the total. Recharts' own lists them in declaration order, which on a stack is bottom-to-top and on six series is a scavenger hunt. |
+
+A blank value becomes its own **"(blank)"** series rather than quietly
+dropping out of a total that claims to be complete — the same rule the flow
+and the pie follow.
 
 ### Pie, donut and rose — built for real data
 
@@ -1251,6 +1275,7 @@ src/
   lib/widgetControls.js   Per-widget dropdowns, buttons and sliders
   lib/csv.js              CSV export: escaping, file names, the download
   lib/pieData.js          Part-of-whole slicing: roll-up, labels, honesty
+  lib/seriesData.js       Breakdowns: series picking, colours, cumulative, smoothing
   lib/imageUrl.js         Drive-link rewriting + the image URL allow-list
   lib/pageControls.js     The unified page control list + saved views
   lib/chartOptions.js     Colour rules, reference lines, axis scaling

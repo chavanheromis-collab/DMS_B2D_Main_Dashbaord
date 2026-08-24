@@ -1,5 +1,13 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import ExportButton from '../ExportButton.jsx'
+import {
+  asPercent,
+  cumulative,
+  movingAverage,
+  seriesColor,
+  seriesRollupNote,
+  timeSeriesBy,
+} from '../../lib/seriesData.js'
 import {
   Area,
   AreaChart,
@@ -7,6 +15,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -35,24 +44,58 @@ import { MousePointerClick } from 'lucide-react'
  * understands dates, keeps buckets in chronological order, and fills empty
  * periods with zero so a quiet month reads as a dip rather than vanishing.
  */
-export function TrendWidget({ widget, rows, unfilteredRows, tabError, dateOrder, onCrossFilter, crossFilters = [] }) {
+export function TrendWidget({
+  widget,
+  rows,
+  unfilteredRows,
+  tabError,
+  dateOrder,
+  onCrossFilter,
+  crossFilters = [],
+  canExport = false,
+}) {
   const source = widget.ignoreFilters ? unfilteredRows : rows
+  const breakdown = widget.breakdown || ''
+  const mode = breakdown ? widget.seriesMode || 'area' : widget.chartType || 'area'
 
-  const data = useMemo(
+  // Series the reader has switched off in the legend. Their rows are still
+  // in the data -- hiding a series is a question ("what does it look like
+  // without X"), not a filter, and it must not change what anyone else sees
+  // or what the page is filtered to.
+  const [hidden, setHidden] = useState(() => new Set())
+  const [hover, setHover] = useState(null)
+
+  const built = useMemo(
     () =>
-      timeSeries(source, {
+      timeSeriesBy(source, {
         dateColumn: widget.dateColumn,
         grain: widget.grain || 'month',
+        breakdown,
         valueColumn: widget.column,
         aggregation: widget.aggregation || 'count',
         order: dateOrder,
+        maxSeries: Number(widget.maxSeries) > 0 ? Number(widget.maxSeries) : 6,
       }),
-    [source, widget.dateColumn, widget.grain, widget.column, widget.aggregation, dateOrder]
+    [source, widget.dateColumn, widget.grain, breakdown, widget.column, widget.aggregation, widget.maxSeries, dateOrder]
   )
 
-  const color = widget.color || '#4F46E5'
-  const type = widget.chartType || 'area'
+  const shown = useMemo(() => built.series.filter((name) => !hidden.has(name)), [built.series, hidden])
 
+  const data = useMemo(() => {
+    // Order matters: run the total up first, THEN rescale to a share, or the
+    // percentages would be shares of a single period inside a running total.
+    let out = widget.cumulative ? cumulative(built.data, built.series) : built.data
+    if (mode === 'percent') out = asPercent(out, shown)
+    if (widget.movingAverage && shown.length === 1) out = movingAverage(out, shown, widget.maWindow || 3)
+    return out
+  }, [built, shown, mode, widget.cumulative, widget.movingAverage, widget.maWindow])
+
+  const single = !breakdown
+  const singleKey = 'value'
+  const colorOf = (name, i) =>
+    single ? widget.color || '#4F46E5' : seriesColor(name, i, widget.seriesColors, widget.palette)
+
+  const fmt = (v) => formatNumber(v, widget.format, widget.aggregation)
   const activeBucket = crossFilters.find((cf) => cf.id === `trend_${widget.id}`)?.label
 
   /**
@@ -60,7 +103,7 @@ export function TrendWidget({ widget, rows, unfilteredRows, tabError, dateOrder,
    *
    * A trend's x-axis holds labels like "Mar 26", which no row contains, so
    * this drills on the bucket's real date span rather than on its caption --
-   * the same reasoning as a histogram bin. `timeSeries` already knows where
+   * the same reasoning as a histogram bin. The series already knows where
    * each bucket starts and ends, so the range is exact rather than reverse
    * engineered from the label.
    */
@@ -95,38 +138,162 @@ export function TrendWidget({ widget, rows, unfilteredRows, tabError, dateOrder,
   const cursor = onCrossFilter ? { cursor: 'pointer' } : {}
   /** Everything outside the drilled bucket recedes. */
   const dim = (entry) => (activeBucket && activeBucket !== entry.name ? 0.3 : 1)
+  const fade = (name) => (hover && hover !== name ? 0.25 : 1)
+
+  function toggleSeries(name) {
+    setHidden((current) => {
+      const next = new Set(current)
+      if (next.has(name)) next.delete(name)
+      // Switching the last visible series off would leave an empty chart
+      // and no obvious way back, so the last one standing stays.
+      else if (shown.length > 1) next.add(name)
+      return next
+    })
+  }
 
   // A simple first-half vs second-half comparison — enough to say which way
   // things are moving without pretending to be a forecast.
   const momentum = useMemo(() => {
-    if (data.length < 4) return null
-    const half = Math.floor(data.length / 2)
-    const older = data.slice(0, half).reduce((a, b) => a + b.value, 0) / half
-    const recent = data.slice(half).reduce((a, b) => a + b.value, 0) / (data.length - half)
+    const totals = built.data.map((d) => (single ? d.value : d.total))
+    if (totals.length < 4) return null
+    const half = Math.floor(totals.length / 2)
+    const older = totals.slice(0, half).reduce((a, b) => a + b, 0) / half
+    const recent = totals.slice(half).reduce((a, b) => a + b, 0) / (totals.length - half)
     if (older === 0) return null
     return Math.round(((recent - older) / older) * 100)
-  }, [data])
+  }, [built.data, single])
+
+  const percentMode = mode === 'percent'
+  const stackId = mode === 'area' || mode === 'bar' || percentMode ? 'stack' : undefined
+
+  function renderSeries() {
+    const keys = single ? [singleKey] : shown
+    const out = []
+
+    keys.forEach((name, i) => {
+      const color = colorOf(name, built.series.indexOf(name) === -1 ? i : built.series.indexOf(name))
+      const common = {
+        key: name,
+        dataKey: name,
+        name: single ? widget.valueLabel || 'Value' : name,
+        stackId,
+        isAnimationActive: false,
+      }
+
+      if (mode === 'bar' || mode === 'group') {
+        out.push(
+          <Bar {...common} fill={color} fillOpacity={fade(name)} radius={stackId ? 0 : [4, 4, 0, 0]}>
+            {single &&
+              data.map((entry) => (
+                <Cell
+                  key={entry.name}
+                  fill={color}
+                  fillOpacity={dim(entry)}
+                  cursor={onCrossFilter ? 'pointer' : 'default'}
+                />
+              ))}
+          </Bar>
+        )
+        return
+      }
+
+      if (mode === 'line') {
+        out.push(
+          <Line
+            {...common}
+            type="monotone"
+            stroke={color}
+            strokeOpacity={fade(name)}
+            strokeWidth={hover === name ? 3 : 2}
+            dot={{ r: 2, cursor: onCrossFilter ? 'pointer' : 'default' }}
+            activeDot={{ r: 5 }}
+          />
+        )
+        return
+      }
+
+      out.push(
+        <Area
+          {...common}
+          type="monotone"
+          stroke={color}
+          strokeOpacity={fade(name)}
+          strokeWidth={2}
+          fill={single ? `url(#tg_${widget.id})` : color}
+          fillOpacity={single ? 1 : 0.55 * fade(name)}
+          dot={single ? { r: 2, cursor: onCrossFilter ? 'pointer' : 'default' } : false}
+          activeDot={{ r: 5 }}
+        />
+      )
+    })
+
+    // The smoothed line sits on top of everything, dashed, so it reads as a
+    // reading of the data rather than as more data.
+    if (widget.movingAverage && keys.length === 1) {
+      out.push(
+        <Line
+          key="__ma"
+          type="monotone"
+          dataKey={`${keys[0]}__ma`}
+          name={`${widget.maWindow || 3}-period average`}
+          stroke="#0f172a"
+          strokeWidth={1.5}
+          strokeDasharray="5 4"
+          strokeOpacity={0.55}
+          dot={false}
+          activeDot={false}
+          connectNulls={false}
+          isAnimationActive={false}
+        />
+      )
+    }
+
+    return out
+  }
 
   return (
     <div className="card flex h-full flex-col">
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <div>
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
           <h2 className="widget-title">📅 {widget.title}</h2>
-          <p className="text-[11px] text-slate-400">
+          <p className="truncate text-[11px] text-slate-400">
             {widget.tab} · {widget.dateColumn || '—'} by {widget.grain || 'month'}
+            {breakdown && ` · split by ${breakdown}`}
+            {widget.cumulative && ' · cumulative'}
             {onCrossFilter && ' · click a period to drill in'}
           </p>
         </div>
-        {momentum !== null && (
-          <span
-            className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-              momentum >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
-            }`}
-            title="Recent half vs earlier half of the period shown"
-          >
-            {momentum >= 0 ? '▲' : '▼'} {Math.abs(momentum)}%
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {canExport && (
+            <ExportButton
+              name={widget.title || widget.tab}
+              rows={() =>
+                built.data.map((row) => {
+                  const out = { Period: row.name }
+                  for (const key of built.series) out[single ? widget.valueLabel || 'Value' : key] = row[key]
+                  if (!single) out.Total = row.total
+                  return out
+                })
+              }
+              columns={() => [
+                'Period',
+                ...built.series.map((k) => (single ? widget.valueLabel || 'Value' : k)),
+                ...(single ? [] : ['Total']),
+              ]}
+              count={built.data.length}
+            />
+          )}
+          {momentum !== null && (
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                momentum >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+              }`}
+              title="Recent half vs earlier half of the period shown"
+            >
+              {momentum >= 0 ? '▲' : '▼'} {Math.abs(momentum)}%
+            </span>
+          )}
+        </div>
       </div>
 
       {tabError ? (
@@ -136,61 +303,143 @@ export function TrendWidget({ widget, rows, unfilteredRows, tabError, dateOrder,
           {widget.dateColumn ? 'No parseable dates in that column' : 'Pick a date column in the admin panel'}
         </p>
       ) : (
-        <div className="min-h-[200px] flex-1">
-          <ResponsiveContainer width="100%" height={widget.height || 240}>
-            {type === 'bar' ? (
-              <BarChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: -14 }} onClick={onClick} {...cursor}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
-                <Bar dataKey="value" radius={[5, 5, 0, 0]}>
-                  {data.map((entry) => (
-                    <Cell key={entry.name} fill={color} fillOpacity={dim(entry)} cursor={onCrossFilter ? 'pointer' : 'default'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            ) : type === 'line' ? (
-              <LineChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: -14 }} onClick={onClick} {...cursor}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke={color}
-                  strokeWidth={2}
-                  dot={{ r: 2, cursor: onCrossFilter ? 'pointer' : 'default' }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            ) : (
-              <AreaChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: -14 }} onClick={onClick} {...cursor}>
+        <>
+          <div className="min-h-[200px] flex-1">
+            <ResponsiveContainer width="100%" height={widget.height || 240}>
+              <ComposedChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: -14 }} onClick={onClick} {...cursor}>
                 <defs>
                   <linearGradient id={`tg_${widget.id}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={color} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+                    <stop offset="0%" stopColor={widget.color || '#4F46E5'} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={widget.color || '#4F46E5'} stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }} />
-                <Area
-                  type="monotone"
-                  dataKey="value"
-                  stroke={color}
-                  strokeWidth={2}
-                  fill={`url(#tg_${widget.id})`}
-                  dot={{ r: 2, cursor: onCrossFilter ? 'pointer' : 'default' }}
-                  activeDot={{ r: 5 }}
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  domain={percentMode ? [0, 100] : undefined}
+                  tickFormatter={percentMode ? (v) => `${v}%` : undefined}
                 />
-              </AreaChart>
-            )}
-          </ResponsiveContainer>
-        </div>
+                <Tooltip
+                  content={
+                    <TrendTooltip
+                      single={single}
+                      valueLabel={widget.valueLabel || 'Value'}
+                      percentMode={percentMode}
+                      fmt={fmt}
+                      colorOf={colorOf}
+                      order={built.series}
+                    />
+                  }
+                />
+                {renderSeries()}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {!single && (
+            <SeriesLegend
+              series={built.series}
+              hidden={hidden}
+              hover={hover}
+              colorOf={colorOf}
+              onHover={setHover}
+              onToggle={toggleSeries}
+            />
+          )}
+
+          {built.rolled.length > 0 && (
+            <p className="mt-1 text-[10px] text-slate-400">{seriesRollupNote(built.rolled, built.otherLabel)}</p>
+          )}
+        </>
       )}
+    </div>
+  )
+}
+
+/**
+ * Every series in the hovered period, biggest first, with the total.
+ *
+ * Recharts' own tooltip lists series in the order they were declared, which
+ * on a stack is bottom-to-top and on six series is a scavenger hunt. Sorted
+ * by value, the thing you are pointing at is at the top.
+ */
+function TrendTooltip({ active, payload, label, single, valueLabel, percentMode, fmt, colorOf, order }) {
+  if (!active || !payload?.length) return null
+
+  const rows = payload
+    .filter((p) => p.dataKey && !String(p.dataKey).endsWith('__ma'))
+    .map((p) => ({ name: single ? valueLabel : p.name, value: Number(p.value) || 0, key: p.dataKey }))
+    .sort((a, b) => b.value - a.value)
+
+  const total = rows.reduce((sum, r) => sum + r.value, 0)
+  const ma = payload.find((p) => String(p.dataKey).endsWith('__ma'))
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white/95 px-2 py-1.5 text-[11px] shadow-lg backdrop-blur">
+      <p className="mb-1 font-semibold text-slate-700">{label}</p>
+      <ul className="space-y-0.5">
+        {rows.map((row) => (
+          <li key={row.key} className="flex items-center gap-2">
+            <span
+              className="h-2 w-2 shrink-0 rounded-sm"
+              style={{ backgroundColor: colorOf(row.key, order.indexOf(row.key)) }}
+            />
+            <span className="min-w-0 flex-1 truncate text-slate-500">{row.name}</span>
+            <span className="shrink-0 font-semibold tabular-nums text-slate-800">
+              {percentMode ? `${row.value.toFixed(1)}%` : fmt(row.value)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {!single && !percentMode && rows.length > 1 && (
+        <p className="mt-1 flex justify-between gap-3 border-t border-slate-100 pt-1 text-slate-500">
+          <span>Total</span>
+          <span className="font-bold tabular-nums text-slate-800">{fmt(total)}</span>
+        </p>
+      )}
+      {ma?.value != null && (
+        <p className="mt-1 text-[10px] text-slate-400">Average {fmt(Number(ma.value))}</p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The legend, as controls rather than a key.
+ *
+ * Comparing two of six lines means getting the other four out of the way,
+ * and the alternative -- editing the widget, or filtering the whole page --
+ * costs far more than the question is worth.
+ */
+function SeriesLegend({ series, hidden, hover, colorOf, onHover, onToggle }) {
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {series.map((name, i) => {
+        const off = hidden.has(name)
+        return (
+          <button
+            key={name}
+            onClick={() => onToggle(name)}
+            onMouseEnter={() => onHover(name)}
+            onMouseLeave={() => onHover(null)}
+            className={`flex max-w-[160px] items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] transition-colors ${
+              off
+                ? 'border-slate-200 text-slate-300'
+                : hover === name
+                  ? 'border-slate-300 bg-slate-100 text-slate-700'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+            title={off ? `Show ${name}` : `Hide ${name}`}
+          >
+            <span
+              className="h-2 w-2 shrink-0 rounded-sm"
+              style={{ backgroundColor: off ? '#e2e8f0' : colorOf(name, i) }}
+            />
+            <span className={`truncate ${off ? 'line-through' : ''}`}>{name}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }

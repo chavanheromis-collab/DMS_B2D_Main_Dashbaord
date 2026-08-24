@@ -13,6 +13,7 @@ import {
 } from '../../lib/config'
 import { looksLikeDateColumn } from '../../lib/dataUtils'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps } from './ui.jsx'
+import { SERIES_MODES, SERIES_PALETTES } from '../../lib/seriesData'
 import ConditionBuilder from './ConditionBuilder.jsx'
 
 /**
@@ -554,50 +555,209 @@ export function ColumnOrderEditor({ columns, allColumns, onChange }) {
 // Trend / Pivot / Gauge editors
 // =====================================================================
 export function TrendEditor({ widget, cols, set }) {
+  const breakdown = widget.breakdown || ''
+
   return (
-    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-      <Field label="Date column">
-        <Select
-          value={widget.dateColumn || ''}
-          onChange={(v) => set({ dateColumn: v })}
-          options={cols}
-          placeholder="— pick a date column —"
-        />
-      </Field>
-      <Field label="Bucket by">
-        <Select value={widget.grain || 'month'} onChange={(v) => set({ grain: v })} options={TIME_GRAINS} />
-      </Field>
-      <Field label="Calculation">
-        <Select value={widget.aggregation || 'count'} onChange={(v) => set({ aggregation: v })} options={AGGREGATIONS} />
-      </Field>
-      <Field label="Value column">
-        <Select
-          value={widget.column || ''}
-          onChange={(v) => set({ column: v })}
-          options={cols}
-          placeholder="— column —"
-          disabled={!aggNeedsColumn(widget.aggregation || 'count')}
-        />
-      </Field>
-      <Field label="Style">
-        <Select
-          value={widget.chartType || 'area'}
-          onChange={(v) => set({ chartType: v })}
-          options={[
-            { value: 'area', label: 'Area' },
-            { value: 'line', label: 'Line' },
-            { value: 'bar', label: 'Bar' },
-          ]}
-        />
-      </Field>
-      <Field label="Colour">
-        <input
-          type="color"
-          value={widget.color || PALETTE[0]}
-          onChange={(e) => set({ color: e.target.value })}
-          className="h-[30px] w-full rounded-lg border border-slate-200"
-        />
-      </Field>
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <Field label="Date column">
+          <Select
+            value={widget.dateColumn || ''}
+            onChange={(v) => set({ dateColumn: v })}
+            options={cols}
+            placeholder="— pick a date column —"
+          />
+        </Field>
+        <Field label="Bucket by">
+          <Select value={widget.grain || 'month'} onChange={(v) => set({ grain: v })} options={TIME_GRAINS} />
+        </Field>
+        <Field label="Calculation">
+          <Select
+            value={widget.aggregation || 'count'}
+            onChange={(v) => set({ aggregation: v })}
+            options={AGGREGATIONS}
+          />
+        </Field>
+        <Field label="Value column">
+          <Select
+            value={widget.column || ''}
+            onChange={(v) => set({ column: v })}
+            options={cols}
+            placeholder="— column —"
+            disabled={!aggNeedsColumn(widget.aggregation || 'count')}
+          />
+        </Field>
+      </div>
+
+      {/* --- the breakdown ------------------------------------------------ */}
+      <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Split into series by" className="w-52" hint="One line per value.">
+            <Select
+              value={breakdown}
+              onChange={(v) => set({ breakdown: v })}
+              options={cols}
+              placeholder="— no breakdown —"
+            />
+          </Field>
+
+          {breakdown ? (
+            <>
+              <Field label="Draw them as" className="w-48">
+                <Select
+                  value={widget.seriesMode || 'area'}
+                  onChange={(v) => set({ seriesMode: v })}
+                  options={SERIES_MODES}
+                />
+              </Field>
+              <Field label="Series to draw" className="w-32" hint="Rest become Other.">
+                <TextInput
+                  type="number"
+                  value={widget.maxSeries ?? 6}
+                  onChange={(v) => set({ maxSeries: Number(v) || 0 })}
+                />
+              </Field>
+              <Field label="Palette" className="w-36" hint="For anything unassigned.">
+                <Select
+                  value={widget.palette || 'default'}
+                  onChange={(v) => set({ palette: v })}
+                  options={SERIES_PALETTES}
+                />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label="Style" className="w-36">
+                <Select
+                  value={widget.chartType || 'area'}
+                  onChange={(v) => set({ chartType: v })}
+                  options={[
+                    { value: 'area', label: 'Area' },
+                    { value: 'line', label: 'Line' },
+                    { value: 'bar', label: 'Bar' },
+                  ]}
+                />
+              </Field>
+              <Field label="Colour" className="w-24">
+                <input
+                  type="color"
+                  value={widget.color || PALETTE[0]}
+                  onChange={(e) => set({ color: e.target.value })}
+                  className="h-[30px] w-full rounded-lg border border-slate-200"
+                />
+              </Field>
+            </>
+          )}
+        </div>
+
+        <p className="mt-1 text-[10px] text-slate-400">
+          {breakdown
+            ? SERIES_MODES.find((m) => m.value === (widget.seriesMode || 'area'))?.hint +
+              ' Smaller series are grouped into “Other” rather than dropped, so the stack still adds up — and readers can switch any series off by clicking the legend.'
+            : 'A flat total can hide one category collapsing while another takes its place. Splitting by a column is usually the next question anyone asks.'}
+        </p>
+      </div>
+
+      {breakdown && <SeriesColorEditor widget={widget} set={set} />}
+
+      {/* --- readings ----------------------------------------------------- */}
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+        <div className="pb-1.5">
+          <Toggle
+            checked={!!widget.cumulative}
+            onChange={(v) => set({ cumulative: v })}
+            label="Running total"
+          />
+        </div>
+        <div className="pb-1.5">
+          <Toggle
+            checked={!!widget.movingAverage}
+            onChange={(v) => set({ movingAverage: v })}
+            label="Moving-average line"
+          />
+        </div>
+        {widget.movingAverage && (
+          <Field label="Over how many periods" className="w-40">
+            <TextInput
+              type="number"
+              value={widget.maWindow ?? 3}
+              onChange={(v) => set({ maWindow: Number(v) || 3 })}
+            />
+          </Field>
+        )}
+        <p className="max-w-md pb-1.5 text-[10px] text-slate-400">
+          A running total answers "how are we doing against the year" without making anyone add up twelve bars.
+          The average is <strong>trailing</strong>, so the newest period is always drawable, and it only appears
+          once one series is showing — six smoothed lines on top of six real ones is not a chart.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Fixed colours for the series that have a meaning.
+ *
+ * Red for "Cancelled" is not decoration -- a reader who has learned the
+ * colour reads the chart without the legend, and a palette that reshuffles
+ * when the data does destroys that. Anything unlisted cycles the palette.
+ */
+export function SeriesColorEditor({ widget, set }) {
+  const rules = widget.seriesColors || []
+  const ops = listOps(rules, (next) => set({ seriesColors: next }))
+
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+      <div className="mb-1 flex items-center justify-between">
+        <p className="text-[11px] font-medium text-slate-500">
+          Fixed colours <span className="font-normal text-slate-400">(by value — optional)</span>
+        </p>
+        <Btn onClick={() => ops.add({ id: uid('sc'), value: '', color: PALETTE[rules.length % PALETTE.length] })}>
+          <Plus size={11} /> Add
+        </Btn>
+      </div>
+
+      {rules.length === 0 && (
+        <p className="py-1 text-[10px] text-slate-400">
+          None — every series takes the next palette colour. Pin one where the colour carries meaning: red for
+          Cancelled, green for Delivered.
+        </p>
+      )}
+
+      <div className="space-y-1.5">
+        {rules.map((rule, i) => (
+          <div key={rule.id || i} className="flex flex-wrap items-center gap-1.5">
+            <TextInput
+              value={rule.value}
+              onChange={(v) => ops.update(rule.id, { value: v })}
+              placeholder="The value, e.g. Cancelled"
+              className="w-52"
+            />
+            <input
+              type="color"
+              value={rule.color || PALETTE[0]}
+              onChange={(e) => ops.update(rule.id, { color: e.target.value })}
+              className="h-[30px] w-10 rounded-lg border border-slate-200"
+            />
+            <div className="ml-auto">
+              <RowControls
+                onUp={() => ops.move(i, -1)}
+                onDown={() => ops.move(i, 1)}
+                onDelete={() => ops.remove(rule.id)}
+                isFirst={i === 0}
+                isLast={i === rules.length - 1}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {rules.length > 0 && (
+        <p className="mt-1 text-[10px] text-slate-400">
+          Matched on the value, ignoring case and surrounding spaces. “Other” is always grey, so a roll-up never
+          looks like a category of its own.
+        </p>
+      )}
     </div>
   )
 }
