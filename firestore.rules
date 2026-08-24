@@ -15,6 +15,11 @@ service cloud.firestore {
 
     // User profiles. A user may create their own doc on first sign-in but
     // can never grant themselves status/role -- only an admin can.
+    //
+    // They CAN write their own name and a `requestedRole`, which is why that
+    // is a different key from `role`: the update rule below freezes `role`
+    // and `status` at whatever the document already says, so asking is not
+    // getting however the request is made.
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isSelf(userId) &&

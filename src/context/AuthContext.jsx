@@ -55,6 +55,31 @@ export function AuthProvider({ children }) {
     )
   }, [])
 
+  /**
+   * What a new user tells us about themselves while they wait.
+   *
+   * A name they can correct -- Google's display name is often a personal
+   * account's, not the one their colleagues know -- and the role they say
+   * they need. The role is a REQUEST and is stored under its own key: a
+   * user writing their own `role` would be granting themselves admin, so
+   * the rules refuse it and this never tries.
+   */
+  const submitProfile = useCallback(
+    async ({ name, requestedRole }) => {
+      if (!auth.currentUser) return
+      await setDoc(
+        doc(db, 'users', auth.currentUser.uid),
+        {
+          name: String(name || '').trim() || auth.currentUser.displayName || '',
+          requestedRole: requestedRole === 'admin' ? 'admin' : 'user',
+          requestedAt: serverTimestamp(),
+        },
+        { merge: true }
+      )
+    },
+    []
+  )
+
   const signOut = useCallback(async () => {
     await fbSignOut(auth)
   }, [])
@@ -75,6 +100,7 @@ export function AuthProvider({ children }) {
     authLoading,
     signIn,
     signOut,
+    submitProfile,
     getIdToken,
     isAdmin: userDoc?.role === 'admin',
     isActive: userDoc?.role === 'admin' || userDoc?.status === 'active',

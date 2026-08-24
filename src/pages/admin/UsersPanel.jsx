@@ -22,11 +22,22 @@ import { Btn, Select, Toggle, stableEqual, useWorkspaceCtx } from './ui.jsx'
  * visible to everyone who can see the page rather than invisible until each
  * user is re-granted one by one.
  */
+/** A user with no status yet has not been looked at, which is pending. */
+const statusOf = (u) => u?.status || 'pending'
+
+const STATUS_TABS = [
+  { value: 'all', label: 'All', on: 'border-slate-300 bg-slate-100 text-slate-700' },
+  { value: 'pending', label: 'Pending', on: 'border-amber-300 bg-amber-50 text-amber-700' },
+  { value: 'active', label: 'Active', on: 'border-emerald-300 bg-emerald-50 text-emerald-700' },
+  { value: 'removed', label: 'Removed', on: 'border-rose-300 bg-rose-50 text-rose-700' },
+]
+
 export default function UsersPanel({ pages }) {
   const [users, setUsers] = useState([])
   const [accessMap, setAccessMap] = useState({})
   const [expanded, setExpanded] = useState(null)
   const [query, setQuery] = useState('')
+  const [status, setStatus] = useState('all')
 
   useEffect(
     () => onSnapshot(collection(db, 'users'), (snap) => setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })))),
@@ -54,9 +65,14 @@ export default function UsersPanel({ pages }) {
   const sorted = useMemo(() => {
     const q = query.trim().toLowerCase()
     return [...users]
+      .filter((u) => status === 'all' || statusOf(u) === status)
       .filter((u) => !q || `${u.email || ''} ${u.name || ''}`.toLowerCase().includes(q))
-      .sort((a, b) => (a.email || '').localeCompare(b.email || ''))
-  }, [users, query])
+      // Pending first: they are the ones waiting on somebody.
+      .sort((a, b) => {
+        const rank = (u) => (statusOf(u) === 'pending' ? 0 : 1)
+        return rank(a) - rank(b) || (a.email || '').localeCompare(b.email || '')
+      })
+  }, [users, query, status])
 
   const saveUser = (id, patch) => setDoc(doc(db, 'users', id), stripUndefined(patch), { merge: true })
   const saveAccess = (uid, pageId, next) =>
@@ -105,14 +121,43 @@ export default function UsersPanel({ pages }) {
 
   return (
     <div className="space-y-3">
-      <div className="relative max-w-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-xs flex-1">
         <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Find a user…"
-          className="w-full rounded-lg border border-slate-200 py-1.5 pl-7 pr-2 text-xs placeholder:text-slate-300"
-        />
+            className="w-full rounded-lg border border-slate-200 py-1.5 pl-7 pr-2 text-xs placeholder:text-slate-300"
+          />
+        </div>
+
+        {/* Pending is the one that needs acting on, so it is countable at a
+            glance rather than something you find by scrolling. */}
+        <div className="flex flex-wrap gap-1">
+          {STATUS_TABS.map((tab) => {
+            const n = tab.value === 'all' ? users.length : users.filter((u) => statusOf(u) === tab.value).length
+            const on = status === tab.value
+            return (
+              <button
+                key={tab.value}
+                onClick={() => setStatus(tab.value)}
+                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                  on ? tab.on : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                {tab.label}
+                <span
+                  className={`rounded-full px-1.5 text-[10px] font-semibold tabular-nums ${
+                    on ? 'bg-white/70' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  {n}
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -160,6 +205,18 @@ export default function UsersPanel({ pages }) {
                         ]}
                         className="w-24"
                       />
+                      {/* What they asked for when they signed up. A request,
+                          never a grant -- the rules stop a user writing
+                          their own role, so this is the only way it moves. */}
+                      {u.requestedRole && u.requestedRole !== (u.role || 'user') && (
+                        <button
+                          onClick={() => saveUser(u.id, { role: u.requestedRole })}
+                          className="mt-1 block rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700 hover:bg-amber-100"
+                          title={`They asked to be an ${u.requestedRole}. Click to grant it.`}
+                        >
+                          asked for {u.requestedRole}
+                        </button>
+                      )}
                     </td>
                     <td className="py-2 pr-2 text-xs text-slate-500">
                       {u.role === 'admin' ? (
@@ -238,6 +295,19 @@ export default function UsersPanel({ pages }) {
                                     page={page}
                                     value={accessMap[accessId(u.id, page.id)]}
                                     onSave={(next) => saveAccess(u.id, page.id, next)}
+                                    // Whose order could be copied onto this
+                                    // one. Admins included: theirs is usually
+                                    // the arrangement worth spreading.
+                                    others={users
+                                      .filter((other) => other.id !== u.id)
+                                      .map((other) => ({
+                                        id: other.id,
+                                        label: `${other.name || other.email || other.id}${
+                                          other.role === 'admin' ? ' (admin)' : ''
+                                        }`,
+                                        order: accessMap[accessId(other.id, page.id)]?.widgetOrder || {},
+                                      }))
+                                      .filter((other) => Object.keys(other.order).length > 0)}
                                   />
                                 ))}
                               </div>
@@ -265,7 +335,7 @@ export default function UsersPanel({ pages }) {
   )
 }
 
-function AccessCard({ page, value, onSave }) {
+function AccessCard({ page, value, onSave, others = [] }) {
   const { tabHeaders, labelFor } = useWorkspaceCtx()
   const [canView, setCanView] = useState(false)
   const [hidden, setHidden] = useState([])
@@ -352,10 +422,28 @@ function AccessCard({ page, value, onSave }) {
       </div>
 
       {ordering && (
-        <p className="mb-1 rounded bg-indigo-50/70 px-2 py-1 text-[10px] text-indigo-800">
-          Lower numbers first. Blank uses the page default. This user can still rearrange their own view on top of
-          whatever you set here.
-        </p>
+        <div className="mb-1 space-y-1 rounded bg-indigo-50/70 px-2 py-1.5">
+          <p className="text-[10px] text-indigo-800">
+            Lower numbers first. Blank uses the page default.
+          </p>
+          {others.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-[10px] text-indigo-800">Same order as</span>
+              <Select
+                value=""
+                onChange={(v) => {
+                  const from = others.find((o) => o.id === v)
+                  if (from) setWidgetOrder({ ...from.order })
+                }}
+                options={[
+                  { value: '', label: '— pick a user —' },
+                  ...others.map((o) => ({ value: o.id, label: o.label })),
+                ]}
+                className="w-56"
+              />
+            </div>
+          )}
+        </div>
       )}
 
       <div className="mb-3 grid max-h-36 grid-cols-1 gap-1 overflow-y-auto rounded-lg border border-slate-100 p-2">

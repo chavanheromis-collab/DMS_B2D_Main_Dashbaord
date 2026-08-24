@@ -1321,6 +1321,23 @@ browser can't grant itself permission.
 
 ### Permissions
 
+**Signing in** is Google-only, and a new account lands on a waiting screen
+that asks two things: the **name** their colleagues would recognise (Google
+hands us whatever their personal account is called, which often isn't it) and
+**what they need** — *User* or *Admin*, the only two roles there are.
+
+The role is a **request, not a grant**. It's stored under its own key, the
+security rules freeze the real `role` and `status` at whatever the document
+already says, and the admin sees **"asked for admin"** beside that user's row
+with one click to grant it. Asking is not getting, however the request is
+made.
+
+**Admin → Users** filters by **All / Pending / Active / Removed**, each with a
+count, and lists pending users first — they're the ones waiting on somebody.
+Per page, *set order for this user* also offers **same order as ⟨user⟩**,
+listing anybody who has an order for that page, **admins included**: theirs is
+usually the arrangement worth spreading.
+
 In **👥 Users & Access**, expand a user to get a card per page:
 
 - **Can view** the page at all
