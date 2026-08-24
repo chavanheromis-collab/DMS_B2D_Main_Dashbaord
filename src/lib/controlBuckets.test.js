@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { bucketedCell, bucketedValues, dateBucket } from './dataUtils.js'
-import { controlOptions, optionRows, visibleChips } from './pageControls.js'
+import { controlColumns, controlOptions, optionRows, visibleChips } from './pageControls.js'
 import { applyFilters } from './filterEngine.js'
 
 const ROWS = [
@@ -176,4 +176,86 @@ test('an independent control lists everything, whatever else is on', () => {
 
 test('with nothing else on, the list is simply everything', () => {
   assert.deepEqual(controlOptions(dse, rowsFor(dse, {})), ['Asha', 'Ravi', 'Sunil'])
+})
+
+// --- values joined from several columns -----------------------------------
+
+const TWO_RAVIS = [
+  { _row: 2, Region: 'West', DSE: 'Ravi' },
+  { _row: 3, Region: 'East', DSE: 'Ravi' },
+  { _row: 4, Region: 'West', DSE: 'Sunil' },
+  { _row: 5, Region: '', DSE: 'Asha' },
+]
+
+const joined = { id: 'j', kind: 'select', tab: 'T', column: 'Region', columns: ['Region', 'DSE'] }
+
+test('a joined control lists the combinations, not the columns', () => {
+  // "Ravi" is ambiguous when two branches have one. "West · Ravi" is not.
+  assert.deepEqual(controlOptions(joined, TWO_RAVIS), [
+    '(blank) · Asha',
+    'East · Ravi',
+    'West · Ravi',
+    'West · Sunil',
+  ])
+})
+
+test('only the combinations that exist are offered', () => {
+  // Three regions and forty names is a hundred and twenty options, and most
+  // of them are empty.
+  assert.equal(controlOptions(joined, TWO_RAVIS).length, 4)
+})
+
+test('a blank part shows as (blank) rather than collapsing', () => {
+  // "· Asha" reads as a bug, and dropping the empty part would merge two
+  // genuinely different rows into one option.
+  assert.ok(controlOptions(joined, TWO_RAVIS).includes('(blank) · Asha'))
+})
+
+test('the filter matches exactly what the list offered', () => {
+  const out = applyFilters(TWO_RAVIS, { tab: 'T', filters: [joined], values: { j: 'West · Ravi' } })
+  assert.deepEqual(out.map((r) => r._row), [2])
+})
+
+test('...which is the whole point: the single column would have matched both', () => {
+  const single = { id: 'j', kind: 'select', tab: 'T', column: 'DSE' }
+  const out = applyFilters(TWO_RAVIS, { tab: 'T', filters: [single], values: { j: 'Ravi' } })
+  assert.deepEqual(out.map((r) => r._row), [2, 3])
+})
+
+test('the separator is the admin’s', () => {
+  const dashed = { ...joined, join: ' — ' }
+  assert.ok(controlOptions(dashed, TWO_RAVIS).includes('West — Ravi'))
+  assert.equal(
+    applyFilters(TWO_RAVIS, { tab: 'T', filters: [dashed], values: { j: 'West — Ravi' } }).length,
+    1
+  )
+})
+
+test('a multi-choice join takes several combinations', () => {
+  const multi = { ...joined, kind: 'multi' }
+  const out = applyFilters(TWO_RAVIS, { tab: 'T', filters: [multi], values: { j: ['West · Ravi', 'East · Ravi'] } })
+  assert.deepEqual(out.map((r) => r._row), [2, 3])
+})
+
+test('one column in the list is just that column', () => {
+  const one = { ...joined, columns: ['DSE'] }
+  assert.deepEqual(controlOptions(one, TWO_RAVIS), ['Asha', 'Ravi', 'Sunil'])
+})
+
+test('the columns a control reads are its own, and `column` is the first', () => {
+  assert.deepEqual(controlColumns(joined), ['Region', 'DSE'])
+  assert.deepEqual(controlColumns({ column: 'A' }), ['A'])
+  assert.deepEqual(controlColumns({}), [])
+  assert.deepEqual(controlColumns({ column: 'A', columns: [] }), ['A'])
+})
+
+test('a joined control still narrows with the rest of the page', () => {
+  const region = { id: 'r', kind: 'select', tab: 'T', column: 'Region' }
+  const rows = optionRows(joined, {
+    rows: TWO_RAVIS,
+    tab: 'T',
+    filters: [region, joined],
+    values: { r: 'West' },
+  })
+  assert.deepEqual(controlOptions(joined, rows), ['West · Ravi', 'West · Sunil'])
 })

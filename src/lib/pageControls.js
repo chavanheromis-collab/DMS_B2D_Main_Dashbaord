@@ -1,5 +1,5 @@
 import { uid } from './config.js'
-import { bucketedValues } from './dataUtils.js'
+import { bucketedValues, shownValue } from './dataUtils.js'
 import { applyFilters, filterIsActive } from './filterEngine.js'
 
 // ---------------------------------------------------------------------
@@ -73,8 +73,33 @@ export const isButton = (control) => control?.kind === 'button'
  * cannot list months in one place and days in the other -- and neither has
  * to know what bucketing is.
  */
+/**
+ * Every column a control reads. One, unless the admin joined several.
+ *
+ * `column` stays the first of them, so nothing that only knows about a
+ * single-column control -- the reach rules, the coverage report, a saved
+ * page written last year -- has to learn a second shape.
+ */
+export function controlColumns(control) {
+  const many = (control?.columns || []).filter(Boolean)
+  if (many.length) return many
+  return control?.column ? [control.column] : []
+}
+
+export const DEFAULT_JOIN = ' · '
+
 export function controlOptions(control, rows, dateOrder = 'DMY', selected) {
-  const options = bucketedValues(rows, control?.column, control?.bucket, dateOrder)
+  const columns = controlColumns(control)
+
+  // A joined control lists the combinations that EXIST, not the product of
+  // every value of every column -- three regions and forty names would
+  // otherwise offer a hundred and twenty options, most of them empty.
+  const options =
+    columns.length > 1
+      ? Array.from(new Set((rows || []).map((row) => shownValue(row, control, dateOrder))))
+          .filter(Boolean)
+          .sort(new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare)
+      : bucketedValues(rows, columns[0], control?.bucket, dateOrder)
 
   // A value that is CURRENTLY SELECTED always stays on the list, even after
   // the other filters have narrowed it out of existence. Without this rule,

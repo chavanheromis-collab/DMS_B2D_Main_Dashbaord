@@ -738,6 +738,13 @@ Each control also has:
 - **Default value** (or *On by default* for a button) — the page opens with it
   applied. **Reset** returns to *these* defaults, not to blank: a control the
   admin meant to be on shouldn't be switched off by a reset.
+- **Also show** — extra columns joined into the control's values. "Ravi" is
+  ambiguous when two branches have a Ravi; **"West · Ravi"** is not, and it's
+  one control rather than two the reader has to set in the right order. Only
+  the combinations that **actually occur** are listed — three regions and
+  forty names is a hundred and twenty options, most of which don't exist. A
+  blank part shows as *(blank)* rather than collapsing, so two genuinely
+  different rows never merge into one option. The separator is yours.
 - **Narrow its values to what the page shows** — on by default. A Region of
   *West* leaves the DSE list showing only DSEs who sell in the west; without
   it, every other name is a trap that empties the dashboard with nothing to

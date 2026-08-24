@@ -491,6 +491,39 @@ export function dateBucket(date, grain) {
   }
 }
 
+/**
+ * The value a control shows for one row, across ONE OR MORE columns.
+ *
+ * "Ravi" is ambiguous when two branches have a Ravi; "West · Ravi" is not.
+ * So a control can be built from several columns at once and the parts are
+ * joined into a single value -- which is then what the list offers and what
+ * the filter matches, so the two cannot disagree.
+ *
+ * A blank part becomes "(blank)" rather than collapsing: "West · " reads as
+ * a bug, and silently dropping the empty part would merge two genuinely
+ * different rows into one option.
+ */
+export function joinedCell(row, columns, separator = ' · ') {
+  const cols = (columns || []).filter(Boolean)
+  if (cols.length === 0) return ''
+  return cols.map((c) => (isBlank(row?.[c]) ? '(blank)' : String(row[c]).trim())).join(separator)
+}
+
+/**
+ * What a control shows for one row -- joined, or bucketed, or plain.
+ *
+ * The page engine and the per-widget engine both need this and must agree:
+ * whatever the LIST offered has to be what the filter matches, or picking an
+ * option selects nothing. `columnOverride` exists because a control bound to
+ * a second tab reads a differently-named column there (see `filterTargets`),
+ * while a JOIN names its own columns and means nothing without all of them.
+ */
+export function shownValue(row, control, dateOrder = 'DMY', columnOverride) {
+  const joined = (control?.columns || []).filter(Boolean)
+  if (joined.length > 1) return joinedCell(row, joined, control.join || ' · ')
+  return bucketedCell(row?.[columnOverride ?? control?.column], control?.bucket, dateOrder)
+}
+
 /** What one cell counts as, once its column is bucketed. */
 export function bucketedCell(value, grain, dateOrder = 'DMY') {
   if (!grain) return isBlank(value) ? '' : String(value).trim()

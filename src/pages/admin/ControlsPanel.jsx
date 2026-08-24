@@ -6,7 +6,9 @@ import { controlCoverage } from '../../lib/filterEngine'
 import {
   CONTROL_GROUPS,
   CONTROL_MODES,
+  DEFAULT_JOIN,
   WIDTH_PRESETS,
+  controlColumns,
   controlMode,
   controlWidth,
   emptyView,
@@ -30,6 +32,70 @@ import ConditionBuilder from './ConditionBuilder.jsx'
 const KIND_OPTIONS = CONTROL_GROUPS.flatMap((group) =>
   group.kinds.map((kind) => ({ value: kind.value, label: `${group.label} · ${kind.label}` }))
 )
+
+/**
+ * Extra columns to join into the control's values.
+ *
+ * "Ravi" is ambiguous when two branches have a Ravi. "West · Ravi" is not,
+ * and it is one control rather than two the reader has to set in the right
+ * order.
+ */
+function JoinColumns({ control, cols, set }) {
+  const chosen = controlColumns(control)
+  const extra = chosen.slice(1)
+
+  function toggle(column) {
+    const next = extra.includes(column) ? extra.filter((c) => c !== column) : [...extra, column]
+    // `column` stays the first of them, so everything that only knows about
+    // a single-column control keeps working.
+    set({ columns: next.length ? [control.column, ...next] : [] })
+  }
+
+  if (!control.column) return null
+
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+      <p className="mb-1 text-[11px] font-medium text-slate-500">
+        Also show{' '}
+        <span className="font-normal text-slate-400">
+          (joined onto <strong>{control.column}</strong> — optional)
+        </span>
+      </p>
+
+      <div className="flex flex-wrap gap-1">
+        {cols
+          .filter((c) => c !== control.column)
+          .map((column) => {
+            const on = extra.includes(column)
+            return (
+              <button
+                key={column}
+                onClick={() => toggle(column)}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                  on ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-500'
+                }`}
+              >
+                {column}
+              </button>
+            )
+          })}
+      </div>
+
+      <p className="mt-1 text-[10px] text-slate-400">
+        {extra.length > 0 ? (
+          <>
+            Values read <strong>{chosen.join(control.join ?? DEFAULT_JOIN)}</strong>. Only the combinations that
+            actually occur are listed — three regions and forty names is a hundred and twenty options, and most of
+            them do not exist. A blank part shows as “(blank)” rather than collapsing, so two different rows never
+            merge into one option. <strong>Bucket by</strong> applies to a single column only.
+          </>
+        ) : (
+          <>One column. Add another where a value is ambiguous on its own — two branches with a Ravi in each.</>
+        )}
+      </p>
+    </div>
+  )
+}
 
 const VIA = {
   own: { label: 'its own tab', cls: 'bg-indigo-50 text-indigo-600 ring-indigo-200' },
@@ -297,6 +363,15 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         />
                       </div>
                     )}
+                    {['select', 'multi', 'chips'].includes(control.kind) && (control.columns || []).length > 1 && (
+                      <Field label="Joined with" className="w-28" hint="Between the parts.">
+                        <TextInput
+                          value={control.join ?? DEFAULT_JOIN}
+                          onChange={(v) => set({ join: v })}
+                          placeholder={DEFAULT_JOIN}
+                        />
+                      </Field>
+                    )}
                     {control.kind === 'chips' && (
                       <Field label="Max chips" hint="0 shows every value.">
                         <TextInput
@@ -482,6 +557,10 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         </Field>
                       )}
                     </div>
+                  )}
+
+                  {['select', 'multi', 'chips'].includes(control.kind) && (
+                    <JoinColumns control={control} cols={cols} set={set} />
                   )}
 
                   {/* --- Reach ------------------------------------------- */}

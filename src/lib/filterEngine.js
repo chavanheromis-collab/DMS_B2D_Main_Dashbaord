@@ -1,5 +1,5 @@
 import {
-  bucketedCell,
+  shownValue,
   isBlank,
   normalizeKey,
   toNumber,
@@ -180,9 +180,8 @@ export function filterIsActive(filter, value) {
 
 function matchesFilterValue(row, column, filter, value, dateOrder) {
   const cell = row[column]
-  // A bucketed control offers "2026", not four hundred dates -- so what it
-  // compares against is the bucket the cell falls in, not the cell.
-  const asShown = () => bucketedCell(cell, filter.bucket, dateOrder)
+  // What the LIST offered is what the filter compares -- see `shownValue`.
+  const asShown = () => shownValue(row, filter, dateOrder, column)
 
   switch (filter.kind) {
     case 'select':

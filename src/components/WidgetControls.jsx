@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { RotateCcw, X } from 'lucide-react'
-import { bucketedValues } from '../lib/dataUtils'
+import { controlOptions } from '../lib/pageControls'
 import {
   anyControlActive,
   controlIsActive,
@@ -98,7 +98,7 @@ function OneControl({ control, value, rows, onChange, sized, dateOrder }) {
     }
 
     case 'multi': {
-      const all = bucketedValues(rows, control.column, control.bucket, dateOrder)
+      const all = controlOptions(control, rows, dateOrder, value)
       const options = Number(control.maxChips) > 0 ? all.slice(0, Number(control.maxChips)) : all
       const hiddenChips = all.length - options.length
       const selected = value || []
@@ -295,7 +295,7 @@ function OneControl({ control, value, rows, onChange, sized, dateOrder }) {
 
     case 'select':
     default: {
-      const options = bucketedValues(rows, control.column, control.bucket, dateOrder)
+      const options = controlOptions(control, rows, dateOrder, value)
       return (
         <select
           value={value ?? '__ALL__'}

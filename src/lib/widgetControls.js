@@ -1,4 +1,4 @@
-import { bucketedCell, isBlank, toDate, toNumber, startOfDay, endOfDay, fromDateInput } from './dataUtils.js'
+import { isBlank, shownValue, toDate, toNumber, startOfDay, endOfDay, fromDateInput } from './dataUtils.js'
 import { matchesConditions } from './filterEngine.js'
 
 // ---------------------------------------------------------------------
@@ -122,6 +122,8 @@ export function stepperTicks(control) {
 // ---------------------------------------------------------------------
 function applyOne(rows, control, value, dateOrder) {
   const column = control.column
+  // Whatever the control's own list offered -- see `shownValue`.
+  const shown = (row) => shownValue(row, control, dateOrder)
 
   switch (control.kind) {
     case 'button':
@@ -131,7 +133,7 @@ function applyOne(rows, control, value, dateOrder) {
       const wanted = new Set(value.map((v) => String(v).trim()))
       // Bucketed, the control lists "2026" rather than four hundred dates,
       // so what it compares against is the bucket, not the cell.
-      return rows.filter((row) => wanted.has(bucketedCell(row[column], control.bucket, dateOrder)))
+      return rows.filter((row) => wanted.has(shown(row)))
     }
 
     case 'search': {
@@ -193,7 +195,7 @@ function applyOne(rows, control, value, dateOrder) {
 
     case 'select':
     default:
-      return rows.filter((row) => bucketedCell(row[column], control.bucket, dateOrder) === String(value).trim())
+      return rows.filter((row) => shown(row) === String(value).trim())
   }
 }
 
