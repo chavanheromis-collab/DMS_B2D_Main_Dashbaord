@@ -169,10 +169,12 @@ export default function WidgetControlsEditor({ widget, cols, tabHeaders, set }) 
                 {control.kind === 'multi' && (
                   <TextInput
                     type="number"
-                    value={control.maxChips ?? 8}
-                    onChange={(v) => setControl({ maxChips: Number(v) || 8 })}
-                    placeholder="chips"
-                    className="w-20"
+                    value={control.maxChips ?? 0}
+                    // 0 is every value. A cap is now something an admin
+                    // chooses, not something that happens to them.
+                    onChange={(v) => setControl({ maxChips: Math.max(0, Number(v) || 0) })}
+                    placeholder="all chips"
+                    className="w-24"
                   />
                 )}
 

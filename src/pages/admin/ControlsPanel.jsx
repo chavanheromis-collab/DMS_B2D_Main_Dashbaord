@@ -288,6 +288,15 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         />
                       </Field>
                     )}
+                    {control.kind === 'chips' && (
+                      <Field label="Max chips" hint="0 shows every value.">
+                        <TextInput
+                          type="number"
+                          value={control.maxChips ?? 0}
+                          onChange={(v) => set({ maxChips: Math.max(0, Number(v) || 0) })}
+                        />
+                      </Field>
+                    )}
                     {['select', 'multi', 'chips'].includes(control.kind) && (
                       <Field
                         label="Bucket by"

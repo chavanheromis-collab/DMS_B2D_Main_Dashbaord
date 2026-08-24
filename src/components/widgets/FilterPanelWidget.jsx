@@ -1,6 +1,6 @@
 import { CheckCheck, FilterX } from 'lucide-react'
 
-import { controlMode, controlOptions, isButton } from '../../lib/pageControls'
+import { controlMode, controlOptions, isButton, visibleChips } from '../../lib/pageControls'
 
 /**
  * The page's filters, as a panel of buttons on the canvas.
@@ -95,7 +95,9 @@ export default function FilterPanelWidget({
  */
 function FilterGroup({ control, value, rows, columns, showSelectAll, onChange, dateOrder }) {
   const multi = control.kind !== 'select'
-  const options = controlOptions(control, rows, dateOrder).slice(0, control.maxChips || 60)
+  // The panel scrolls as a whole, so a group with ninety values costs the
+  // reader a scroll rather than eighty missing options.
+  const { shown: options, hidden } = visibleChips(controlOptions(control, rows, dateOrder), control.maxChips)
   const selected = multi ? value || [] : value ? [value] : []
   const all = selected.length > 0 && multi && selected.length >= options.length
 
@@ -158,6 +160,8 @@ function FilterGroup({ control, value, rows, columns, showSelectAll, onChange, d
           })}
         </div>
       )}
+
+      {hidden > 0 && <p className="mt-0.5 text-[10px] text-slate-400">+{hidden} more not shown</p>}
     </div>
   )
 }

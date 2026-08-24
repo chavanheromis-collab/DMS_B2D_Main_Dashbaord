@@ -738,6 +738,11 @@ Each control also has:
 - **Default value** (or *On by default* for a button) — the page opens with it
   applied. **Reset** returns to *these* defaults, not to blank: a control the
   admin meant to be on shouldn't be switched off by a reset.
+- **Max chips** — `0`, the default, shows **every value**. Chips used to cap
+  themselves at twelve and say nothing about the rest; now a cap is something
+  an admin chooses, and a capped list says `+N more` rather than pretending
+  those values don't exist. Uncapped, the chip row scrolls instead of pushing
+  the rest of the bar off the page.
 - **Bucket by** — for a dropdown, multi-choice or chip control on a **date
   column**. Without it, a date column offers four hundred options, one per
   day, and nobody wants to filter to the 6th of January. Bucketed, it offers

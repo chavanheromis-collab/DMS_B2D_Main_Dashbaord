@@ -77,6 +77,22 @@ export function controlOptions(control, rows, dateOrder = 'DMY') {
   return bucketedValues(rows, control?.column, control?.bucket, dateOrder)
 }
 
+/**
+ * Which chips to draw, and how many are being held back.
+ *
+ * Every value, unless the admin capped it. A cap used to be the default and
+ * the invisible kind -- twelve chips drawn out of ninety, with nothing on
+ * screen saying so, which is the failure mode this codebase keeps finding
+ * and removing. A capped list now says what it is holding back; an uncapped
+ * one scrolls.
+ */
+export function visibleChips(options, maxChips) {
+  const all = options || []
+  const cap = Number(maxChips) > 0 ? Number(maxChips) : 0
+  if (!cap || all.length <= cap) return { shown: all, hidden: 0 }
+  return { shown: all.slice(0, cap), hidden: all.length - cap }
+}
+
 // ---------------------------------------------------------------------
 // What a control IS to the person looking at the page
 // ---------------------------------------------------------------------

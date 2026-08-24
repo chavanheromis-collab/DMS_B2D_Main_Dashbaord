@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { bucketedCell, bucketedValues, dateBucket } from './dataUtils.js'
-import { controlOptions } from './pageControls.js'
+import { controlOptions, visibleChips } from './pageControls.js'
 import { applyFilters } from './filterEngine.js'
 
 const ROWS = [
@@ -99,4 +99,29 @@ test('bucketing an empty list is not an error', () => {
   assert.deepEqual(bucketedValues([], 'Sold', 'year'), [])
   assert.deepEqual(bucketedValues(ROWS, '', 'year'), [])
   assert.deepEqual(bucketedValues(null, 'Sold', 'year'), [])
+})
+
+// --- how many chips ------------------------------------------------------
+
+test('chips show every value unless an admin capped them', () => {
+  // The default used to be twelve of ninety, with nothing saying so.
+  const values = Array.from({ length: 90 }, (_, i) => `V${i}`)
+  assert.equal(visibleChips(values, 0).shown.length, 90)
+  assert.equal(visibleChips(values, undefined).shown.length, 90)
+  assert.equal(visibleChips(values, null).hidden, 0)
+})
+
+test('a cap says what it is holding back', () => {
+  const { shown, hidden } = visibleChips(['a', 'b', 'c', 'd'], 2)
+  assert.deepEqual(shown, ['a', 'b'])
+  assert.equal(hidden, 2)
+})
+
+test('a cap bigger than the list is not a cap', () => {
+  assert.deepEqual(visibleChips(['a', 'b'], 10), { shown: ['a', 'b'], hidden: 0 })
+})
+
+test('nothing to show is not an error', () => {
+  assert.deepEqual(visibleChips(null, 5), { shown: [], hidden: 0 })
+  assert.deepEqual(visibleChips([], 5), { shown: [], hidden: 0 })
 })

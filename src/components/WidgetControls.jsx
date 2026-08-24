@@ -98,11 +98,14 @@ function OneControl({ control, value, rows, onChange, sized, dateOrder }) {
     }
 
     case 'multi': {
-      const options = bucketedValues(rows, control.column, control.bucket, dateOrder).slice(0, control.maxChips || 8)
+      const all = bucketedValues(rows, control.column, control.bucket, dateOrder)
+      const options = Number(control.maxChips) > 0 ? all.slice(0, Number(control.maxChips)) : all
+      const hiddenChips = all.length - options.length
       const selected = value || []
       return (
         <span className="flex flex-wrap items-center gap-1">
           <span className="text-[10px] font-medium text-slate-500">{control.label}:</span>
+          {hiddenChips > 0 && <span className="text-[9px] text-slate-400">+{hiddenChips} more</span>}
           {options.map((opt) => {
             const on = selected.includes(opt)
             return (

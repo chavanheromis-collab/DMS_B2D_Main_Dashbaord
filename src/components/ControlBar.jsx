@@ -7,6 +7,7 @@ import {
   activeCount,
   controlActive,
   controlOptions,
+  visibleChips,
   controlWidth,
   isButton,
   partitionByProminence,
@@ -228,11 +229,14 @@ function Control({ control, value, rows, onChange, isOn, onToggleButton, sized, 
 
   if (control.kind === 'chips') {
     const selected = value || []
-    const options = controlOptions(control, rows, dateOrder).slice(0, control.maxChips || 12)
+    const { shown, hidden } = visibleChips(controlOptions(control, rows, dateOrder), control.maxChips)
     return (
-      <div className="flex flex-wrap items-center gap-1">
+      // Every value, and the row scrolls rather than pushing the rest of the
+      // bar off the page. A control with ninety values is a real thing; a
+      // control that silently shows twelve of them is not.
+      <div className="flex max-h-[76px] flex-wrap items-center gap-1 overflow-y-auto">
         <span className="text-[11px] font-medium text-slate-500">{control.label}:</span>
-        {options.map((opt) => {
+        {shown.map((opt) => {
           const on = selected.includes(opt)
           return (
             <button
@@ -247,6 +251,11 @@ function Control({ control, value, rows, onChange, isOn, onToggleButton, sized, 
             </button>
           )
         })}
+        {hidden > 0 && (
+          <span className="text-[10px] text-slate-400" title="Raise “Max chips” in the admin panel to show them">
+            +{hidden} more
+          </span>
+        )}
         {selected.length > 0 && (
           <button onClick={() => onChange([])} className="text-slate-300 hover:text-rose-500">
             <X size={12} />
