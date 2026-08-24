@@ -161,12 +161,13 @@ export default function UsersPanel({ pages }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-sm">
+        <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-left text-slate-400">
-              <th className="py-2 font-medium">User</th>
+              <th className="py-2 font-medium">Name</th>
+              <th className="py-2 font-medium">Work role</th>
               <th className="py-2 font-medium">Status</th>
-              <th className="py-2 font-medium">Role</th>
+              <th className="py-2 font-medium">Access</th>
               <th className="py-2 font-medium">Pages</th>
               <th />
             </tr>
@@ -180,17 +181,25 @@ export default function UsersPanel({ pages }) {
                 <Fragment key={u.id}>
                   <tr className="border-b border-slate-50">
                     <td className="py-2 pr-2">
-                      <p className="flex flex-wrap items-center gap-1.5 font-medium text-ink">
-                        {u.name || '—'}
-                        {/* What they said they do. Not a permission -- it is
-                            how an admin recognises who is asking. */}
-                        {u.jobRole && (
-                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal text-slate-500">
-                            {u.jobRole}
-                          </span>
-                        )}
-                      </p>
+                      <p className="font-medium text-ink">{u.name || '—'}</p>
                       <p className="text-xs text-slate-400">{u.email}</p>
+                    </td>
+
+                    {/* What they do. Editable, because everyone who signed up
+                        before this field existed has none, and an admin
+                        knowing the answer beats waiting for them to sign in
+                        again and type it. */}
+                    <td className="py-2 pr-2">
+                      <input
+                        defaultValue={u.jobRole || ''}
+                        onBlur={(e) => {
+                          const next = e.target.value.trim()
+                          if (next !== (u.jobRole || '')) saveUser(u.id, { jobRole: next })
+                        }}
+                        placeholder="—"
+                        className="w-36 rounded-lg border border-transparent px-1.5 py-1 text-xs hover:border-slate-200 focus:border-slate-300 focus:bg-white"
+                        aria-label={`Work role of ${u.name || u.email}`}
+                      />
                     </td>
                     <td className="py-2 pr-2">
                       <Select
@@ -236,7 +245,7 @@ export default function UsersPanel({ pages }) {
 
                   {open && (
                     <tr className="bg-slate-50/60">
-                      <td colSpan={5} className="p-3">
+                      <td colSpan={6} className="p-3">
                         {u.role === 'admin' ? (
                           <p className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-4 text-center text-xs text-indigo-700">
                             Admins can see and edit every page. Change their role to “User” to grant pages individually.
@@ -320,7 +329,7 @@ export default function UsersPanel({ pages }) {
 
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-slate-300">
+                <td colSpan={6} className="py-8 text-center text-slate-300">
                   {users.length === 0 ? 'No users have signed in yet' : 'No user matches that search'}
                 </td>
               </tr>
