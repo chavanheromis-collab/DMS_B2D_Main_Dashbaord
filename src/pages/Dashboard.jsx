@@ -98,11 +98,18 @@ export default function Dashboard() {
   // measurement had already been thrown away.
   const [sizes, setSizes] = useState({})
 
-  const noteSize = useCallback((id, width, height) => {
+  const noteSize = useCallback((id, width, height, layout) => {
     setSizes((prev) => {
       const was = prev[id]
-      if (was && Math.abs(was.width - width) <= 1 && Math.abs(was.height - height) <= 1) return prev
-      return { ...prev, [id]: { width, height } }
+      if (
+        was &&
+        Math.abs(was.width - width) <= 1 &&
+        Math.abs(was.height - height) <= 1 &&
+        was.spanWidth === layout?.spanWidth
+      ) {
+        return prev
+      }
+      return { ...prev, [id]: { width, height, span: layout?.span, spanWidth: layout?.spanWidth } }
     })
   }, [])
   // Per-widget control values, keyed by widget id then control id. Held here
@@ -781,7 +788,9 @@ export default function Dashboard() {
               <strong>#</strong> is the position: lower first, blank leaves it where it is, and it is yours alone.{' '}
               <strong>W</strong> and <strong>H</strong> are pixels and belong to the page. They save when you leave
               the box, press Enter, or pause; Escape puts back what was saved. A height is drawn exactly as typed
-              and only gives way on a phone; a width never runs past the edge of the canvas.
+              and only gives way on a phone; a width never runs past the edge of the canvas.{' '}
+              An amber <strong>+n</strong> on a pill means that widget claims n pixels of the twelve-column canvas
+              it doesn’t use — the dead strip beside it — and the ⤢ inside widens it to close the gap.
             </span>
             {savingLayout && <span className="text-[10px] font-medium text-indigo-500">saving…</span>}
             <div className="ml-auto flex gap-2">

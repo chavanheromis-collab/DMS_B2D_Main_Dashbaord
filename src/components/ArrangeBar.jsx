@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { Maximize2, X } from 'lucide-react'
+import { widthSlack } from '../lib/gridSpan'
 
 /**
  * The per-widget handle shown in arrange mode: its position, and its pinned
@@ -91,6 +92,16 @@ export default function ArrangeBar({
   const h = heightPx || measured?.height
   const pinned = Boolean(widthPx || heightPx)
 
+  // The room this widget claimed and does not use.
+  //
+  // The canvas is twelve columns, so a widget pinned to 260px where a column
+  // is 95px claims three of them and leaves 45px beside it that nothing can
+  // ever fill -- which is what a hole beside a row of KPIs actually is. It
+  // is invisible until you are told, so: shown, with one click to close it.
+  const slack = widthSlack(w, measured?.spanWidth)
+  const wasteful = slack > 16 && measured?.spanWidth > 0
+  const snap = () => onSize({ widthPx: String(measured.spanWidth) })
+
   if (!open) {
     return (
       <button
@@ -108,6 +119,7 @@ export default function ArrangeBar({
             {Math.round(w)}×{Math.round(h)}
           </span>
         ) : null}
+        {wasteful && <span className="font-semibold text-amber-600">+{slack}</span>}
       </button>
     )
   }
@@ -143,6 +155,15 @@ export default function ArrangeBar({
         onCommit={(raw) => onSize({ heightPx: raw })}
         title={`Height of ${title} in pixels`}
       />
+      {wasteful && (
+        <button
+          onClick={snap}
+          className="rounded p-0.5 text-amber-500 hover:text-amber-700"
+          title={`This widget claims ${slack}px more than it uses — a dead strip beside it. Widen it to ${measured.spanWidth}px to close the gap.`}
+        >
+          <Maximize2 size={12} />
+        </button>
+      )}
       {pinned && (
         <button
           onClick={() => onSize({ widthPx: '', heightPx: '' })}

@@ -19,7 +19,7 @@ import {
   widthUnitsFor,
   widthUnitsLabel,
 } from './config.js'
-import { spanForItem, spanForPixels, spanForWidth } from './gridSpan.js'
+import { drawnWidth, spanForItem, spanForPixels, spanForWidth } from './gridSpan.js'
 
 const rows = [
   { Model: 'SPLENDOR +', SKU: 'A1', Stock: '159' },
@@ -235,7 +235,32 @@ test('a pixel width claims whole columns, rounding UP', () => {
   assert.equal(spanForPixels(100, colWidth, gap), 1)
   assert.equal(spanForPixels(120, colWidth, gap), 2, '1.2 columns takes two')
   assert.equal(spanForPixels(212, colWidth, gap), 2, 'exactly two columns plus the gap')
-  assert.equal(spanForPixels(213, colWidth, gap), 3)
+  assert.equal(spanForPixels(223, colWidth, gap), 3)
+})
+
+test('a few pixels of overhang do not cost a whole column', () => {
+  // A widget three pixels past a boundary used to claim the entire next
+  // column: a hundred-pixel dead strip beside it, permanently unfillable,
+  // bought with three pixels nobody can see. Within the tolerance it is
+  // drawn a hair narrower instead -- much the smaller lie.
+  assert.equal(spanForPixels(213, 100, 12), 2, 'one pixel over is not another column')
+  assert.equal(spanForPixels(222, 100, 12), 2, 'still inside the tolerance')
+  assert.equal(spanForPixels(223, 100, 12), 3, 'past it, and the column is genuinely needed')
+})
+
+test('the tolerance can never cause an overlap', () => {
+  // Whatever it claims, it is drawn no wider -- so the neighbour's room
+  // stays the neighbour's.
+  const colWidth = 100
+  const gap = 12
+  for (const px of [120, 213, 222, 260, 412]) {
+    const span = spanForPixels(px, colWidth, gap)
+    const spanWidth = span * colWidth + (span - 1) * gap
+    assert.ok(
+      drawnWidth(px, { left: 0, containerWidth: 1332, spanWidth }) <= spanWidth,
+      `${px}px must not draw wider than the ${span} columns it claimed`
+    )
+  }
 })
 
 test('a pixel width never claims more than the whole canvas', () => {

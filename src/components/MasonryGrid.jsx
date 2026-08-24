@@ -93,6 +93,10 @@ export default function MasonryGrid({ items, gap = 12, className = '', onMeasure
   const measure = useRef(onMeasure)
   measure.current = onMeasure
   const itemRefs = useRef(new Map())
+  // What the packer decided, so a measurement can be reported alongside the
+  // room the widget was actually given. Held in a ref because the observer
+  // callbacks are created once per layout, not per render.
+  const layoutRef = useRef({})
   const [heights, setHeights] = useState({}) // id -> px, filled in as each widget reports its real size
   const [containerWidth, setContainerWidth] = useState(0)
   const breakpoint = breakpointFor(containerWidth)
@@ -140,7 +144,7 @@ export default function MasonryGrid({ items, gap = 12, className = '', onMeasure
         // The same measurement, handed back to whoever is drawing size
         // controls. Reporting from here rather than measuring again means
         // the number on screen is the number the layout actually used.
-        measure.current?.(id, Math.round(box.width), Math.round(h))
+        measure.current?.(id, Math.round(box.width), Math.round(h), layoutRef.current[id])
       })
       ro.observe(node)
       observers.push(ro)
@@ -187,6 +191,7 @@ export default function MasonryGrid({ items, gap = 12, className = '', onMeasure
         }
         const left = p.col * (colWidth + gap)
         const spanWidth = p.span * colWidth + (p.span - 1) * gap
+        layoutRef.current[item.id] = { span: p.span, spanWidth: Math.round(spanWidth), columns: COLUMNS }
         // A pixel-sized widget draws at exactly its number, but never past
         // the right edge -- measured from where it actually sits, not from
         // the canvas origin, or a widget in column 7 spills off the page.

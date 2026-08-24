@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { orderWidgets } from './widgetOrder.js'
-import { MIN_HEIGHT_PX, MIN_WIDTH_PX, drawnWidth, heightStyle } from './gridSpan.js'
+import { MIN_HEIGHT_PX, MIN_WIDTH_PX, drawnWidth, heightStyle, widthSlack } from './gridSpan.js'
 import { groupStacked, groupSeries, scatterPoints } from './dataUtils.js'
 import { resolveStyle, styleVars, styleClass } from './widgetStyle.js'
 import { canvasFor, childPages, navLabelFor, sidebarPages } from './workspace.js'
@@ -263,4 +263,18 @@ test('before the canvas has been measured, the number is taken as given', () => 
 test('the floors are low enough to be useful and high enough to be visible', () => {
   assert.ok(MIN_WIDTH_PX >= 40 && MIN_WIDTH_PX <= 200)
   assert.equal(MIN_HEIGHT_PX, 60, 'the height floor heightStyle already used')
+})
+
+test('a pinned width never draws wider than the columns it claimed', () => {
+  // The room beyond the span belongs to the widget beside it.
+  assert.equal(drawnWidth(400, { left: 0, containerWidth: 1200, spanWidth: 360 }), 360)
+})
+
+test('slack is the room a widget claimed and does not use', () => {
+  // 260px on a canvas whose columns are 95px claims three of them -- 305px
+  // -- and the 45 left over is the hole beside a row of KPIs.
+  assert.equal(widthSlack(260, 305), 45)
+  assert.equal(widthSlack(305, 305), 0)
+  assert.equal(widthSlack(0, 305), 0, 'an unpinned widget already fills its span')
+  assert.equal(widthSlack(260, 0), 0, 'nothing is known before the first layout')
 })

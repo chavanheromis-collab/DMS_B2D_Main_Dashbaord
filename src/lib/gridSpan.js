@@ -51,10 +51,32 @@ export function spanForWidth(width, breakpoint, units) {
  * fall back to the standard span for that first frame instead of dividing
  * by zero.
  */
-export function spanForPixels(widthPx, colWidth, gap = 12, columns = COLUMNS) {
+export const SPAN_TOLERANCE = 10
+
+export function spanForPixels(widthPx, colWidth, gap = 12, columns = COLUMNS, tolerance = SPAN_TOLERANCE) {
   if (!(colWidth > 0) || !(widthPx > 0)) return null
-  const span = Math.ceil((widthPx + gap) / (colWidth + gap))
+  // Minus a small tolerance, because a widget that overhangs a column
+  // boundary by three pixels used to claim a WHOLE further column -- a
+  // hundred-pixel strip beside it that nothing can ever be placed in, for
+  // three pixels nobody can see. Over the tolerance it is drawn a hair
+  // narrower than asked (see drawnWidth) instead, which is the smaller lie
+  // by far.
+  const span = Math.ceil((widthPx + gap - tolerance) / (colWidth + gap))
   return Math.min(columns, Math.max(1, span))
+}
+
+/**
+ * How much of the room a widget claimed it does not use.
+ *
+ * The grid reasons in whole columns, so a widget pinned to 260px on a canvas
+ * whose columns are 95px claims three of them -- 305px -- and the 45px left
+ * over is dead: too narrow for anything else, and nothing can be placed
+ * there anyway. Surfacing the number is what lets an admin see WHY there is
+ * a hole beside their KPI row and snap it shut in one click.
+ */
+export function widthSlack(widthPx, spanWidth) {
+  if (!(widthPx > 0) || !(spanWidth > 0)) return 0
+  return Math.max(0, Math.round(spanWidth - widthPx))
 }
 
 /**
@@ -102,8 +124,13 @@ export const MIN_HEIGHT_PX = 60
  */
 export function drawnWidth(widthPx, { left = 0, containerWidth = 0, spanWidth = 0 }) {
   if (!(widthPx > 0)) return spanWidth
-  if (!(containerWidth > 0)) return widthPx
-  return Math.max(1, Math.min(widthPx, containerWidth - left))
+  // Never wider than the columns it claimed -- that room belongs to the
+  // widget beside it -- and never past the right edge of the canvas, where
+  // the overflow could not be reached at all.
+  const limits = [widthPx]
+  if (spanWidth > 0) limits.push(spanWidth)
+  if (containerWidth > 0) limits.push(containerWidth - left)
+  return Math.max(1, Math.min(...limits))
 }
 
 export function heightStyle(px, { min = MIN_HEIGHT_PX } = {}) {

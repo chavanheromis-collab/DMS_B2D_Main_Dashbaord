@@ -328,7 +328,9 @@ promise a phone cannot keep:
   re-flows at every breakpoint exactly as a named width does — and it is
   clamped to the space **remaining from where the widget sits**, not to the
   canvas as a whole, so a wide widget in the seventh column can't spill off
-  the right-hand edge into somewhere nobody can scroll to.
+  the right-hand edge into somewhere nobody can scroll to. It is also never
+  drawn wider than the columns it claimed, because that room belongs to the
+  widget beside it.
 - A **height** is drawn exactly as typed, published as a CSS custom property
   so a media query can cap it on a phone — where a widget taller than the
   device is a trap rather than a layout — and floored at 60px so a mistyped
@@ -343,6 +345,26 @@ The **content fills the size too** — a chart, a trend, a stacked chart, a
 pie and a flow canvas all stretch to the height you set instead of keeping
 their own default and leaving the rest of the card empty. A table or a pivot
 scrolls inside it instead, which is what a fixed height means for a list.
+
+#### Why a pinned widget can leave a hole beside it — and the `+n` that closes it
+
+The canvas is twelve columns. A widget pinned to **260px** on a canvas whose
+columns are 95px claims **three** of them — 305px — and the 45px left over is
+dead space: too narrow to hold anything, and nothing can be placed there
+anyway. Three KPIs in a row each doing that is why a gap opens beside them
+that no other widget ever fills, and it's invisible unless you know the model.
+
+So it's shown. A pill reading `1 260×94 **+45**` is saying *this widget claims
+45px it doesn't use*, and the **⤢** inside widens it to exactly its span so
+the gap closes. Nothing is snapped behind your back — the number you typed is
+the number that's drawn — but the cost of that number is now on screen instead
+of hiding in the layout.
+
+A few pixels of overhang no longer cost a whole column either. A widget three
+pixels past a boundary used to claim the next one outright: a ~100px dead
+strip, permanently unfillable, bought with three pixels nobody can see. Within
+a 10px tolerance it's drawn a hair narrower instead, which is by far the
+smaller lie.
 
 Only admins see the button, and the Firestore rules say the same thing
 independently — so the missing button is a convenience, not the security.
