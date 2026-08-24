@@ -86,8 +86,13 @@ export default function Dashboard() {
   const [arranging, setArranging] = useState(false)
   const [savingLayout, setSavingLayout] = useState(false)
   // What each widget currently measures, so the size boxes can show the
-  // number a widget IS rather than an empty box. Only collected while
-  // arranging: nothing else on the page needs it.
+  // number a widget IS rather than an empty box.
+  //
+  // Collected always, not only while arranging: a ResizeObserver reports
+  // once when it starts observing and then only on CHANGE, and those
+  // observers are created long before anybody opens the arrange bar. Wiring
+  // this up at that moment meant the first -- and for a still page, only --
+  // measurement had already been thrown away.
   const [sizes, setSizes] = useState({})
 
   const noteSize = useCallback((id, width, height) => {
@@ -825,7 +830,7 @@ export default function Dashboard() {
 
             <MasonryGrid
               gap={12}
-              onMeasure={arranging ? noteSize : undefined}
+              onMeasure={noteSize}
               items={view.widgets.map((widget, index) => {
                 const blended = blendedByWidget[widget.id]
                 const tabData = dataByLabel[widget.tab]
