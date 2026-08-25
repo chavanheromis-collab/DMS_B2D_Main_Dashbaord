@@ -682,6 +682,71 @@ export default function Dashboard() {
     }
   }
 
+  /**
+   * A page control, sized and placed on the page.
+   *
+   * A control is part of the page's design in exactly the way a widget is,
+   * and there is no reason it should be the one thing an admin has to leave
+   * the page to adjust. Same rules: pixels, admin-only, written to the page.
+   */
+  async function saveControlEdit(controlId, patch) {
+    if (!isAdmin || !page?.id) return
+
+    const clean = {}
+    if ('widthPx' in patch) {
+      const n = Number(patch.widthPx)
+      clean.widthPx = patch.widthPx === '' || !Number.isFinite(n) || n <= 0 ? null : Math.round(n)
+    }
+    if ('order' in patch) {
+      const n = Number(patch.order)
+      clean.order = patch.order === '' || !Number.isFinite(n) ? null : Math.round(n)
+    }
+    if ('advanced' in patch) clean.advanced = !!patch.advanced
+
+    const controls = (page.controls || []).map((c) => (c.id === controlId ? { ...c, ...clean } : c))
+    setSavingLayout(true)
+    try {
+      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ controls }), { merge: true })
+    } finally {
+      setSavingLayout(false)
+    }
+  }
+
+  /** The page's widget list, rewritten. One writer for every action. */
+  async function writeWidgets(next) {
+    if (!isAdmin || !page?.id) return
+    setSavingLayout(true)
+    try {
+      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets: next }), { merge: true })
+    } finally {
+      setSavingLayout(false)
+    }
+  }
+
+  const renameWidget = (id, title) =>
+    writeWidgets((page.widgets || []).map((w) => (w.id === id ? { ...w, title } : w)))
+
+  /**
+   * A copy of a widget, right after it.
+   *
+   * The commonest thing anybody wants after building one chart is the same
+   * chart broken down a different way, and rebuilding it from scratch in the
+   * admin panel is the slowest possible route to that.
+   */
+  function duplicateWidget(id) {
+    const widgets = page.widgets || []
+    const at = widgets.findIndex((w) => w.id === id)
+    if (at === -1) return
+    const copy = {
+      ...widgets[at],
+      id: `w_${Math.random().toString(36).slice(2, 9)}`,
+      title: `${widgets[at].title || 'Widget'} copy`,
+    }
+    writeWidgets([...widgets.slice(0, at + 1), copy, ...widgets.slice(at + 1)])
+  }
+
+  const deleteWidget = (id) => writeWidgets((page.widgets || []).filter((w) => w.id !== id))
+
   async function saveWidgetSize(widgetId, patch) {
     if (!isAdmin || !page?.id) return
 
@@ -924,6 +989,9 @@ export default function Dashboard() {
                           measured={sizes[widget.id]}
                           onSize={(patch) => saveWidgetSize(widget.id, patch)}
                           onStyle={isAdmin ? (next) => saveWidgetStyle(widget.id, next) : undefined}
+                          onRename={isAdmin ? (next) => renameWidget(widget.id, next) : undefined}
+                          onDuplicate={isAdmin ? () => duplicateWidget(widget.id) : undefined}
+                          onDelete={isAdmin ? () => deleteWidget(widget.id) : undefined}
                           title={widget.title}
                         />
                       )}
@@ -1256,6 +1324,8 @@ export default function Dashboard() {
               optionRows={optionRowsByControl}
               totalLabel={totalLabel}
               dateOrder={dateOrder}
+              editable={isAdmin && arranging}
+              onControlEdit={saveControlEdit}
             />
 
             <CrossFilterChips

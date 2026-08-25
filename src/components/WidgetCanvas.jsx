@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { packRowGroups, rowSlack } from '../lib/flowPack'
+import { packRowGroups, rowGaps, rowSlack } from '../lib/flowPack'
 
 /**
  * The page's widgets, laid out by the space each one needs.
@@ -47,6 +47,12 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
   const slack = useMemo(
     () => rowSlack(layout.rows, layout.positions, width, gapX),
     [layout, width, gapX]
+  )
+
+  // The empty space at the end of each row, and what would fit in it.
+  const gaps = useMemo(
+    () => (showRows && width > 0 ? rowGaps(layout.rows, layout.positions, width, gapX) : []),
+    [showRows, layout, width, gapX]
   )
 
   // One observer per widget, so a table that grows a row pushes what is
@@ -108,6 +114,22 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
             </span>
           </div>
         ))}
+
+      {/* What would fit in the space left over. The number somebody
+          actually needs while arranging is not "there is room" but "there is
+          room for 340 by 94", and that is a rectangle, not a caption. */}
+      {gaps.map((gap) => (
+        <div
+          key={`gap-${gap.row}`}
+          aria-hidden
+          className="pointer-events-none absolute flex items-center justify-center rounded-lg border-2 border-dashed border-slate-300/80 bg-slate-50/40"
+          style={{ left: gap.left, top: gap.top, width: gap.width, height: gap.height }}
+        >
+          <span className="rounded bg-white/85 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
+            {gap.width} × {Math.round(gap.height)}
+          </span>
+        </div>
+      ))}
 
       {items.map((item) => {
         const box = layout.positions[item.id]

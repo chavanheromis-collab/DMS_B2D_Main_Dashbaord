@@ -153,3 +153,67 @@ test('clicking away or pressing Escape closes it', () => {
   assert.ok(bar.includes("if (e.key === 'Escape') onDismiss()"))
   assert.ok(bar.includes('if (ref.current && !ref.current.contains(e.target)) onDismiss()'))
 })
+
+// --- what fits in the space left over ------------------------------------
+
+test('the empty space is drawn as a box with its size in it', () => {
+  // "There is room" is not the question anybody has while arranging; "there
+  // is room for 428 by 94" is.
+  assert.ok(canvas.includes('rowGaps(layout.rows, layout.positions, width, gapX)'))
+  assert.ok(canvas.includes('gaps.map((gap) => ('))
+  assert.ok(canvas.includes('border-dashed'))
+  assert.ok(canvas.includes('{gap.width} × {Math.round(gap.height)}'))
+})
+
+test('the gaps are only drawn while arranging', () => {
+  assert.ok(canvas.includes('showRows && width > 0 ? rowGaps('))
+})
+
+// --- controls are part of the page's design ------------------------------
+
+const controlBar = read('components/ControlBar.jsx')
+
+test('a page control is sized and placed on the page, like a widget', () => {
+  assert.ok(controlBar.includes('function ControlPill('))
+  assert.ok(controlBar.includes('onEdit({ widthPx: e.target.value })'))
+  assert.ok(controlBar.includes('onEdit({ order: e.target.value })'))
+  assert.ok(controlBar.includes('onEdit({ advanced: !control.advanced })'))
+  assert.ok(dashboard.includes('async function saveControlEdit(controlId, patch)'))
+  assert.ok(dashboard.includes('onControlEdit={saveControlEdit}'))
+})
+
+test('control editing is admin-only and writes to the page', () => {
+  assert.ok(dashboard.includes('editable={isAdmin && arranging}'))
+  assert.ok(dashboard.includes("stripUndefined({ controls })"))
+})
+
+// --- the actions an admin always wants next ------------------------------
+
+test('a widget can be renamed, duplicated and removed from the page', () => {
+  assert.ok(bar.includes('onRename('))
+  assert.ok(bar.includes('onClick={onDuplicate}'))
+  assert.ok(bar.includes('onDelete()'))
+  assert.ok(dashboard.includes('const renameWidget = (id, title) =>'))
+  assert.ok(dashboard.includes('function duplicateWidget(id)'))
+  assert.ok(dashboard.includes('const deleteWidget = (id) =>'))
+})
+
+test('a duplicate lands right after the one it copied, with a new id', () => {
+  // The commonest thing anybody wants after building a chart is the same
+  // chart broken down another way.
+  assert.ok(dashboard.includes('[...widgets.slice(0, at + 1), copy, ...widgets.slice(at + 1)]'))
+  assert.ok(dashboard.includes("id: `w_${Math.random().toString(36).slice(2, 9)}`"))
+})
+
+test('removing a widget is confirmed first', () => {
+  // It is the one action here that loses work somebody did in the admin
+  // panel.
+  assert.ok(bar.includes('window.confirm('))
+})
+
+test('every one of these is admin-only', () => {
+  for (const action of ['onRename={isAdmin', 'onDuplicate={isAdmin', 'onDelete={isAdmin']) {
+    assert.ok(dashboard.includes(action), action)
+  }
+  assert.ok(dashboard.includes('async function writeWidgets(next) { if (!isAdmin || !page?.id) return'))
+})

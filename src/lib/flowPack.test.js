@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { MIN_WIDTH, NAMED_FRACTIONS, packRowGroups, requiredWidth, rowOf, rowSlack } from './flowPack.js'
+import { MIN_WIDTH, NAMED_FRACTIONS, packRowGroups, requiredWidth, rowGaps, rowOf, rowSlack } from './flowPack.js'
 
 const item = (id, widthPx, estimatedHeight = 100) => ({ id, widthPx, estimatedHeight })
 
@@ -271,4 +271,61 @@ test('an empty page is an empty canvas here too', () => {
   const out = packRowGroups([], { canvasWidth: 1000 })
   assert.deepEqual(out.rows, [])
   assert.equal(out.containerHeight, 0)
+})
+
+// --- the empty space, drawn ----------------------------------------------
+
+test('the space left on a row is a rectangle with a size in it', () => {
+  // Not "there is room" but "there is room for 428 by 94", which is the
+  // question anybody actually has while arranging.
+  const { positions, rows } = packRowGroups([rowItem('a', 260, 1, 94), rowItem('b', 260, 1, 94)], {
+    canvasWidth: 1000,
+    gapX: 12,
+  })
+  const gaps = rowGaps(rows, positions, 1000, 12)
+  assert.equal(gaps.length, 1)
+  assert.equal(gaps[0].left, 544, 'starting a gap after the last widget')
+  assert.equal(gaps[0].width, 456)
+  assert.equal(gaps[0].height, 94, 'as tall as the row it is on')
+})
+
+test('a gap too narrow to hold anything is not drawn', () => {
+  // A strip narrower than a widget is not somewhere a widget could go, and
+  // drawing it would be noise.
+  const { positions, rows } = packRowGroups([rowItem('a', 500, 1), rowItem('b', 450, 1)], {
+    canvasWidth: 1000,
+    gapX: 12,
+  })
+  assert.deepEqual(rowGaps(rows, positions, 1000, 12), [])
+})
+
+test('a full row has no gap at all', () => {
+  const { positions, rows } = packRowGroups([rowItem('a', 494, 1), rowItem('b', 494, 1)], {
+    canvasWidth: 1000,
+    gapX: 12,
+  })
+  assert.deepEqual(rowGaps(rows, positions, 1000, 12), [])
+})
+
+test('every row gets its own gap, at its own height', () => {
+  const { positions, rows } = packRowGroups(
+    [rowItem('a', 300, 1, 80), rowItem('b', 300, 2, 200)],
+    { canvasWidth: 1000, gapX: 12, gapY: 10 }
+  )
+  const gaps = rowGaps(rows, positions, 1000, 12)
+  assert.equal(gaps.length, 2)
+  assert.deepEqual(gaps.map((g) => g.height), [80, 200])
+  assert.deepEqual(gaps.map((g) => g.row), [1, 2])
+})
+
+test('a gap is measured from the widest widget on the row, not the last one', () => {
+  // Widgets on a row can wrap in the middle if one is short; the free space
+  // starts after whichever edge is furthest right.
+  const { positions, rows } = packRowGroups([rowItem('a', 400, 1), rowItem('b', 200, 1)], {
+    canvasWidth: 1000,
+    gapX: 12,
+  })
+  const gap = rowGaps(rows, positions, 1000, 12)[0]
+  assert.equal(gap.left, 624, '400 + 12 + 200, then a gap')
+  assert.equal(gap.width, 376)
 })

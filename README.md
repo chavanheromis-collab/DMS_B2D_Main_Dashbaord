@@ -352,6 +352,38 @@ because judging it any other way is impossible. Closing the panel discards
 an unsaved draft rather than leaving the page looking wrong for no visible
 reason.
 
+#### The empty space tells you what fits in it
+
+Wherever a row has room left over, **Arrange** mode draws a dotted box in it
+labelled with its exact size — `428 × 94`. "There is room" was never the
+question anybody had while arranging a page; *"there is room for 428 by 94"*
+is, because it is the number you are about to type into a **W** box. A gap
+narrower than a widget could use isn't drawn, because a strip of nothing is
+not somewhere to put something.
+
+#### Page controls are part of the design too
+
+Every control on the filter bar gets its own small handle in Arrange mode,
+with the same three numbers a widget has: **#** for its order, **W** for its
+width in pixels, and one switch for whether it sits on the bar or behind
+**More**. A control is part of a page's design in exactly the way a widget
+is, and there was no reason for it to be the one thing an admin had to leave
+the page to adjust.
+
+#### Rename, duplicate, remove
+
+Also on a widget's pill:
+
+| | |
+|---|---|
+| **✏️ Rename** | The title, in place. |
+| **⧉ Duplicate** | A copy, immediately after the original. The commonest thing anybody wants after building a chart is the same chart broken down another way, and rebuilding it from scratch in the admin panel is the slowest possible route to that. |
+| **🗑 Remove** | Takes it off the page. Confirmed first — it is the one action here that loses work somebody did in the admin panel. |
+
+All three are admin-only, all three write to the page, and all three go
+through one function, so there is one place where "am I allowed to do this?"
+is answered.
+
 #### Restyle one widget, on the widget
 
 The 🖌 on a widget's pill opens its own look: theme, surface, accent, border

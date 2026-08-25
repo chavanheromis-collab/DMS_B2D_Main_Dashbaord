@@ -355,6 +355,8 @@ export default function ControlBar({
   optionRows,
   totalLabel,
   dateOrder = 'DMY',
+  editable = false,
+  onControlEdit,
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
 
@@ -376,7 +378,13 @@ export default function ControlBar({
   const renderControl = (control) => {
     const px = controlWidth(control)
     return (
-      <div key={control.id} style={px ? { width: px, flex: '0 0 auto' } : undefined}>
+      <div key={control.id} className="relative" style={px ? { width: px, flex: '0 0 auto' } : undefined}>
+        {/* A control is sized and placed on the page exactly the way a
+            widget is: in its own place, in pixels, by an admin who is
+            looking at it. */}
+        {editable && onControlEdit && (
+          <ControlPill control={control} measured={px} onEdit={(patch) => onControlEdit(control.id, patch)} />
+        )}
         <Control
           control={control}
           value={values?.[control.id]}
@@ -483,6 +491,76 @@ export default function ControlBar({
           {advanced.map(renderControl)}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * The handle on a page control, in arrange mode.
+ *
+ * The same idea as a widget's pill and deliberately the same shape: a
+ * number for how wide it is, a number for where it sits, and one switch for
+ * whether it is on the bar or behind "More". A control is part of the page's
+ * design, and there is no reason it should be the one thing an admin has to
+ * leave the page to adjust.
+ */
+function ControlPill({ control, measured, onEdit }) {
+  const [open, setOpen] = useState(false)
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="absolute -left-1 -top-2 z-30 rounded border border-slate-200 bg-white/90 px-1 text-[9px] font-semibold tabular-nums text-slate-400 shadow-sm hover:text-indigo-600"
+        title={`Size and place ${control.label || 'this control'}`}
+      >
+        {control.order ?? '·'} {measured ? `${measured}px` : 'auto'}
+      </button>
+    )
+  }
+
+  return (
+    <div
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false)
+      }}
+      className="absolute -left-1 -top-2 z-40 flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-1.5 py-1 shadow-lg"
+    >
+      <span className="text-[9px] font-semibold text-slate-400">#</span>
+      <input
+        type="number"
+        defaultValue={control.order ?? ''}
+        onBlur={(e) => onEdit({ order: e.target.value })}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        className="w-10 rounded border border-slate-200 px-1 py-0.5 text-center text-[11px] tabular-nums"
+        aria-label="Order"
+        autoFocus
+      />
+      <span className="text-[9px] font-semibold text-slate-400">W</span>
+      <input
+        type="number"
+        defaultValue={control.widthPx ?? ''}
+        placeholder={measured || 'auto'}
+        onBlur={(e) => onEdit({ widthPx: e.target.value })}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        className="w-14 rounded border border-slate-200 px-1 py-0.5 text-center text-[11px] tabular-nums"
+        aria-label="Width in pixels"
+      />
+      <button
+        onClick={() => onEdit({ advanced: !control.advanced })}
+        className={`rounded border px-1 py-0.5 text-[9px] ${
+          control.advanced
+            ? 'border-slate-200 text-slate-400'
+            : 'border-indigo-300 bg-indigo-50 text-indigo-600'
+        }`}
+        title={
+          control.advanced
+            ? 'Behind “More” — click to put it on the bar'
+            : 'On the bar — click to move it behind “More”'
+        }
+      >
+        {control.advanced ? 'more' : 'bar'}
+      </button>
     </div>
   )
 }

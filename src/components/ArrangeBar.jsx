@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Maximize2, Paintbrush, X } from 'lucide-react'
+import { Copy, Maximize2, Paintbrush, Pencil, Trash2, X } from 'lucide-react'
 import { DEFAULT_WIDGET_STYLE, SHADOW_LEVELS, WIDGET_THEMES } from '../lib/widgetStyle'
 
 /**
@@ -136,6 +136,9 @@ export default function ArrangeBar({
   measured,
   onSize,
   onStyle,
+  onRename,
+  onDuplicate,
+  onDelete,
   title = 'this widget',
 }) {
   const [open, setOpen] = useState(false)
@@ -251,6 +254,42 @@ export default function ArrangeBar({
           title={`${spare}px are going spare on this row — widen this widget to ${Math.round((w || 0) + spare)}px to use all of it`}
         >
           <Maximize2 size={12} />
+        </button>
+      )}
+      {onRename && (
+        <button
+          onClick={() => {
+            // A prompt, deliberately: renaming is one field, and a panel for
+            // one field is a panel somebody has to close.
+            const next = window.prompt('Widget title', title)
+            if (next !== null && next.trim() !== title) onRename(next.trim())
+          }}
+          className="rounded p-0.5 text-slate-400 hover:text-indigo-600"
+          title="Rename this widget"
+        >
+          <Pencil size={12} />
+        </button>
+      )}
+      {onDuplicate && (
+        <button
+          onClick={onDuplicate}
+          className="rounded p-0.5 text-slate-400 hover:text-indigo-600"
+          title="Duplicate it, right after this one"
+        >
+          <Copy size={12} />
+        </button>
+      )}
+      {onDelete && (
+        <button
+          onClick={() => {
+            // Confirmed, because it is the one action here that loses work
+            // somebody did in the admin panel.
+            if (window.confirm(`Remove “${title}” from this page?`)) onDelete()
+          }}
+          className="rounded p-0.5 text-slate-400 hover:text-rose-600"
+          title="Remove this widget from the page"
+        >
+          <Trash2 size={12} />
         </button>
       )}
       {onStyle && (

@@ -154,6 +154,37 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
 }
 
 /**
+ * The empty rectangle at the end of each row -- where it is, and what would
+ * fit in it.
+ *
+ * A number in a corner ("340 free") tells an admin there is room. A dotted
+ * box exactly where the room is, labelled with the width and height that
+ * would fit in it, tells them what to type -- which is the actual question
+ * anybody has while arranging a page.
+ *
+ * Rows with less than a gap's worth left over produce nothing: a strip
+ * narrower than the space between two widgets is not somewhere a widget
+ * could go, and drawing it would be noise.
+ */
+export function rowGaps(rows, positions, canvasWidth, gapX = 12, minimum = MIN_WIDTH) {
+  const out = []
+  for (const row of rows || []) {
+    let edge = 0
+    for (const id of row.ids) {
+      const box = positions[id]
+      if (box) edge = Math.max(edge, box.left + box.width)
+    }
+
+    const left = edge + gapX
+    const width = Math.round(canvasWidth - left)
+    if (width < minimum) continue
+
+    out.push({ row: row.row, left, top: row.top, width, height: row.height })
+  }
+  return out
+}
+
+/**
  * How much of a row is left over.
  *
  * Not used to stretch anything -- a widget gets the width it asked for and
