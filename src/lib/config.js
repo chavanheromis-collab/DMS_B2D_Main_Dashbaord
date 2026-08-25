@@ -29,7 +29,6 @@ export const WIDGET_TYPES = [
   { value: 'kpi', label: 'KPI Card', icon: '📊', hint: 'One number from one tab + column' },
   { value: 'pipeline', label: 'Workflow Pipeline', icon: '🔀', hint: 'Funnel of stages, each with its own pop-up KPIs' },
   { value: 'flow', label: 'Flow (drill-down tree)', icon: '🌳', hint: 'One number that opens into levels — split, branch, or hop to another tab' },
-  { value: 'briefing', label: 'Briefing (what you need to know)', icon: '🧭', hint: 'Reads the tab and writes what it finds, ranked — what changed, what is ageing, where it is piled up. Every line filters the page.' },
   { value: 'filters', label: 'Filter Panel', icon: '🎚️', hint: 'The page filters as a panel of buttons, down the side of the report' },
   { value: 'leaderboard', label: 'Leaderboard', icon: '🏆', hint: 'Rank a column by any metrics you choose' },
   { value: 'table', label: 'Data Table', icon: '📋', hint: 'Rows with drag-ordered columns, dropdowns and buttons' },

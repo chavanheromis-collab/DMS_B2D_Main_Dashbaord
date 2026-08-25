@@ -27,9 +27,7 @@ import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, optValue, 
 import ConditionBuilder from './ConditionBuilder.jsx'
 import BlendEditor from './BlendEditor.jsx'
 import FlowEditor from './FlowEditor.jsx'
-import BriefingEditor from './BriefingEditor.jsx'
 import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from '../../lib/flow'
-import { DEFAULT_BRIEFING } from '../../lib/briefing'
 import StyleEditor from './StyleEditor.jsx'
 import WidgetControlsEditor from './WidgetControlsEditor.jsx'
 import { ComboEditor, HeatmapEditor, ScatterEditor, StackedEditor } from './ComparisonEditors.jsx'
@@ -187,20 +185,6 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
         controlIds: [],
         buttonColumns: 2,
         showSelectAll: true,
-      })
-    } else if (addType === 'briefing') {
-      // Ships pointed at the first few columns of the tab: a briefing that
-      // needed configuring before it said anything would defeat its own
-      // purpose, which is telling you what you did not know to ask.
-      const cols = (tabHeaders?.[base.tab] || []).filter(Boolean)
-      Object.assign(base, {
-        title: `${name} briefing`,
-        width: 'half',
-        briefing: {
-          ...DEFAULT_BRIEFING,
-          dimensions: cols.slice(0, 3),
-          dateColumn: cols.find((c) => looksLikeDateColumn(c)) || '',
-        },
       })
     } else if (addType === 'flow') {
       // Ships with one working level rather than an empty shell: a flow with
@@ -570,9 +554,6 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
               )}
               {widget.type === 'flow' && (
                 <FlowEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
-              )}
-              {widget.type === 'briefing' && (
-                <BriefingEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
               {widget.type === 'filters' && (
                 <FilterPanelEditor widget={widget} pageControls={pageControls} set={set} />

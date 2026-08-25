@@ -22,6 +22,7 @@ import { formatNumber } from '../../lib/dataUtils.js'
 import { STAGE_PALETTE } from '../../lib/config.js'
 import { flowNodeCanDrill } from '../../lib/flow.js'
 import { fitToViewport, layoutForest } from '../../lib/flowLayout.js'
+import FlowPeek from './FlowPeek.jsx'
 import {
   ZOOM_STEP,
   centreOn,
@@ -94,6 +95,46 @@ export default function FlowDiagram({
   const [showMap, setShowMap] = useState(true)
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
 
+  // --- the peek ----------------------------------------------------------
+  // Hovering a branch opens a magnified window over it. Deliberately on a
+  // short delay: a window that appeared the instant the cursor crossed a
+  // card would flash open and shut all the way across the canvas.
+  const [peek, setPeek] = useState(null)
+  const openTimer = useRef(null)
+  const closeTimer = useRef(null)
+
+  const openPeek = useCallback((node, element) => {
+    clearTimeout(closeTimer.current)
+    clearTimeout(openTimer.current)
+    const rect = element?.getBoundingClientRect?.()
+    if (!rect) return
+    openTimer.current = setTimeout(
+      () => setPeek({ node, anchor: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height } }),
+      180
+    )
+  }, [])
+
+  // Leaving is on a grace period, because the gap between the card and the
+  // window is a place the cursor has to pass through.
+  const leavePeek = useCallback(() => {
+    clearTimeout(openTimer.current)
+    clearTimeout(closeTimer.current)
+    closeTimer.current = setTimeout(() => setPeek(null), 220)
+  }, [])
+
+  const stayPeek = useCallback(() => clearTimeout(closeTimer.current), [])
+
+  const closePeek = useCallback(() => {
+    clearTimeout(openTimer.current)
+    clearTimeout(closeTimer.current)
+    setPeek(null)
+  }, [])
+
+  useEffect(() => () => {
+    clearTimeout(openTimer.current)
+    clearTimeout(closeTimer.current)
+  }, [])
+
   const layout = useMemo(() => layoutForest(roots, { orientation }), [roots, orientation])
 
   const boxes = useMemo(() => {
@@ -137,10 +178,14 @@ export default function FlowDiagram({
     touched.current = false
   }, [orientation, fullscreen])
 
-  const zoomAt = useCallback((factor, px, py) => {
-    touched.current = true
-    setView((v) => zoomAbout(v, factor, px, py))
-  }, [])
+  const zoomAt = useCallback(
+    (factor, px, py) => {
+      touched.current = true
+      closePeek()
+      setView((v) => zoomAbout(v, factor, px, py))
+    },
+    [closePeek]
+  )
 
   const zoomBy = useCallback(
     (factor) => {
@@ -265,6 +310,8 @@ export default function FlowDiagram({
     // Only a drag on the canvas itself pans; a drag that starts on a card is
     // the browser's business (text selection, a click on a button).
     if (e.target.closest('[data-flow-node]') || e.target.closest('[data-flow-ui]')) return
+    // The peek is anchored to a screen rectangle, which panning invalidates.
+    closePeek()
     drag.current = { x: e.clientX, y: e.clientY, ox: view.x, oy: view.y, moved: false }
     touched.current = true
     setDragging(true)
@@ -393,6 +440,8 @@ export default function FlowDiagram({
                 current={currentKey === key}
                 selected={selected === key}
                 onHover={setHovered}
+                onPeek={openPeek}
+                onPeekLeave={leavePeek}
                 onSelect={setSelected}
                 onToggle={onToggle}
                 onDrill={onDrill}
@@ -468,6 +517,19 @@ export default function FlowDiagram({
             )}
           </div>
         </div>
+
+        {peek && (
+          <FlowPeek
+            node={peek.node}
+            anchor={peek.anchor}
+            onClose={closePeek}
+            onStay={stayPeek}
+            onLeave={leavePeek}
+            onFocus={onFocus}
+            onDrill={onDrill}
+            isDrilled={isDrilled}
+          />
+        )}
 
         {/* --- the node panel ------------------------------------------- */}
         {selectedNode && (
@@ -700,6 +762,8 @@ function FlowCard({
   current,
   selected,
   onHover,
+  onPeek,
+  onPeekLeave,
   onSelect,
   onToggle,
   onDrill,
@@ -717,8 +781,14 @@ function FlowCard({
   return (
     <div
       data-flow-node
-      onPointerEnter={() => onHover(key)}
-      onPointerLeave={() => onHover('')}
+      onPointerEnter={(e) => {
+        onHover(key)
+        onPeek(node, e.currentTarget)
+      }}
+      onPointerLeave={() => {
+        onHover('')
+        onPeekLeave()
+      }}
       className={`group absolute overflow-hidden rounded-xl border bg-white/95 shadow-sm backdrop-blur transition-all hover:shadow-md ${
         drilled || selected || current ? 'border-transparent ring-2 ring-offset-1' : 'border-slate-200/80'
       } ${matched && !current ? 'ring-1 ring-amber-400' : ''}`}

@@ -333,3 +333,95 @@ export function minimapJump(layout, viewport, view, point, box = { width: 132, h
     y: viewport.height / 2 - (point.y / geo.scale) * zoom,
   }
 }
+
+// ---------------------------------------------------------------------
+// The peek -- a magnified window over one branch
+// ---------------------------------------------------------------------
+// Zoomed out far enough to see the shape of a flow, the cards are too small
+// to read. Zoomed in far enough to read them, you cannot see the shape. That
+// is the permanent bind of any canvas, and panning between the two is what
+// makes people give up on one.
+//
+// So: hover a branch and a fixed-size square opens over it, at full size
+// whatever the canvas is scaled to, listing everything directly under that
+// branch. It scrolls, so a branch with forty children is all there. And
+// clicking a row moves the window down into that child, which means a whole
+// path can be walked without touching the canvas at all.
+//
+// Screen coordinates, not canvas ones: a window drawn inside the zoom
+// transform would be scaled with everything else, which is the exact
+// problem it exists to solve.
+
+export const PEEK_SIZE = 272
+
+/**
+ * Where to put the window so that all of it is on screen.
+ *
+ * Beside the branch by preference -- above or below would cover the level
+ * the reader is comparing against. It flips to the other side when there is
+ * no room, and only falls back to overlapping when neither side fits, which
+ * on a phone-width screen is every time.
+ */
+export function peekPlacement(anchor, size, viewport, gap = 10) {
+  const w = size?.width || PEEK_SIZE
+  const h = size?.height || PEEK_SIZE
+  const margin = 8
+
+  const roomRight = viewport.width - anchor.right
+  const roomLeft = anchor.left
+
+  let side = 'right'
+  let x = anchor.right + gap
+  if (roomRight < w + gap && roomLeft >= w + gap) {
+    side = 'left'
+    x = anchor.left - w - gap
+  } else if (roomRight < w + gap) {
+    side = 'over'
+    x = Math.max(margin, Math.min(anchor.left, viewport.width - w - margin))
+  }
+
+  // Vertically centred on the branch, then pushed back inside the viewport.
+  let y = anchor.top + anchor.height / 2 - h / 2
+  y = Math.max(margin, Math.min(y, viewport.height - h - margin))
+
+  return { x: Math.max(margin, Math.min(x, viewport.width - w - margin)), y, side }
+}
+
+/**
+ * The rows the window lists: everything directly under this branch.
+ *
+ * Plus, when the children do not add up to the parent, a final row for what
+ * is missing. A split capped at the top six, or one that excluded blanks,
+ * leaves rows in the parent that are in none of its children -- and a list
+ * that quietly omitted them would have the reader adding up six numbers,
+ * getting the wrong total, and trusting the list.
+ */
+export function peekRows(node) {
+  const children = node?.children || []
+  const rows = children.map((child) => ({
+    key: `${child.treeId || ''}${child.path}`,
+    node: child,
+    label: child.label,
+    value: child.value || 0,
+    share: child.share,
+    hasChildren: !!child.hasChildren,
+    kind: child.kind,
+  }))
+
+  const claimed = children.reduce((sum, c) => sum + (c.value || 0), 0)
+  const missing = (node?.value || 0) - claimed
+  // A rounding-sized difference is not a finding; a real one is.
+  if (children.length > 0 && missing > 0.0001 && node.value > 0 && missing / node.value > 0.001) {
+    rows.push({
+      key: `${node.treeId || ''}${node.path}!rest`,
+      node: null,
+      label: 'in none of these',
+      value: missing,
+      share: missing / node.value,
+      hasChildren: false,
+      kind: 'rest',
+    })
+  }
+
+  return rows
+}

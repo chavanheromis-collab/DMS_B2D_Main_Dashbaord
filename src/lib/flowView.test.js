@@ -13,6 +13,8 @@ import {
   lineagePaths,
   minimapGeometry,
   minimapJump,
+  peekPlacement,
+  peekRows,
   pruneBySignificance,
   searchFlow,
   sortFlowRoots,
@@ -349,4 +351,77 @@ test('a canvas with no size has no minimap rather than a divide by zero', () => 
   assert.equal(minimapGeometry({ width: 0, height: 0 }, { zoom: 1 }, { width: 10, height: 10 }), null)
   const view = { zoom: 1, x: 1, y: 2 }
   assert.equal(minimapJump({ width: 0, height: 0 }, { width: 10, height: 10 }, view, { x: 0, y: 0 }), view)
+})
+
+// --- the peek -------------------------------------------------------------
+
+const anchorAt = (left, top, width = 178, height = 58) => ({
+  left,
+  top,
+  width,
+  height,
+  right: left + width,
+  bottom: top + height,
+})
+
+test('the peek opens beside the branch, not over the level below it', () => {
+  const place = peekPlacement(anchorAt(300, 200), { width: 272, height: 272 }, { width: 1200, height: 700 })
+  assert.equal(place.side, 'right')
+  assert.equal(place.x, 300 + 178 + 10)
+})
+
+test('it flips to the other side when there is no room', () => {
+  const place = peekPlacement(anchorAt(900, 200), { width: 272, height: 272 }, { width: 1200, height: 700 })
+  assert.equal(place.side, 'left')
+  assert.equal(place.x, 900 - 272 - 10)
+})
+
+test('with room on neither side it overlaps rather than running off screen', () => {
+  const place = peekPlacement(anchorAt(120, 100), { width: 272, height: 272 }, { width: 380, height: 700 })
+  assert.equal(place.side, 'over')
+  assert.ok(place.x >= 8 && place.x + 272 <= 380 - 8 + 0.001)
+})
+
+test('it is centred on the branch, then pushed back inside the screen', () => {
+  const middle = peekPlacement(anchorAt(100, 300), { width: 272, height: 272 }, { width: 1200, height: 700 })
+  assert.equal(middle.y, 300 + 29 - 136)
+
+  const high = peekPlacement(anchorAt(100, 0), { width: 272, height: 272 }, { width: 1200, height: 700 })
+  assert.equal(high.y, 8, 'never above the top of the window')
+
+  const low = peekPlacement(anchorAt(100, 690), { width: 272, height: 272 }, { width: 1200, height: 700 })
+  assert.equal(low.y, 700 - 272 - 8, 'never below the bottom')
+})
+
+test('the peek lists everything directly under the branch', () => {
+  const rows = peekRows(TREE)
+  assert.deepEqual(rows.map((r) => r.label), ['Pune', 'Nashik', 'Kolhapur', 'Other (4)'])
+  assert.equal(rows[0].hasChildren, true, 'and says which of them go deeper')
+  assert.equal(rows[1].hasChildren, false)
+})
+
+test('when the children do not add up, the peek says what is missing', () => {
+  // A split capped at the top six leaves rows in the parent that are in none
+  // of its children. A list that quietly omitted them would have the reader
+  // adding up six numbers, getting the wrong total, and trusting the list.
+  const capped = node('', 'All', 1000, {
+    children: [node('/a', 'A', 600, { share: 0.6 }), node('/b', 'B', 300, { share: 0.3 })],
+  })
+  const rows = peekRows(capped)
+  const rest = rows.at(-1)
+  assert.equal(rest.kind, 'rest')
+  assert.equal(rest.value, 100)
+  assert.ok(Math.abs(rest.share - 0.1) < 0.001)
+})
+
+test('children that add up exactly get no missing row', () => {
+  const exact = node('', 'All', 100, {
+    children: [node('/a', 'A', 60, { share: 0.6 }), node('/b', 'B', 40, { share: 0.4 })],
+  })
+  assert.equal(peekRows(exact).length, 2)
+})
+
+test('a leaf peeks as an empty list rather than crashing', () => {
+  assert.deepEqual(peekRows(node('/leaf', 'Leaf', 5)), [])
+  assert.deepEqual(peekRows(null), [])
 })

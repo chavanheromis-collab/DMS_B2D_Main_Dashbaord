@@ -114,9 +114,62 @@ test('edge labels can be turned off', () => {
 })
 
 test('hovering a node lights its lineage and quiets the rest', () => {
-  assert.ok(diagram.includes('onPointerEnter={() => onHover(key)}'))
+  assert.ok(diagram.includes('onHover(key)'))
   assert.ok(diagram.includes('lineagePaths(roots, hovered || selected)'))
   assert.ok(diagram.includes('opacity: dimmed ? 0.22 : 1'))
+})
+
+// --- the peek -------------------------------------------------------------
+
+const peek = read('components/widgets/FlowPeek.jsx')
+
+test('hovering a branch opens the magnified window over it', () => {
+  assert.ok(diagram.includes('onPeek(node, e.currentTarget)'), 'the card reports its own screen box')
+  assert.ok(diagram.includes('{peek && ('))
+  assert.ok(diagram.includes('<FlowPeek'))
+})
+
+test('the window opens on a delay and closes on a grace period', () => {
+  // Instant would flash open and shut all the way across the canvas; no
+  // grace period would make the gap between card and window a trapdoor.
+  assert.ok(diagram.includes('openTimer.current = setTimeout('))
+  assert.ok(diagram.includes('closeTimer.current = setTimeout(() => setPeek(null), 220)'))
+  assert.ok(diagram.includes('const stayPeek = useCallback(() => clearTimeout(closeTimer.current), [])'))
+  assert.ok(peek.includes('onPointerEnter={onStay}'), 'moving into the window counts as staying')
+  assert.ok(peek.includes('onPointerLeave={onLeave}'))
+})
+
+test('the window scrolls, and lists everything under the branch', () => {
+  assert.ok(peek.includes('overflow-y-auto overscroll-contain'), 'a branch with forty children is all there')
+  assert.ok(peek.includes('peekRows(current)'))
+})
+
+test('clicking a row moves the window into that branch, with a way back', () => {
+  assert.ok(peek.includes('onClick={() => row.node && setTrail((t) => [...t, row.node])}'))
+  assert.ok(peek.includes('onClick={() => setTrail((t) => t.slice(0, -1))}'))
+  assert.ok(peek.includes('{trail.length > 1 && ('), 'the back arrow only exists once there is a way back')
+})
+
+test('the window is drawn at full size whatever the canvas is zoomed to', () => {
+  // Inside the zoom transform it would be scaled with everything else,
+  // which is the exact problem it exists to solve.
+  assert.ok(peek.includes('createPortal('))
+  assert.ok(peek.includes('className="pop-in fixed z-[70]'))
+  assert.ok(peek.includes('width: PEEK_SIZE, height: PEEK_SIZE'))
+})
+
+test('panning or zooming closes it, because its anchor is a screen box', () => {
+  assert.ok(diagram.includes('closePeek()'))
+  assert.ok(wiredNear(diagram, 'function startPan(e) {', 'closePeek()'))
+})
+
+test('the window can filter the page and open a branch on the canvas', () => {
+  assert.ok(peek.includes('onClick={() => onDrill(current)}'))
+  assert.ok(peek.includes('onFocus(current)'))
+})
+
+test('Escape closes it', () => {
+  assert.ok(peek.includes("if (e.key === 'Escape') onClose()"))
 })
 
 test('selecting a node opens the detail panel, and it can be closed', () => {
@@ -174,44 +227,4 @@ test('the canvas takes focus and reads the keyboard through flowKeyAction', () =
 
 test('typing in the search box does not zoom the canvas', () => {
   assert.ok(diagram.includes('if (e.target instanceof HTMLInputElement)'))
-})
-
-// ---------------------------------------------------------------------
-// The briefing -- the same question, asked of a widget that writes prose
-// ---------------------------------------------------------------------
-const briefing = read('components/widgets/BriefingWidget.jsx')
-
-test('every finding is a button that filters the page to its own rows', () => {
-  // The rule the whole widget rests on: nothing is asserted that cannot be
-  // shown. lib/briefing.test.js proves the conditions select what the
-  // sentence counted; this proves they are actually attached to the button.
-  assert.ok(briefing.includes('onDrill={onCrossFilter ? () => drill(finding) : undefined}'))
-  assert.ok(briefing.includes('conditions: finding.conditions.map((c) => ({ ...c, tab: widget.tab }))'))
-  assert.ok(briefing.includes('match: finding.match'))
-  assert.ok(wiredNear(briefing, "{drilled ? 'Showing' : 'Show me'}", 'onClick={onDrill}'))
-})
-
-test('a drilled finding can be un-drilled from the chip like any other', () => {
-  assert.ok(briefing.includes('const drillId = (finding) => `brief_${widget.id}_${finding.id}`'))
-  assert.ok(briefing.includes('crossFilters.some((cf) => cf.id === drillId(finding))'))
-})
-
-test('what it could not check is shown, not swallowed', () => {
-  assert.ok(briefing.includes('{briefing.skipped.length > 0 && ('))
-  assert.ok(briefing.includes('Not checked'))
-})
-
-test('a quiet table says so instead of inventing drama', () => {
-  assert.ok(briefing.includes('briefing.quiet ?'))
-  assert.ok(briefing.includes('Nothing to report'))
-})
-
-test('the findings below the fold can be opened, and closed again', () => {
-  assert.ok(briefing.includes('more below the fold'))
-  assert.ok(briefing.includes('setShowAll((s) => !s)'))
-  assert.ok(briefing.includes("limit: showAll ? 99 : config.limit"))
-})
-
-test('the briefing exports what it says, not the table behind it', () => {
-  assert.ok(briefing.includes("'Priority', 'Finding', 'Detail', 'Column', 'Value', 'Rows', 'Share %'"))
 })
