@@ -27,7 +27,9 @@ import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, optValue, 
 import ConditionBuilder from './ConditionBuilder.jsx'
 import BlendEditor from './BlendEditor.jsx'
 import FlowEditor from './FlowEditor.jsx'
+import BriefingEditor from './BriefingEditor.jsx'
 import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from '../../lib/flow'
+import { DEFAULT_BRIEFING } from '../../lib/briefing'
 import StyleEditor from './StyleEditor.jsx'
 import WidgetControlsEditor from './WidgetControlsEditor.jsx'
 import { ComboEditor, HeatmapEditor, ScatterEditor, StackedEditor } from './ComparisonEditors.jsx'
@@ -186,12 +188,26 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
         buttonColumns: 2,
         showSelectAll: true,
       })
-    } else if (addType === 'flow' || addType === 'flowmap') {
+    } else if (addType === 'briefing') {
+      // Ships pointed at the first few columns of the tab: a briefing that
+      // needed configuring before it said anything would defeat its own
+      // purpose, which is telling you what you did not know to ask.
+      const cols = (tabHeaders?.[base.tab] || []).filter(Boolean)
+      Object.assign(base, {
+        title: `${name} briefing`,
+        width: 'half',
+        briefing: {
+          ...DEFAULT_BRIEFING,
+          dimensions: cols.slice(0, 3),
+          dateColumn: cols.find((c) => looksLikeDateColumn(c)) || '',
+        },
+      })
+    } else if (addType === 'flow') {
       // Ships with one working level rather than an empty shell: a flow with
       // no levels is just a number, and the first thing anyone wants to see
       // is that clicking it opens something.
       Object.assign(base, {
-        title: addType === 'flowmap' ? `${name} map` : `${name} flow`,
+        title: `${name} flow`,
         flow: {
           ...DEFAULT_FLOW,
           label: name,
@@ -552,12 +568,11 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
               {widget.type === 'pipeline' && (
                 <PipelineEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
-              {/* One editor for both: a flow map is the same trees, the
-                  same levels and the same conditions, drawn all at once
-                  instead of opened a level at a time. Two editors for one
-                  configuration would drift apart within a month. */}
-              {(widget.type === 'flow' || widget.type === 'flowmap') && (
+              {widget.type === 'flow' && (
                 <FlowEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
+              )}
+              {widget.type === 'briefing' && (
+                <BriefingEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
               {widget.type === 'filters' && (
                 <FilterPanelEditor widget={widget} pageControls={pageControls} set={set} />

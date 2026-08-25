@@ -698,6 +698,77 @@ lives in another spreadsheet, and one blended row can stand for several source
 rows), and the pipeline widget can't blend, because each of its stages already
 picks its own tab.
 
+### The Briefing — what you need to be told
+
+Every other widget here answers a question you already knew to ask. A chart
+shows stock by model *once you have decided* that stock by model is the thing
+to look at — and deciding that is the analyst's job, not the job of the person
+the dashboard is usually open in front of.
+
+Somebody who runs the business, opening this at 8am, is asking four things in
+this order:
+
+> What changed since I last looked?
+> What's wrong right now, and how much is it worth?
+> Where exactly is it?
+> **Show me those rows.**
+
+So the Briefing reads the tab and **writes those answers** — a short list of
+findings, in sentences, ranked by how much is behind them:
+
+```
+●  Pune stock: 412 (over 300)                         412   68 rows · 41%   [Show me]
+●  Down 23% on the previous 30 days                    94  120 rows · 23%   [Show me]
+●  318 rows have been sitting over 90 days            318  318 rows · 31%   [Show me]
+●  3 of 27 delivery locations hold 71% of it          712  712 rows · 71%   [Show me]
+●  18% of rows have no Delivery Location              184  184 rows · 18%   [Show me]
+```
+
+#### What it checks, without being told to
+
+| | |
+|---|---|
+| **What changed** | A rolling window against the window before it, overall and by group — one riser, one faller. |
+| **What's ageing** | Thresholds tried oldest-first; the first with material volume behind it wins. Being told about the 30-day pile when there's a 90-day pile is being told the smaller thing. |
+| **Where it's piled up** | The *smallest* set of groups that holds 60% of the measure — "3 of 27" is the form that answer is useful in. An even spread isn't reported, because half the groups holding 60% is arithmetic, not news. |
+| **What's out of line** | A group a long way from its peers, measured against the **median**, not the mean — the mean is dragged by the outlier itself, which is how an outlier hides. |
+| **What's missing** | Blanks in a column everything else is grouped by. The quiet one: a blank doesn't announce itself, it just makes every chart on the page slightly wrong while still drawing. |
+
+#### And **watches** — the ones somebody asked for by name
+
+A statistical check finds what's *unusual*; only a person can say what's
+*important*. *"Tell me when unallocated stock goes over 50"* is not a pattern
+any general rule would ever have discovered, and it's usually the line that's
+actually being managed. A watch is a condition set, a threshold and a
+sentence, and it **always outranks anything a statistic noticed**.
+
+A watch that's fine still reports, quietly, as met — being told nothing can't
+be told apart from not being checked.
+
+#### Three rules it doesn't break
+
+- **Nothing without its arithmetic.** Every finding carries the rows and the
+  value it was computed from, and **[Show me]** filters the whole page to
+  exactly those rows. A dashboard that asserts things it can't show you is
+  worse than one that asserts nothing. Every finding's drill is tested
+  against the filter engine: the number in the sentence and the number of
+  rows you land on are the same number.
+- **Nothing immaterial.** A three-row anomaly in a forty-thousand-row sheet is
+  noise, and a briefing full of noise gets closed. Findings below a share you
+  set are dropped, not listed at the bottom.
+- **Never a partial period against a whole one.** *"Down 60% on last month"*
+  on the 4th of the month is the single most common lie a dashboard tells, and
+  it's told by accident every time somebody groups by calendar month and reads
+  the last bar. Movement here is always a rolling window against the window
+  before it, the same length by construction. The drill uses **absolute
+  dates**, so a finding written at 8am and clicked at midnight shows the rows
+  it counted.
+
+And it says what it **couldn't** check — "*What changed — no date column
+chosen*" — because a missing section looks identical to a business where
+nothing changed, and those are very different situations. When nothing clears
+the bar it says **"Nothing to report"** rather than inventing drama.
+
 ### The Flow widget — depth on demand
 
 Every other widget answers one question at one depth. A KPI says 1,284. A
@@ -839,82 +910,6 @@ And one thing found for you: the **worst drop-off** in the whole canvas, as a
 chip. On two hundred nodes across four levels, hunting that by eye is exactly
 the work a computer should have done first. Click it to zoom straight there.
 
-### The Flow Map — the same tree, all on one plate
-
-The Flow widget is a thing you **open**: one number, a few branches, a click
-for each level. That's the right shape for exploring and the wrong shape for
-the other half of the job — standing back and seeing the whole process at
-once, where the volume goes and where it stops going.
-
-**Flow Map** is that other half. Same trees, same levels, same conditions,
-same drill-throughs — **the same editor**, because it's the same
-configuration — drawn all at once. Nothing to expand, nothing to hunt for.
-
-And it is **always exactly the size of the card it's in**: the layout is
-computed from the measured box, so "it fits on screen" is a property of the
-drawing rather than something you have to achieve with a zoom control.
-
-#### Four plates
-
-Which shape reads best genuinely depends on the data, so you switch between
-them with one click and the meaning never changes:
-
-| | |
-|---|---|
-| **Bands** | A Sankey. Volume flows left to right, each band as thick as what's travelling along it. Children stack **inside** their parent's own extent, so no band ever crosses another and following one path from the left edge to a leaf is a straight read rather than an untangling exercise. |
-| **Icicle** | Every level as a solid column. The densest of the four — no whitespace between siblings to spend — so two hundred branches still fit. |
-| **Treemap** | Area against area, squarified so the rectangles come out near-square. Slice-and-dice produces slivers, and a sliver is a rectangle whose area nobody can judge, which defeats the only thing a treemap is for. |
-| **Sunburst** | The icicle wrapped into a circle. Depth reads as distance from the middle, which is the one layout that makes a deep, narrow tree look small instead of long. |
-
-#### What went nowhere, drawn
-
-On a funnel this is the whole point: 1,000 came in, 600 went one way and 380
-the other, and the **20 that went nowhere** is the number somebody is paid to
-care about. Every plate draws that gap rather than leaving it to be worked
-out by subtraction — on **Bands** it's an explicit hatched block, so it can
-never be mistaken for a branch, since it's the absence of one. It's in the
-CSV export too, as *Unaccounted for*.
-
-#### Everything on the plate
-
-Nowhere to go and nothing to open in order to understand what's in front of
-you — which is the whole brief:
-
-- A **summary strip**: what came in at the top, how many branches and how
-  deep, the **biggest branch**, and the **worst drop-off in the whole flow**.
-  The last two are buttons — click either and its panel opens. On two hundred
-  nodes, hunting the worst drop-off by eye is exactly the work a computer
-  should have done first.
-- **Levels** — draw all of them, or just the first *n*. Level four is where
-  any diagram stops being readable, and this is how you say "just the first
-  two" without rebuilding anything.
-- **Colour by top branch** (the default — every descendant of *Pune* is a
-  shade of Pune's colour, so a path can be followed across four levels
-  without reading a single label), **by level**, or **by drop-off**, which
-  turns the plate into a heat map of where things are being lost.
-- **Order** — the same five orders as the flow, including *worst drop-off
-  first*.
-- **Highlight** — type, and everything that doesn't match goes quiet. It
-  matches on the path too, so *Pune* highlights everything under Pune.
-- **Hover** for a tooltip with the full path, the share, the drop-off and
-  what went nowhere. **Click** for a panel with the same in a form that
-  stays put, plus *Only this* and *Filter page*. **Double-click** to make a
-  branch the whole plate, with a breadcrumb back out.
-- **Filter page** drills the whole dashboard exactly as every other widget
-  does — a flow map isn't a picture off to the side, it's a control surface.
-- A **magnifier**: `+` / `−` and a reset. It starts at 100% and reset *means*
-  100%, because the plate is already fitted — a "fit" button on a drawing
-  that always fits would be a control that does nothing.
-- **Full screen**, `Esc` to leave. And **CSV**, of exactly what's drawn.
-
-#### Which one to reach for
-
-Use the **Flow** widget when the question is *"what's under this?"* and you
-want to choose the depth as you go. Use the **Flow Map** when the question is
-*"where does it all go?"* and you want the answer without clicking. They're
-the same data, configured once — put both on a page if you want, pointed at
-the same trees.
-
 #### Several trees on one canvas
 
 A flow widget holds a **list of trees**, not one. Each has its own table, its
@@ -972,7 +967,7 @@ stacking two contradictory filters.
 | Type | What it does |
 |---|---|
 | **KPI Card** | One number from a tab + column + calculation. Counts up on change; with filters active it shows the unfiltered total underneath. Can express a conversion between two tabs. Its mark can be an emoji **or an image URL**. |
-| **Flow Map** | The same trees as a Flow, drawn whole on one plate — bands, icicle, treemap or sunburst. Nothing to expand; what went nowhere is drawn, not implied. |
+| **Briefing** | Reads the tab and writes what it found, ranked — what changed, what is ageing, where it is piled up, what is out of line, what is missing. Every line filters the page to the rows it counted. |
 | **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and a pop-up of KPIs, a pivot and a leaderboard. Click a stage, a KPI, a leaderboard row or a pivot cell to drill in. |
 | **Flow (drill-down tree)** | One or more trees on a shared canvas. Each opens level by level — by column, by conditions, into named numbers, by a list on a reference tab, across a **key into another tab**, or into other tabs outright — and each can blend a second table into its rows first. Full screen, pan and zoom. See below. |
 | **Filter Panel** | The page's filters as a column of labelled button groups, on the canvas — the right-hand panel of a classic report. |
@@ -1849,7 +1844,7 @@ src/
   lib/flow.js             The drill-down tree: levels, branches, tab hops
   lib/flowLayout.js       Tidy-tree geometry for the flow's diagram view
   lib/flowView.js         Reading a flow: search, lineage, pruning, zoom, minimap
-  lib/flowMap.js          Whole-flow plates: sankey, icicle, sunburst, squarified treemap
+  lib/briefing.js         The briefing's checks: movement, ageing, concentration, outliers, blanks
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties

@@ -32,7 +32,7 @@ import ArrangeBar from '../components/ArrangeBar.jsx'
 import KpiWidget from '../components/widgets/KpiWidget.jsx'
 import PipelineWidget from '../components/widgets/PipelineWidget.jsx'
 import FlowWidget from '../components/widgets/FlowWidget.jsx'
-import FlowMapWidget from '../components/widgets/FlowMapWidget.jsx'
+import BriefingWidget from '../components/widgets/BriefingWidget.jsx'
 import FilterPanelWidget from '../components/widgets/FilterPanelWidget.jsx'
 import LeaderboardWidget from '../components/widgets/LeaderboardWidget.jsx'
 import TableWidget from '../components/widgets/TableWidget.jsx'
@@ -54,9 +54,9 @@ function estimateWidgetHeight(type) {
   if (type === 'scorecard') return 190
   if (type === 'pipeline') return 260
   if (type === 'flow') return 300
-  // A flow map draws every level at once, so it is a tall thing by
-  // nature rather than one that grows as you open it.
-  if (type === 'flowmap') return 460
+  // A briefing is a handful of one-line findings, whatever the table
+  // behind it looks like.
+  if (type === 'briefing') return 260
   if (type === 'filters') return 340
   if (type === 'heatmap') return 320
   return 380
@@ -1100,17 +1100,13 @@ export default function Dashboard() {
                           fillHeight={fillHeight}
                         />
                       )}
-                      {widget.type === 'flowmap' && (
-                        <FlowMapWidget
-                          widget={widget}
-                          rowsByTab={rowsByLabel}
-                          rawRowsByTab={rawRowsByLabel}
-                          headersByTab={headersByLabel}
+                      {widget.type === 'briefing' && (
+                        <BriefingWidget
+                          {...common}
                           crossFilters={crossFilters}
                           onCrossFilter={toggleCrossFilter}
                           dateOrder={dateOrder}
                           canExport={canExport}
-                          fillHeight={fillHeight}
                         />
                       )}
                       {widget.type === 'filters' && (
