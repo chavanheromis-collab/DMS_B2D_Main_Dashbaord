@@ -291,63 +291,6 @@ value, so anything that isn't plainly an image location is dropped rather than
 escaped. A rejected URL falls back to the app default rather than painting a
 blank slab.
 
-### Free canvas — a layout with no columns
-
-Every layout problem on this project has had the same root. The canvas is
-divided into columns; a widget has to claim whole ones; a widget pinned to
-260px where the columns are 316px therefore claims 316 and leaves 56px that
-nothing can ever fill. Three of those in a row is a strip of nothing, and a
-four-column widget can't fit in the three-column gap the row left behind — so
-that hole is permanent.
-
-Scaling the presets, making the column count a setting, snapping widths up,
-packing in rows: all of those help and **none of them removes the cause**. So
-there's now a layout mode with no columns at all.
-
-**Design → Layout → Free canvas.** Every widget has a **frame** — where it
-starts and how big it is — and that is exactly what's drawn. Nothing is
-rounded to anything, because there's nothing to round to.
-
-- **Drag the ⣿ handle** to move it anywhere.
-- **Eight resize handles** — corners and edges. A layout you can only resize
-  from the bottom-right is one you reposition twice for every size you change.
-- **It lines up with its neighbours as you drag.** Come within a few pixels of
-  another widget's edge, or its centre, or the canvas's edge or centre, and it
-  snaps there — with the line drawn across the canvas so you can see what it
-  snapped to. This is what stops a free canvas looking untidy: *nearly*
-  aligned is invisible at a glance and glaring in a screenshot.
-- **Snap while dragging** is a separate, optional grid: off (anywhere), 4, 8,
-  16 or 24px. **Off is a supported way to work**, not a broken one.
-- **Tidy up the edges** pulls everything that's nearly level onto the nearest
-  edge already in use. A tidy, not a re-layout — nothing moves far.
-
-#### The part that keeps it working on other screens
-
-A free canvas in pixels is a layout for the monitor it was made on. So a frame
-is stored in **mixed units**, which is the whole trick:
-
-| | |
-|---|---|
-| **x and width** | a **fraction** of the canvas (0–1) |
-| **y and height** | **pixels** |
-
-Horizontal space is shared out — a widget half the page wide is half the page
-wide on any screen — while vertical space is absolute, because a chart 300px
-tall is 300px tall whatever the width of the window. A design made on a laptop
-still reads on a 4K monitor with nobody re-doing it, and no widget ever needs
-a column again.
-
-#### Switching to it moves nothing
-
-Turning the free canvas on seeds every frame from **what's on screen at that
-moment**. An admin who opens it to nudge one widget finds everything exactly
-where it was a second ago — otherwise the feature's first act would be to
-destroy the layout it was opened to adjust. The column settings aren't deleted
-either, so switching back finds the page as it was.
-
-Only an admin in **Arrange** mode sees a handle at all; for everyone else
-there is nothing to drag and nothing to nudge by accident.
-
 ### Designing a page, from the page
 
 The admin panel is where a page is **built** — which tabs, which widgets,
@@ -358,14 +301,21 @@ again.
 
 So an admin gets a **palette button** in the page header, and everything
 about the page's appearance is edited on the page itself, applied as you
-drag the slider:
+drag the slider.
+
+**There are no columns.** Every widget takes exactly the width you type into
+its **W** box; they sit side by side in your order, each starting where the
+one before it ended; and a row wraps when the next one will not fit. That is
+the whole layout model, and it has the three properties a column grid could
+not have at once: nothing is ever rounded up, so there is no dead strip
+beside anything; nothing is ever moved past anything else to fill a hole, so
+the order you arrange is the order that is read; and the row breaks wherever
+the screen happens to end, so the same page reflows on a monitor, a laptop
+and a phone with nobody configuring breakpoints.
 
 | | |
 |---|---|
 | **Gap across / gap down** | Two separate numbers, 0–64px. The eye reads a row and a column differently, and a dashboard that needs air between its columns very often wants its rows tighter than that, not looser. |
-| **How widgets pack** | **Fill gaps** (masonry — shorter widgets tucked under each other) or **Keep my order** (strictly left to right, wrapping at the edge, rows lining up). Masonry is right for a wall of cards of wildly different heights and wrong when the order means something: a widget that won't fit beside a short one gets pushed past it, and the hole it leaves can only be filled by something narrow enough — so on a page of three KPIs and two wide charts it is never filled at all. |
-| **Widths fill their columns** | A widget pinned to 260px where the columns are 316px leaves 56px beside it that nothing can ever use. Three of them in a row is a 168px strip of nothing. Turn this on and pinned widths stretch to the columns they claimed. |
-| **Columns** | 6, 8, 12, 16 or 24. **The canvas division itself is a setting** — nothing is locked to twelfths. Every width is a *fraction* of it, so "half" stays half and a 3-unit widget becomes 6 units when you double the columns. |
 | **Canvas width** | How wide the page may get on a large screen. 0 means all of it. |
 | **Card look** | Any of the widget themes, page-wide — a default underneath every widget, not an override: a widget you restyled deliberately keeps its own look. |
 | **Corner radius · padding · surface colour · border colour** | Page-wide, with **auto** on each to hand it back to the theme. |
@@ -378,27 +328,21 @@ because judging it any other way is impossible. Closing the panel discards
 an unsaved draft rather than leaving the page looking wrong for no visible
 reason.
 
-#### Move a widget by dragging it
-
-In arrange mode every widget grows a **⣿ handle**. Drag it and a blue bar
-shows where the widget would land — on the side of the neighbour your
-pointer is on, so "which of these two gaps" is never a guess. Dropping
-**reorders the page itself**, for everyone: dragging a widget on the canvas
-is designing the page, which is the one thing the per-user ordering
-deliberately is not.
-
-Only the handle drags, not the whole card. A card is full of buttons, and a
-whole-card drag makes every one of them a coin toss between *I clicked that*
-and *I moved this*. A press that never moved is a press, not a drop.
-
 #### Restyle one widget, on the widget
 
 The 🖌 on a widget's pill opens its own look: theme, surface, accent, border
-and text colour, radius, padding, border width, shadow — and its **width in
-columns**, as a slider, so a widget can be sized without pixels at all
-(setting one takes the pixel pin off, because choosing columns is how you
-say *columns, not pixels*). Every field has an **auto** that hands it back to
-the page. One button puts the whole widget back to the page's look.
+and text colour, radius, padding, border width, shadow. Every field has an
+**auto** that hands it back to the page, and one button puts the whole widget
+back to the page's look.
+
+Both panels — the size boxes and the paint panel — are drawn **above every
+widget on the page**, wherever on the page they were opened. They used to be
+children of the card they belonged to, which meant they were painted *under*
+every widget that came after them: each card has its own entrance animation,
+and a CSS transform creates a stacking context no z-index can climb out of.
+They now escape to the top level and are anchored to the handle that opened
+them, flipping above it when there is no room below and staying inside the
+window sideways. Click away or press `Esc` to close.
 
 Everything on this page — the design, the order, every widget's size and
 look — is written to the **page** and saved by **admins only**, and the
@@ -1888,8 +1832,8 @@ src/
   lib/flowLayout.js       Tidy-tree geometry for the flow's diagram view
   lib/flowView.js         Reading a flow: search, lineage, pruning, zoom, minimap, peek
   lib/history.js          Undo/redo: a past, a present and a future
-  lib/pageDesign.js       A page's own look: gaps, columns, scale, and moving widgets
-  lib/freeLayout.js       The columnless canvas: frames, snapping, guides, resizing
+  lib/pageDesign.js       A page's own look: gaps, scale, card surface
+  lib/flowPack.js         Laying widgets out by the space each one asks for
   lib/tdz.js              Finds a const used before the line that declares it
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)

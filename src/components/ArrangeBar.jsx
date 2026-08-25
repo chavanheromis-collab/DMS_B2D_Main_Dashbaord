@@ -1,7 +1,62 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Maximize2, Paintbrush, X } from 'lucide-react'
-import { widthSlack } from '../lib/gridSpan'
 import { DEFAULT_WIDGET_STYLE, SHADOW_LEVELS, WIDGET_THEMES } from '../lib/widgetStyle'
+
+/**
+ * A panel that floats ABOVE every widget on the page, wherever it is opened.
+ *
+ * Rendered through a portal at a fixed position, anchored to the button that
+ * opened it. Inside the card it was a child of, it was painted under every
+ * widget that came after it in the DOM -- each card has its own entrance
+ * animation, and a CSS transform creates a stacking context that no z-index
+ * can climb out of. Escaping to <body> is the only fix that works from any
+ * position on the page.
+ */
+function Floating({ anchor, children, onDismiss, width = 224 }) {
+  const ref = useRef(null)
+  const [pos, setPos] = useState(null)
+
+  useLayoutEffect(() => {
+    if (!anchor) return
+    const margin = 8
+    const height = ref.current?.offsetHeight || 320
+    // Below the handle by preference, flipped above when there is no room,
+    // and always inside the window.
+    const below = anchor.bottom + 6
+    const top = below + height + margin > window.innerHeight ? Math.max(margin, anchor.top - height - 6) : below
+    setPos({
+      top,
+      left: Math.max(margin, Math.min(anchor.left, window.innerWidth - width - margin)),
+    })
+  }, [anchor, width])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onDismiss()
+    }
+    const onDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onDismiss()
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [onDismiss])
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[80] rounded-xl border border-indigo-300 bg-white p-2 shadow-2xl"
+      style={{ width, top: pos?.top ?? -9999, left: pos?.left ?? -9999, visibility: pos ? 'visible' : 'hidden' }}
+    >
+      {children}
+    </div>,
+    document.body
+  )
+}
 
 /**
  * The per-widget handle shown in arrange mode: its position, and its pinned
@@ -75,8 +130,6 @@ export default function ArrangeBar({
   onOrder,
   widthPx,
   heightPx,
-  widthUnits,
-  columns = 12,
   style,
   measured,
   onSize,
@@ -85,6 +138,12 @@ export default function ArrangeBar({
 }) {
   const [open, setOpen] = useState(false)
   const [painting, setPainting] = useState(false)
+  const [anchor, setAnchor] = useState(null)
+
+  const anchorTo = (e) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    setAnchor({ top: r.top, left: r.left, bottom: r.bottom, right: r.right })
+  }
   const ref = useRef(null)
 
   // Closing on blur rather than on click-outside: the pill is a group of
@@ -98,34 +157,31 @@ export default function ArrangeBar({
   const h = heightPx || measured?.height
   const pinned = Boolean(widthPx || heightPx)
 
-  // The room this widget claimed and does not use.
+  // How much of this widget's ROW is going spare.
   //
-  // The canvas is twelve columns, so a widget pinned to 260px where a column
-  // is 95px claims three of them and leaves 45px beside it that nothing can
-  // ever fill -- which is what a hole beside a row of KPIs actually is. It
-  // is invisible until you are told, so: shown, with one click to close it.
-  const slack = widthSlack(w, measured?.spanWidth)
-  const wasteful = slack > 16 && measured?.spanWidth > 0
-  const snap = () => onSize({ widthPx: String(measured.spanWidth) })
+  // Not waste any more -- a widget takes exactly the width it asks for, so
+  // there is no dead strip beside anything. This is the number somebody
+  // actually needs: "there are 340 pixels left on this row", which is what
+  // decides whether to widen this widget or bring the next one up onto it.
+  const spare = Math.round(measured?.spare ?? 0)
+  const roomy = spare > 24
+  const fillRow = () => onSize({ widthPx: String(Math.round((w || 0) + spare)) })
 
   if (painting) {
     return (
-      <WidgetPaint
-        title={title}
-        style={style}
-        widthUnits={widthUnits}
-        columns={columns}
-        onStyle={onStyle}
-        onSize={onSize}
-        onClose={() => setPainting(false)}
-      />
+      <Floating anchor={anchor} onDismiss={() => setPainting(false)}>
+        <WidgetPaint title={title} style={style} onStyle={onStyle} onClose={() => setPainting(false)} />
+      </Floating>
     )
   }
 
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        onClick={(e) => {
+          anchorTo(e)
+          setOpen(true)
+        }}
         className={`absolute -left-1 -top-1 z-20 inline-flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[10px] font-medium tabular-nums shadow-sm backdrop-blur transition-colors ${
           pinned
             ? 'border-indigo-300 bg-indigo-50/90 text-indigo-700 hover:bg-indigo-100'
@@ -139,17 +195,14 @@ export default function ArrangeBar({
             {Math.round(w)}×{Math.round(h)}
           </span>
         ) : null}
-        {wasteful && <span className="font-semibold text-amber-600">+{slack}</span>}
+        {roomy && <span className="font-semibold text-slate-400">{spare} free</span>}
       </button>
     )
   }
 
   return (
-    <div
-      ref={ref}
-      onBlur={onBlur}
-      className="absolute -left-1 -top-1 z-30 flex items-center gap-1 rounded-lg border border-indigo-300 bg-white px-1.5 py-1 shadow-md"
-    >
+    <Floating anchor={anchor} onDismiss={() => setOpen(false)} width={276}>
+    <div ref={ref} onBlur={onBlur} className="flex flex-wrap items-center gap-1">
       <input
         type="number"
         value={order ?? ''}
@@ -175,11 +228,11 @@ export default function ArrangeBar({
         onCommit={(raw) => onSize({ heightPx: raw })}
         title={`Height of ${title} in pixels`}
       />
-      {wasteful && (
+      {roomy && (
         <button
-          onClick={snap}
-          className="rounded p-0.5 text-amber-500 hover:text-amber-700"
-          title={`This widget claims ${slack}px more than it uses — a dead strip beside it. Widen it to ${measured.spanWidth}px to close the gap.`}
+          onClick={fillRow}
+          className="rounded p-0.5 text-slate-400 hover:text-indigo-600"
+          title={`${spare}px are going spare on this row — widen this widget to ${Math.round((w || 0) + spare)}px to use all of it`}
         >
           <Maximize2 size={12} />
         </button>
@@ -206,6 +259,7 @@ export default function ArrangeBar({
         </button>
       )}
     </div>
+    </Floating>
   )
 }
 
@@ -217,12 +271,12 @@ export default function ArrangeBar({
  * -- see withPageTheme -- so everything here is an override, and "auto"
  * really does mean "whatever the page says", not a value we re-stated.
  */
-function WidgetPaint({ title, style, widthUnits, columns, onStyle, onSize, onClose }) {
+function WidgetPaint({ title, style, onStyle, onClose }) {
   const s = { ...DEFAULT_WIDGET_STYLE, ...(style || {}) }
   const set = (patch) => onStyle({ ...s, ...patch })
 
   return (
-    <div className="absolute -left-1 -top-1 z-40 w-56 rounded-xl border border-indigo-300 bg-white p-2 shadow-xl">
+    <div>
       <div className="mb-1.5 flex items-center gap-1">
         <Paintbrush size={11} className="text-indigo-500" />
         <span className="truncate text-[11px] font-semibold text-slate-700" title={title}>
@@ -247,26 +301,6 @@ function WidgetPaint({ title, style, widthUnits, columns, onStyle, onSize, onClo
           ))}
         </select>
       </label>
-
-      {/* Width in COLUMNS, so a widget can be sized without pixels at all --
-          and the count is the page's, not a hard twelve. */}
-      <div className="mb-1.5">
-        <span className="text-[10px] text-slate-500">Width in columns</span>
-        <div className="mt-0.5 flex items-center gap-1.5">
-          <input
-            type="range"
-            min={1}
-            max={12}
-            value={Number(widthUnits) || Math.round(columns / 2)}
-            onChange={(e) => onSize({ widthUnits: Number(e.target.value) })}
-            className="flex-1 accent-indigo-600"
-            aria-label="Width in columns"
-          />
-          <span className="w-6 text-right text-[11px] font-semibold tabular-nums text-slate-700">
-            {Number(widthUnits) || '—'}
-          </span>
-        </div>
-      </div>
 
       <div className="mb-1.5 grid grid-cols-2 gap-1.5">
         <Colour label="Surface" value={s.bg} fallback="#ffffff" onChange={(v) => set({ bg: v })} />

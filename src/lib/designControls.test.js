@@ -6,14 +6,14 @@ import path from 'node:path'
 // ---------------------------------------------------------------------
 // Is the design mode still connected to anything?
 // ---------------------------------------------------------------------
-// pageDesign.test.js proves the maths -- what a gap clamps to, where a drop
-// lands, how a span scales when the column count changes. This proves the
-// controls still call it, which is the half a refactor breaks silently: the
-// panel draws, the slider slides, and the page does not move.
+// pageDesign.test.js and flowPack.test.js prove the maths -- what a gap
+// clamps to, where a widget lands, how a row wraps. This proves the controls
+// still call it, which is the half a refactor breaks silently: the panel
+// draws, the slider slides, and the page does not move.
 //
-// Comments are stripped before matching. An assertion that a name appears
-// in a file has been satisfied by the comment explaining that name, in this
-// very project, long after the code had gone.
+// Comments are stripped before matching. An assertion that a name appears in
+// a file has been satisfied by the comment explaining that name, in this very
+// project, long after the code had gone.
 
 const SRC = path.resolve(import.meta.dirname, '..')
 const read = (p) =>
@@ -25,7 +25,7 @@ const read = (p) =>
 
 const dashboard = read('pages/Dashboard.jsx')
 const panel = read('components/PageDesignPanel.jsx')
-const grid = read('components/MasonryGrid.jsx')
+const canvas = read('components/WidgetCanvas.jsx')
 const bar = read('components/ArrangeBar.jsx')
 
 // --- the page's own design ------------------------------------------------
@@ -33,19 +33,6 @@ const bar = read('components/ArrangeBar.jsx')
 test('the design reaches every card as custom properties on the canvas', () => {
   assert.ok(dashboard.includes('...designVars(design)'))
   assert.ok(dashboard.includes('page-canvas'))
-})
-
-test('both gaps and the column count reach the grid', () => {
-  assert.ok(dashboard.includes('gap={design.gapX}'))
-  assert.ok(dashboard.includes('gapY={design.gapY}'))
-  assert.ok(dashboard.includes('columns={design.columns}'))
-})
-
-test('the grid uses them rather than the hard-coded twelve', () => {
-  assert.ok(grid.includes('(containerWidth - gap * (columns - 1)) / columns'))
-  assert.ok(grid.includes('assignColumns(items, breakpoint, columns, colWidth, gap, rowGap)'))
-  assert.ok(grid.includes('packMasonry(items, slots, heights, rowGap, columns)'))
-  assert.ok(!grid.includes('packMasonry(items, slots, heights, gap, COLUMNS)'), 'the old fixed call is gone')
 })
 
 test('a change is a draft until it is saved, but is on screen at once', () => {
@@ -68,7 +55,7 @@ test('closing the panel discards an unsaved design rather than leaving it hangin
 })
 
 test('every control on the panel is wired to the design', () => {
-  for (const field of ['gapX: v', 'gapY: v', 'columns: c', 'fontScale: v / 100', 'cardRadius: v', 'cardPadding: v']) {
+  for (const field of ['gapX: v', 'gapY: v', 'fontScale: v / 100', 'cardRadius: v', 'cardPadding: v']) {
     assert.ok(panel.includes(field), field)
   }
   assert.ok(panel.includes('onChange={(e) => set({ cardBg: e.target.value })}'))
@@ -80,51 +67,49 @@ test('the panel can put the page back to stock', () => {
   assert.ok(panel.includes('disabled={isDefaultDesign(d)}'))
 })
 
-// --- moving a widget by dragging it --------------------------------------
+// --- the canvas has no columns -------------------------------------------
 
-test('a widget can be dragged, but only in design mode and only by the handle', () => {
-  // A card is full of buttons; a whole-card drag would make every one of
-  // them a coin toss between "I clicked that" and "I moved this".
-  assert.ok(grid.includes('if (!draggable) return'))
-  assert.ok(grid.includes('onPointerDown={(e) => startDrag(item.id, e)}'))
-  assert.ok(dashboard.includes('draggable={isAdmin && arranging}'))
+test('the page draws its widgets on the columnless canvas', () => {
+  assert.ok(dashboard.includes('<WidgetCanvas'))
+  assert.ok(dashboard.includes('gapX={design.gapX}'))
+  assert.ok(dashboard.includes('gapY={design.gapY}'))
+  assert.ok(!dashboard.includes('MasonryGrid'), 'and the column packer is gone')
 })
 
-test('the drop shows where it would land, on the side the pointer is', () => {
-  assert.ok(grid.includes('dropTargetAt(boxes, point, d.id)'))
-  assert.ok(grid.includes("drag.over.after ? '-right-1.5' : '-left-1.5'"))
+test('the canvas packs by the space each widget asked for', () => {
+  assert.ok(canvas.includes('packFlow(items, { canvasWidth: width, gapX, gapY, heights })'))
+  assert.ok(canvas.includes('rowSlack(layout.rows, layout.positions, width, gapX)'))
 })
 
-test('a press that never moved is a press, not a drop', () => {
-  assert.ok(grid.includes('if (d && current?.moved && d.over && d.over.id !== d.id) onMove?.(d.id, d.over.id, d.over.after)'))
-})
-
-test('a drop reorders the page itself, not one admin’s preferences', () => {
-  // Dragging a widget on the canvas is designing the page, which is the one
-  // thing the per-user ordering deliberately is not.
-  assert.ok(dashboard.includes('async function moveWidgetTo(dragId, overId, after)'))
-  assert.ok(dashboard.includes('dropIndex(ids, dragId, overId, after)'))
-  assert.ok(dashboard.includes('moveItem(widgets, from, to)'))
-  assert.ok(dashboard.includes('onMove={moveWidgetTo}'))
-})
-
-// --- one widget's own look ------------------------------------------------
-
-test('every widget can be restyled from the widget', () => {
-  assert.ok(bar.includes('function WidgetPaint('))
-  assert.ok(bar.includes("title=\"How this widget looks\""))
-  for (const field of ['theme: e.target.value', 'bg: v', 'accent: v', 'borderColor: v', 'radius: v', 'padding: v']) {
-    assert.ok(bar.includes(field), field)
+test('nothing on the canvas is draggable', () => {
+  // Sizes are typed, in pixels: exact, repeatable, and the same on every
+  // screen, none of which is true of a mouse.
+  for (const gone of ['onPointerDown', 'setPointerCapture', 'draggable', 'resizeBox']) {
+    assert.ok(!canvas.includes(gone), `${gone} is still there`)
   }
 })
 
-test('a widget can be sized in columns, with no pixels involved', () => {
-  assert.ok(bar.includes('onChange={(e) => onSize({ widthUnits: Number(e.target.value) })}'))
-  assert.ok(
-    dashboard.includes("if (key === 'widthUnits') {"),
-    'and a column span takes no pixel floor'
-  )
-  assert.ok(dashboard.includes('clean.widthPx = null'), 'choosing columns takes the pixel pin off')
+test('the canvas reports what it drew, including the room left on the row', () => {
+  assert.ok(canvas.includes('spare: slack[id] ?? 0'))
+  assert.ok(bar.includes('measured?.spare'))
+  assert.ok(bar.includes('const fillRow = ()'), 'and one click uses it up')
+})
+
+// --- one widget's own size and look --------------------------------------
+
+test('a widget is sized by typing a number of pixels, not by dragging', () => {
+  assert.ok(bar.includes('type="number"'))
+  assert.ok(bar.includes('onCommit={(raw) => onSize({ widthPx: raw })}'))
+  assert.ok(bar.includes('onCommit={(raw) => onSize({ heightPx: raw })}'))
+  assert.ok(dashboard.includes('async function saveWidgetSize(widgetId, patch)'))
+})
+
+test('every widget can be restyled from the widget', () => {
+  assert.ok(bar.includes('function WidgetPaint('))
+  assert.ok(bar.includes('title="How this widget looks"'))
+  for (const field of ['theme: e.target.value', 'bg: v', 'accent: v', 'borderColor: v', 'radius: v', 'padding: v']) {
+    assert.ok(bar.includes(field), field)
+  }
 })
 
 test('a widget’s look is saved to the page, for everyone', () => {
@@ -136,84 +121,26 @@ test('a widget can be put back to the page’s look', () => {
   assert.ok(bar.includes('onStyle({ ...DEFAULT_WIDGET_STYLE })'))
 })
 
-// --- how the page packs, and whether widths fill their columns -----------
+// --- the panels float above every widget ---------------------------------
 
-test('the packing mode and the width snap reach the grid', () => {
-  assert.ok(dashboard.includes('packing={design.packing}'))
-  assert.ok(dashboard.includes('stretch={design.snapWidths}'))
+test('a widget panel escapes its card, or it is painted under the next one', () => {
+  // Each card has its own entrance animation, and a CSS transform creates a
+  // stacking context that no z-index can climb out of. Escaping to <body> is
+  // the only fix that works from any position on the page.
+  assert.ok(bar.includes('function Floating('))
+  assert.ok(bar.includes('createPortal('))
+  assert.ok(bar.includes('className="fixed z-[80]'))
+  assert.ok(bar.includes('<Floating anchor={anchor}'))
 })
 
-test('the grid actually packs in rows when it is told to', () => {
-  assert.ok(grid.includes("if (packing === 'rows') {"))
-  assert.ok(grid.includes('return packRows(items, spans, heights, rowGap, columns)'))
+test('a floating panel is anchored to the handle that opened it', () => {
+  assert.ok(bar.includes('const anchorTo = (e) =>'))
+  assert.ok(bar.includes('e.currentTarget.getBoundingClientRect()'))
+  assert.ok(bar.includes('window.innerHeight'), 'and flips above when there is no room below')
+  assert.ok(bar.includes('window.innerWidth'), 'and stays inside the window sideways')
 })
 
-test('a snapped width is passed through to the width that is drawn', () => {
-  assert.ok(grid.includes('drawnWidth(item.widthPx, { left, containerWidth, spanWidth, stretch })'))
-})
-
-test('both are controls on the panel, not settings only code can reach', () => {
-  assert.ok(panel.includes('onClick={() => set({ packing: m.value })}'))
-  assert.ok(panel.includes('onChange={(e) => set({ snapWidths: e.target.checked })}'))
-  assert.ok(panel.includes('PACKING_MODES.map'))
-})
-
-// --- a canvas with no columns --------------------------------------------
-
-const free = read('components/FreeCanvas.jsx')
-
-test('the page chooses which layout draws it, and both draw the same widgets', () => {
-  // Switching between the two cannot change what is on the page, only where
-  // it sits: the widget list is built once and handed to whichever is used.
-  assert.ok(dashboard.includes('const widgetItems = view.widgets.map('))
-  assert.ok(dashboard.includes("design.layout === 'free' ? ("))
-  assert.ok(dashboard.includes('<FreeCanvas items={widgetItems}'))
-  assert.ok(dashboard.includes('<MasonryGrid items={widgetItems}'))
-})
-
-test('a frame is stored on the widget and saved for everyone', () => {
-  assert.ok(dashboard.includes('async function saveWidgetFrame(widgetId, frame)'))
-  assert.ok(dashboard.includes('onChange={saveWidgetFrame}'))
-  assert.ok(dashboard.includes('if (widget.frame) out[widget.id] = widget.frame'))
-})
-
-test('turning the free canvas on seeds from what is on screen', () => {
-  // Its first act must not be to destroy the layout it was opened to adjust.
-  assert.ok(dashboard.includes('function seedFrames()'))
-  assert.ok(dashboard.includes('framesFromBoxes(measured, canvas)'))
-  assert.ok(panel.includes("if (m.value === 'free' && d.layout !== 'free') onSeedFrames?.()"))
-  assert.ok(dashboard.includes('onSeedFrames={seedFrames}'))
-})
-
-test('the grid reports where a widget is, not only how big it is', () => {
-  assert.ok(dashboard.includes('left: layout?.box?.left'))
-  assert.ok(grid.includes('box: { left, top: p.top, width'))
-})
-
-test('a widget can be moved and resized from eight handles', () => {
-  assert.ok(free.includes("begin(item.id, 'move', e)"))
-  assert.ok(free.includes('HANDLES.map((handle) => ('))
-  assert.ok(free.includes('begin(item.id, handle, e)'))
-  assert.ok(free.includes('resizeBox(d.box, d.handle, dx, dy)'))
-})
-
-test('dragging snaps to the step and to the neighbours, and shows the lines', () => {
-  assert.ok(free.includes('snapBox(next, snap)'))
-  assert.ok(free.includes('alignBox(next, others, { canvasWidth: width })'))
-  assert.ok(free.includes('drag?.guides.map('))
-})
-
-test('a press that never moved does not write a frame', () => {
-  assert.ok(free.includes('if (current && d?.moved && width > 0) onChange?.(d.id, pxToFrame(current.box, width))'))
-})
-
-test('only an admin arranging sees a handle at all', () => {
-  assert.ok(free.includes('{editable && ('))
-  assert.ok(dashboard.includes('editable={isAdmin && arranging}'))
-})
-
-test('the snap step and the tidy action are controls, not constants', () => {
-  assert.ok(panel.includes('onChange={(e) => set({ snap: Number(e.target.value) })}'))
-  assert.ok(panel.includes('onClick={onTidy}'))
-  assert.ok(dashboard.includes('onTidy={tidyCanvas}'))
+test('clicking away or pressing Escape closes it', () => {
+  assert.ok(bar.includes("if (e.key === 'Escape') onDismiss()"))
+  assert.ok(bar.includes('if (ref.current && !ref.current.contains(e.target)) onDismiss()'))
 })

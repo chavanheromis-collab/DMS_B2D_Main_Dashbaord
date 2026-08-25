@@ -1,10 +1,7 @@
 import { useState } from 'react'
-import { Columns3, Layout, Palette, RotateCcw, Type, X } from 'lucide-react'
+import { Layout, Palette, RotateCcw, SquareStack, Type, X } from 'lucide-react'
 import {
-  COLUMN_CHOICES,
   DEFAULT_DESIGN,
-  LAYOUT_MODES,
-  PACKING_MODES,
   GAP_MAX,
   GAP_MIN,
   SCALE_MAX,
@@ -12,7 +9,6 @@ import {
   clampDesign,
   isDefaultDesign,
 } from '../lib/pageDesign'
-import { SNAP_STEPS } from '../lib/freeLayout'
 import { WIDGET_THEMES } from '../lib/widgetStyle'
 
 /**
@@ -42,18 +38,7 @@ const SWATCHES = [
   { label: 'Slate', value: '#EEF2F7' },
 ]
 
-export default function PageDesignPanel({
-  design,
-  theme,
-  onChange,
-  onThemeChange,
-  onSave,
-  onClose,
-  onSeedFrames,
-  onTidy,
-  saving,
-  dirty,
-}) {
+export default function PageDesignPanel({ design, theme, onChange, onThemeChange, onSave, onClose, saving, dirty }) {
   const d = clampDesign(design)
   const [tab, setTab] = useState('layout')
   const set = (patch) => onChange({ ...d, ...patch })
@@ -72,7 +57,7 @@ export default function PageDesignPanel({
       <div className="flex gap-1 px-2 pt-2">
         {[
           { key: 'layout', label: 'Layout', icon: Layout },
-          { key: 'surface', label: 'Cards', icon: Columns3 },
+          { key: 'surface', label: 'Cards', icon: SquareStack },
           { key: 'text', label: 'Text', icon: Type },
         ].map((t) => (
           <button
@@ -90,106 +75,12 @@ export default function PageDesignPanel({
       <div className="max-h-[54vh] space-y-2.5 overflow-y-auto p-2.5">
         {tab === 'layout' && (
           <>
-            {/* First, because everything below it depends on the answer. */}
-            <Row label="Layout">
-              <div className="flex gap-1">
-                {LAYOUT_MODES.map((m) => (
-                  <button
-                    key={m.value}
-                    onClick={() => {
-                      // Seeded from what is on screen BEFORE the switch, so
-                      // turning the free canvas on moves nothing.
-                      if (m.value === 'free' && d.layout !== 'free') onSeedFrames?.()
-                      set({ layout: m.value })
-                    }}
-                    title={m.hint}
-                    className={`flex-1 rounded border px-1.5 py-1 text-[11px] ${
-                      d.layout === m.value
-                        ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
-                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-0.5 text-[10px] text-slate-400">
-                {LAYOUT_MODES.find((m) => m.value === d.layout)?.hint}
-              </p>
-            </Row>
-
-            {d.layout === 'free' ? (
-              <>
-                <Row
-                  label="Snap while dragging"
-                  hint="Widgets also line up with each other's edges as you drag, whatever this says."
-                >
-                  <select
-                    value={String(d.snap)}
-                    onChange={(e) => set({ snap: Number(e.target.value) })}
-                    className="w-full rounded border border-slate-200 px-1.5 py-1 text-[11px] text-slate-600"
-                  >
-                    {SNAP_STEPS.map((step) => (
-                      <option key={step.value} value={step.value}>
-                        {step.label}
-                      </option>
-                    ))}
-                  </select>
-                </Row>
-
-                <button
-                  onClick={onTidy}
-                  className="w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
-                  title="Nudge every edge onto the nearest one already in use. Undoable like anything else."
-                >
-                  Tidy up the edges
-                </button>
-
-                <p className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] leading-relaxed text-slate-500">
-                  Turn on <strong>Arrange</strong> in the page header to drag widgets and pull their handles.
-                  Nothing is rounded to a column here — a widget is exactly where and exactly the size you put
-                  it, and its width is kept as a share of the page so the design holds on any screen.
-                </p>
-              </>
-            ) : (
-              <>
-            <Row label="How widgets pack">
-              <div className="flex gap-1">
-                {PACKING_MODES.map((m) => (
-                  <button
-                    key={m.value}
-                    onClick={() => set({ packing: m.value })}
-                    title={m.hint}
-                    className={`flex-1 rounded border px-1.5 py-1 text-[11px] ${
-                      d.packing === m.value
-                        ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
-                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-0.5 text-[10px] text-slate-400">
-                {PACKING_MODES.find((m) => m.value === d.packing)?.hint}
-              </p>
-            </Row>
-
-            <label className="flex items-start gap-1.5">
-              <input
-                type="checkbox"
-                checked={d.snapWidths}
-                onChange={(e) => set({ snapWidths: e.target.checked })}
-                className="mt-0.5 h-3 w-3"
-              />
-              <span>
-                <span className="text-[11px] font-medium text-slate-600">Widths fill their columns</span>
-                <span className="block text-[10px] text-slate-400">
-                  A widget pinned to 260px on a canvas of 316px columns leaves 56px beside it that nothing can
-                  ever fill. Three in a row is a strip of nothing. This closes it.
-                </span>
-              </span>
-            </label>
+            <p className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] leading-relaxed text-slate-500">
+              There are no columns. Every widget takes exactly the width you type into its{' '}
+              <strong>W</strong> box, they sit side by side in your order, and a row wraps when the next one
+              will not fit — so the page adapts to any screen without a widget ever being rounded up to a
+              column it does not need.
+            </p>
 
             <Slider
               label="Gap across"
@@ -209,27 +100,6 @@ export default function PageDesignPanel({
               onChange={(v) => set({ gapY: v })}
               unit="px"
             />
-
-            <Row label="Columns" hint="What the canvas is divided into. Every width is a fraction of this.">
-              <div className="flex gap-1">
-                {COLUMN_CHOICES.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => set({ columns: c })}
-                    className={`flex-1 rounded border px-1 py-0.5 text-[11px] tabular-nums ${
-                      d.columns === c
-                        ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
-                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </Row>
-
-              </>
-            )}
 
             <Slider
               label="Canvas width"

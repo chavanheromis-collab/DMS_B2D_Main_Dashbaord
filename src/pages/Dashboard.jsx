@@ -17,8 +17,7 @@ import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/b
 import { normalizeKey } from '../lib/dataUtils'
 import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
 import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
-import { DEFAULT_DESIGN, clampDesign, designVars, dropIndex, moveItem } from '../lib/pageDesign'
-import { framesFromBoxes, tidyFrames } from '../lib/freeLayout'
+import { DEFAULT_DESIGN, clampDesign, designVars, moveItem } from '../lib/pageDesign'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
 import { fixedValues, initialValues, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
@@ -29,10 +28,9 @@ import ControlBar from '../components/ControlBar.jsx'
 import { PageIcon } from '../components/PageIcon.jsx'
 import AppShell from '../components/AppShell.jsx'
 import CrossFilterChips from '../components/CrossFilterChips.jsx'
-import MasonryGrid from '../components/MasonryGrid.jsx'
+import WidgetCanvas from '../components/WidgetCanvas.jsx'
 import ArrangeBar from '../components/ArrangeBar.jsx'
 import PageDesignPanel from '../components/PageDesignPanel.jsx'
-import FreeCanvas from '../components/FreeCanvas.jsx'
 import KpiWidget from '../components/widgets/KpiWidget.jsx'
 import PipelineWidget from '../components/widgets/PipelineWidget.jsx'
 import FlowWidget from '../components/widgets/FlowWidget.jsx'
@@ -168,491 +166,6 @@ export default function Dashboard() {
   const pageTheme = themeDraft ?? page?.theme ?? ''
   const designDirty = designDraft !== null || themeDraft !== null
 
-  // Where each widget sits on a free canvas. Stored on the widget, like its
-  // size and its look, because it is a property of the page rather than of
-  // whoever happens to be reading it.
-  const frames = useMemo(() => {
-    const out = {}
-    for (const widget of page?.widgets || []) if (widget.frame) out[widget.id] = widget.frame
-    return out
-  }, [page?.widgets])
-
-  /**
-   * The rows this person is allowed to see on this page at all.
-   *
-   * Applied with the drills rather than with the controls, because it is
-   * not a control: nothing on the page clears it, no saved view restores
-   * past it, and Reset does not touch it. It is the extent of their data.
-   *
-   * Admins are not scoped -- somebody has to be able to see the whole sheet
-   * to know whether a scope is doing what they meant.
-   */
-  const scope = useMemo(
-    () =>
-      isAdmin
-        ? null
-        : scopeFilter(access?.scope, { ...(userDoc || {}), uid: user?.uid }, `scope_${pageId}`),
-    [isAdmin, access, userDoc, user, pageId]
-  )
-
-  // This user's own widget arrangement for this page.
-  const { widgetOrder, setWidgetOrder, clearOrder } = useUserPrefs(user?.uid, pageId)
-
-  // The tab strip: this page's sub-canvases, or its siblings if it is one.
-  // Filtered to what this user may open, so a restricted sub-canvas simply
-  // isn't offered rather than being offered and then refused.
-  const canvas = useMemo(() => {
-    const found = canvasFor(pages, page)
-    if (!found) return null
-    const tabs = found.tabs.filter((p) => canViewPage(accessByPage[p.id], isAdmin))
-    return tabs.length > 1 ? { ...found, tabs } : null
-  }, [pages, page, accessByPage, isAdmin])
-
-  const widgets = useMemo(() => (page?.widgets || []), [page])
-
-  // One ordered list of controls, however the page happens to be stored.
-  // The engine still wants them split, because a filter and a button
-  // evaluate differently -- see lib/pageControls.js.
-  const pageControls = useMemo(() => normalizeControls(page), [page])
-  const { filters, buttons } = useMemo(() => splitControls(pageControls), [pageControls])
-
-  // The page's own rules: controls the admin fixed, which are applied always
-  // and shown nowhere. Forced over the user's state at the moment of
-  // filtering rather than merged into it, so nothing -- a saved view, a value
-  // left over from before the admin fixed the control -- can quietly
-  // override what the page says it is.
-  const fixed = useMemo(() => fixedValues(pageControls), [pageControls])
-  const effectiveValues = useMemo(() => ({ ...filterValues, ...fixed.values }), [filterValues, fixed])
-  const effectiveButtonIds = useMemo(
-    () => Array.from(new Set([...activeButtonIds, ...fixed.buttons])),
-    [activeButtonIds, fixed]
-  )
-  const views = useMemo(() => page?.views || [], [page])
-
-  // Widget-level visibility is applied BEFORE anything is fetched, so a
-  // hidden widget's tab is never even requested from Google on behalf of
-  // someone who isn't allowed to see it.
-  // Ordered by this user's own numbers, then the admin's order FOR THIS
-  // USER, then the page default. See lib/widgetOrder.js for why in that
-  // order.
-  const allowedWidgets = useMemo(
-    () => orderWidgets(visibleWidgetsFor(page, access, isAdmin), widgetOrder, access?.widgetOrder),
-    [page, access, isAdmin, widgetOrder]
-  )
-
-  // Controls that the admin gave a default value open already applied.
-  //
-  // Keyed on the CONTROLS themselves, not on `allowedWidgets` -- that array
-  // is rebuilt whenever the widget order changes, and reseeding from it would
-  // silently discard whatever the user had selected the moment they
-  // rearranged their canvas.
-  const controlsKey = useMemo(
-    () => allowedWidgets.map((w) => `${w.id}:${(w.controls || []).map((c) => c.id).join(',')}`).join('|'),
-    [allowedWidgets]
-  )
-
-  useEffect(() => {
-    const seeded = {}
-    for (const w of allowedWidgets) {
-      const initial = initialControlValues(w.controls)
-      if (Object.keys(initial).length) seeded[w.id] = initial
-    }
-    setControlValues(seeded)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageId, controlsKey])
-
-  // A page can span sources whose spreadsheets disagree about 05/06/2024.
-  // Whichever order the majority of this page's sources use wins; it only
-  // ever matters for genuinely ambiguous dates.
-  const dateOrder = useMemo(() => {
-    const votes = {}
-    for (const id of page?.sourceIds || []) {
-      const order = sourcesById[id]?.dateOrder || 'DMY'
-      votes[order] = (votes[order] || 0) + 1
-    }
-    return (votes.MDY || 0) > (votes.DMY || 0) ? 'MDY' : 'DMY'
-  }, [page, sourcesById])
-
-  // --- Which refs does this page actually need? --------------------------
-  // Only the tabs something visible reads: the widgets themselves, whatever
-  // a filter or button targets, and each blend's right-hand tab.
-  const neededRefs = useMemo(() => {
-    const set = collectTabRefs([allowedWidgets, filters, buttons])
-    for (const w of allowedWidgets) {
-      if (blendIsReady(w.blend)) set.add(w.blend.ref)
-    }
-    return Array.from(set).filter(Boolean)
-  }, [allowedWidgets, filters, buttons])
-
-  const { tabs: dataByRef, loading, error, reload, lastLoaded } = usePageData(
-    getIdToken,
-    pageId,
-    neededRefs,
-    canView && !!page
-  )
-
-  // --- Ref -> label, once, for the whole page ----------------------------
-  const labelByRef = useMemo(() => buildLabelMap(neededRefs, sources), [neededRefs, sources])
-  const refByLabel = useMemo(
-    () => Object.fromEntries(Object.entries(labelByRef).map(([ref, label]) => [label, ref])),
-    [labelByRef]
-  )
-  // A ref the label map hasn't seen (a widget pointing at a tab that has
-  // since been removed from its source) falls back to its bare tab name, so
-  // the widget shows "could not be read" rather than an empty caption.
-  const labelFor = useCallback(
-    (ref) => labelByRef[ref] || parseRef(ref).tab || ref,
-    [labelByRef]
-  )
-
-  // Drill-downs are BORN in label space: a chart bar or pipeline stage that
-  // was clicked reports the tab it came from, and the widget only ever knew
-  // that tab by its label. Filtering happens in ref space, so translate them
-  // back before they reach the engine -- otherwise a drill-down silently
-  // matches nothing and clicking a bar appears to do nothing at all.
-  const crossFiltersByRef = useMemo(
-    () => mapTabFields(crossFilters, (label) => refByLabel[label] || label),
-    [crossFilters, refByLabel]
-  )
-
-  // --- Filtering, in REF space ------------------------------------------
-  // Per-ref filtered rows, computed once and shared by every widget reading
-  // that tab. A filter/button only touches the refs it explicitly names, so
-  // a MASTER filter never empties the GOOGLE REVIEW table sitting next to
-  // it -- and now, never empties a different sheet's MASTER either.
-  // --- Calculated columns, before anything else -------------------------
-  // A column the sheet does not have -- margin, age in days, a status worked
-  // out from three other fields -- defined once on the TAB and true from
-  // here down. Everything below this line sees an ordinary column: the
-  // filters, the controls, all sixteen widget types, the drill-downs, the
-  // flow, and the blend, which is what lets a calculated column on a parent
-  // table be used in a widget that blends it with another one.
-  //
-  // It has to happen first. A filter cannot mention a column that does not
-  // exist yet, and a per-user row scope has to be able to hide rows BY one.
-  const computedByRef = useMemo(() => {
-    const out = {}
-    for (const [ref, data] of Object.entries(dataByRef)) {
-      const { sourceId, tab } = parseRef(ref)
-      const defs = computedFor(sourcesById[sourceId], tab)
-      if (defs.length === 0) {
-        out[ref] = data
-        continue
-      }
-      const headers = data.headers || []
-      out[ref] = {
-        ...data,
-        headers: computedHeaders(headers, defs),
-        rows: applyComputed(data.rows || [], defs, { headers, dateOrder }),
-      }
-    }
-    return out
-  }, [dataByRef, sourcesById, dateOrder])
-
-  const tabColumns = useMemo(() => {
-    const out = {}
-    for (const [ref, data] of Object.entries(computedByRef)) out[ref] = data.headers || []
-    return out
-  }, [computedByRef])
-
-  // The scope is applied HERE, at the source, and not alongside the drills.
-  // A widget set to ignore filters reads the raw rows, a blend reads them,
-  // and a control builds its dropdown from them -- so a scope that only
-  // narrowed the filtered pass would be handing back through three doors
-  // exactly what it closed at the front. Everything below this line sees a
-  // sheet that has never contained the other rows.
-  const scopedByRef = useMemo(() => {
-    if (!scope) return computedByRef
-    const out = {}
-    for (const [ref, data] of Object.entries(computedByRef)) {
-      out[ref] = { ...data, rows: applyFilters(data.rows || [], { tab: ref, crossFilters: [scope], dateOrder, tabColumns }) }
-    }
-    return out
-  }, [computedByRef, scope, dateOrder, tabColumns])
-
-  const filteredByRef = useMemo(() => {
-    const first = {}
-    for (const [ref, data] of Object.entries(scopedByRef)) {
-      first[ref] = applyFilters(data.rows || [], {
-        tab: ref,
-        filters,
-        values: effectiveValues,
-        buttons,
-        activeIds: effectiveButtonIds,
-        crossFilters: crossFiltersByRef,
-        search,
-        dateOrder,
-        tabColumns,
-      })
-    }
-
-    // Second pass, for controls set to reach the whole page. A key bridge
-    // asks "which keys are still standing on the source tab" -- which can
-    // only be answered once the first pass has finished, and has to be
-    // answered from the fully filtered rows so that every OTHER control on
-    // the page narrows the bridged tabs too.
-    const bridges = []
-    for (const filter of filters) {
-      if (filter.reach !== 'key') continue
-      if (!filterIsActive(filter, effectiveValues[filter.id])) continue
-      const bridge = buildKeyBridge({ filter, sourceRows: first[filter.tab] || [], tabColumns })
-      if (bridge) bridges.push(bridge)
-    }
-    if (bridges.length === 0) return first
-
-    const out = {}
-    for (const [ref, rows] of Object.entries(first)) {
-      out[ref] = applyFilters(rows, { tab: ref, crossFilters: bridges, dateOrder })
-    }
-    return out
-  }, [
-    scopedByRef,
-    filters,
-    effectiveValues,
-    buttons,
-    effectiveButtonIds,
-    crossFiltersByRef,
-    search,
-    dateOrder,
-    tabColumns,
-  ])
-
-  // --- Re-key everything by human label ---------------------------------
-  const headersByLabel = useMemo(() => {
-    const out = {}
-    for (const [ref, data] of Object.entries(scopedByRef)) out[labelFor(ref)] = data.headers || []
-    return out
-  }, [scopedByRef, labelFor])
-
-  const rowsByLabel = useMemo(() => {
-    const out = {}
-    for (const [ref, rows] of Object.entries(filteredByRef)) out[labelFor(ref)] = rows
-    return out
-  }, [filteredByRef, labelFor])
-
-  const rawRowsByLabel = useMemo(() => {
-    const out = {}
-    for (const [ref, d] of Object.entries(scopedByRef)) out[labelFor(ref)] = d.rows || []
-    return out
-  }, [scopedByRef, labelFor])
-
-  // The label-keyed equivalent of `dataByRef`, for FilterBar (which reads a
-  // filter's own tab to build its dropdown options) and for header lookups.
-  const dataByLabel = useMemo(() => {
-    const out = {}
-    for (const [ref, d] of Object.entries(scopedByRef)) out[labelFor(ref)] = d
-    return out
-  }, [scopedByRef, labelFor])
-
-  // The layout, rewritten so every `tab` / `secondaryTab` holds a label.
-  // From here down, nothing knows refs exist.
-  const view = useMemo(
-    () => mapTabFields({ widgets: allowedWidgets, controls: pageControls }, labelFor),
-    [allowedWidgets, pageControls, labelFor]
-  )
-
-  /**
-   * The rows each control reads its OPTIONS from: the page as everything
-   * ELSE has narrowed it.
-   *
-   * Without this a Region of "West" still lists every DSE in the sheet, and
-   * every name that does not sell in the west is a trap -- pick one and the
-   * dashboard empties with nothing to explain why. Computed in label space,
-   * because that is the space the control bar and the filter panel work in.
-   *
-   * One pass per listing control over one tab, memoised on the filter state,
-   * so it costs nothing until something actually changes.
-   */
-  const optionRowsByControl = useMemo(() => {
-    const { filters: viewFilters, buttons: viewButtons } = splitControls(view.controls)
-    const listing = viewFilters.filter((c) => ['select', 'multi', 'chips'].includes(c.kind))
-    const out = {}
-
-    for (const control of listing) {
-      out[control.id] = optionRows(control, {
-        rows: dataByLabel[control.tab]?.rows || [],
-        tab: control.tab,
-        filters: viewFilters,
-        values: effectiveValues,
-        buttons: viewButtons,
-        activeIds: effectiveButtonIds,
-        crossFilters,
-        search,
-        dateOrder,
-      })
-    }
-    return out
-  }, [view.controls, dataByLabel, effectiveValues, effectiveButtonIds, crossFilters, search, dateOrder])
-
-  // --- Blending ----------------------------------------------------------
-  // Per widget, and only for widgets that asked for it. The join runs on
-  // rows that are ALREADY filtered on both sides, so a filter on either tab
-  // narrows the blended result exactly as someone would expect.
-  const blendedByWidget = useMemo(() => {
-    const out = {}
-    for (const w of allowedWidgets) {
-      if (!blendIsReady(w.blend)) continue
-      // `rows` is always the filtered join and `unfiltered` always the raw
-      // one; each widget then picks between them according to its own
-      // `ignoreFilters` setting, exactly as it does for an unblended tab.
-      const left = filteredByRef[w.tab] || []
-      const right = filteredByRef[w.blend.ref] || []
-      out[w.id] = {
-        rows: blendRows(left, right, w.blend, scopedByRef[w.blend.ref]?.headers || [], dateOrder),
-        headers: blendedHeaders(
-          scopedByRef[w.tab]?.headers || [],
-          scopedByRef[w.blend.ref]?.headers || [],
-          w.blend
-        ),
-        // Scoped, not raw: `unfiltered` means "before the page's filters",
-        // never "before this reader's row limit".
-        unfiltered: blendRows(
-          scopedByRef[w.tab]?.rows || [],
-          scopedByRef[w.blend.ref]?.rows || [],
-          w.blend,
-          scopedByRef[w.blend.ref]?.headers || [],
-          dateOrder
-        ),
-      }
-    }
-    return out
-  }, [allowedWidgets, filteredByRef, scopedByRef, dateOrder])
-
-  // --- Interaction -------------------------------------------------------
-  /**
-   * Turns a drill on a BLENDED column into one the whole page understands.
-   *
-   * A blended column exists only on the widget that blended it, so filtering
-   * anything else by it directly matches nothing -- which is why clicking
-   * such a chart used to empty the dashboard. What every tab CAN be filtered
-   * by is the key the blend joined on, so the click is resolved here into
-   * the set of key values it selected ("the VINs whose Yard.Location is Pune
-   * Yard") and that set is what travels.
-   *
-   * Keys are collected from the UNFILTERED blend, so the set means "every
-   * VIN in Pune Yard" rather than "the ones that happened to survive the
-   * other filters". Those filters still apply on top; this way removing one
-   * widens the result instead of leaving it stuck.
-   */
-  function crossFilterHandlerFor(widget, blended, nativeHeaders) {
-    if (!blended) return toggleCrossFilter
-
-    const blend = widget.blend
-    const isBlendedColumn = (column) => column && !nativeHeaders.includes(column)
-
-    return (cf) => {
-      const touchesBlended =
-        cf.kind === 'conditions'
-          ? (cf.conditions || []).some((c) => isBlendedColumn(c.column))
-          : isBlendedColumn(cf.column)
-
-      if (!touchesBlended) return toggleCrossFilter(cf)
-
-      const source = blended.unfiltered || []
-      const matched =
-        cf.kind === 'conditions'
-          ? source.filter((row) => matchesConditions(row, cf.conditions, cf.match || 'all', dateOrder))
-          : source.filter((row) => String(row[cf.column] ?? '').trim() === String(cf.value).trim())
-
-      const keys = Array.from(
-        new Set(matched.map((row) => normalizeKey(row[blend.leftKey])).filter((k) => k !== null))
-      )
-
-      toggleCrossFilter({
-        id: cf.id,
-        kind: 'keys',
-        // Kept so clicking the same bar again still toggles the filter off.
-        value: cf.value,
-        keys,
-        // The pairs the blend stated outright. Both tabs are named because
-        // their key columns are usually called different things.
-        keyColumns: [
-          { tab: widget.tab, column: blend.leftKey },
-          { tab: labelFor(blend.ref), column: blend.rightKey },
-        ],
-        // ...and any other tab carrying a column of the same name is assumed
-        // to hold the same key, which is what reaches widgets nowhere near
-        // the blend.
-        keyNames: [blend.leftKey, blend.rightKey],
-        icon: '🔗',
-        label: cf.label,
-      })
-    }
-  }
-
-  function toggleCrossFilter(cf) {
-    setCrossFilters((current) => {
-      const existing = current.find((c) => c.id === cf.id)
-      // Same id AND same selection means "clicking the thing that is already
-      // on", which clears it. A different selection under the same id -- one
-      // flow, a different branch -- replaces instead, so a tree drill moves
-      // rather than stacking two contradictory filters on the page. Callers
-      // that carry no `value` (a pipeline stage, a trend bucket) compare
-      // undefined to undefined and toggle exactly as they always have.
-      if (existing && existing.value === cf.value) {
-        return current.filter((c) => c.id !== cf.id)
-      }
-      return [...current.filter((c) => c.id !== cf.id), cf]
-    })
-  }
-
-  function toggleButton(button) {
-    setActiveButtonIds((current) => {
-      const on = current.includes(button.id)
-      if (on) return current.filter((id) => id !== button.id)
-      if (button.group) {
-        const siblings = buttons.filter((b) => b.group === button.group).map((b) => b.id)
-        return [...current.filter((id) => !siblings.includes(id)), button.id]
-      }
-      return [...current, button.id]
-    })
-  }
-
-  function resetFilters() {
-    // Back to the page's OWN starting state, not to blank -- a control the
-    // admin gave a default is meant to be on, and "Reset" that turned it off
-    // would leave the dashboard in a state the admin never designed.
-    const { values, buttons: onByDefault } = initialValues(pageControls)
-    setFilterValues(values)
-    setActiveButtonIds(onByDefault)
-    setSearch('')
-    setCrossFilters([])
-  }
-
-  /**
-   * A saved view replaces the whole control state rather than merging into
-   * it, so clicking one always lands you somewhere predictable instead of
-   * somewhere that depends on what you had set before.
-   */
-  function applyView(view) {
-    setFilterValues(view.values || {})
-    setActiveButtonIds(view.buttons || [])
-    setCrossFilters([])
-  }
-
-  // Page controls the admin gave a default open already applied. Keyed on
-  // the control ids so re-rendering doesn't keep resetting what the user set.
-  const pageControlsKey = useMemo(() => pageControls.map((c) => c.id).join('|'), [pageControls])
-  useEffect(() => {
-    const { values, buttons: onByDefault } = initialValues(pageControls)
-    setFilterValues(values)
-    setActiveButtonIds(onByDefault)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageId, pageControlsKey])
-
-  /**
-   * A widget's size, saved to the page.
-   *
-   * Order is a personal preference and lives in the reader's own document.
-   * SIZE is a layout decision and lives in the page: a canvas where one
-   * widget is 640px for one reader and 300px for another is not a canvas
-   * anybody designed. Only an admin reaches this -- the arrange button is
-   * theirs alone -- and the Firestore rules say so independently, so a
-   * hand-made request cannot get round the missing button.
-   *
-   * Blank clears the pin rather than storing a zero, which would be a widget
-   * one pixel tall.
-   */
   /**
    * The page's own appearance, written for everybody.
    *
@@ -676,31 +189,6 @@ export default function Dashboard() {
   }
 
   /**
-   * A widget dragged somewhere else.
-   *
-   * Written to the PAGE, not to this admin's own preferences: dragging a
-   * widget on the canvas is designing the page, which is the one thing the
-   * per-user ordering deliberately is not.
-   */
-  async function moveWidgetTo(dragId, overId, after) {
-    if (!isAdmin || !page?.id) return
-    const widgets = page.widgets || []
-    const ids = widgets.map((w) => w.id)
-    const from = ids.indexOf(dragId)
-    const to = dropIndex(ids, dragId, overId, after)
-    if (from === -1 || from === to) return
-
-    setSavingLayout(true)
-    try {
-      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets: moveItem(widgets, from, to) }), {
-        merge: true,
-      })
-    } finally {
-      setSavingLayout(false)
-    }
-  }
-
-  /**
    * How one widget looks, written for everybody.
    *
    * Same rule as its size: appearance is a property of the PAGE, not of the
@@ -718,64 +206,6 @@ export default function Dashboard() {
     }
   }
 
-  /** Where one widget sits, after a drag or a resize. */
-  async function saveWidgetFrame(widgetId, frame) {
-    if (!isAdmin || !page?.id) return
-    const widgets = (page.widgets || []).map((w) => (w.id === widgetId ? { ...w, frame } : w))
-    setSavingLayout(true)
-    try {
-      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets }), { merge: true })
-    } finally {
-      setSavingLayout(false)
-    }
-  }
-
-  async function saveFrames(next) {
-    if (!isAdmin || !page?.id) return
-    const widgets = (page.widgets || []).map((w) => (next[w.id] ? { ...w, frame: next[w.id] } : w))
-    setSavingLayout(true)
-    try {
-      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets }), { merge: true })
-    } finally {
-      setSavingLayout(false)
-    }
-  }
-
-  /** The width of the canvas, as the widgets on it currently report it. */
-  function measuredCanvasWidth() {
-    let width = 0
-    for (const box of Object.values(sizes)) {
-      if (box?.left === undefined) continue
-      width = Math.max(width, box.left + box.width)
-    }
-    return width
-  }
-
-  /**
-   * Frames that reproduce what is on screen at this moment.
-   *
-   * Turning the free canvas on must not rearrange anything. An admin who
-   * opens it to nudge one widget should find every widget exactly where it
-   * was a second ago -- otherwise the feature's first act is to destroy the
-   * layout it was opened to adjust.
-   */
-  function seedFrames() {
-    const measured = {}
-    for (const [id, box] of Object.entries(sizes)) {
-      if (!box || box.left === undefined) continue
-      measured[id] = { left: box.left, top: box.top, width: box.width, height: box.height }
-    }
-    const canvas = measuredCanvasWidth()
-    if (canvas <= 0 || Object.keys(measured).length === 0) return
-    saveFrames(framesFromBoxes(measured, canvas))
-  }
-
-  /** Every edge nudged onto the nearest one already in use. */
-  function tidyCanvas() {
-    const canvas = measuredCanvasWidth() || 1200
-    saveFrames(tidyFrames(frames, canvas))
-  }
-
   async function saveWidgetSize(widgetId, patch) {
     if (!isAdmin || !page?.id) return
 
@@ -783,15 +213,6 @@ export default function Dashboard() {
     const clean = {}
     for (const [key, value] of Object.entries(patch)) {
       const n = Number(value)
-      // A column span is a count, not a measurement: it takes no pixel
-      // floor, and setting one is how somebody says "columns, not pixels",
-      // so the pixel pin comes off with it.
-      if (key === 'widthUnits') {
-        clean.widthUnits = Number.isFinite(n) && n >= 1 ? Math.round(n) : null
-        clean.widthPx = null
-        clean.widthMode = null
-        continue
-      }
       clean[key] =
         value === '' || value === null || !Number.isFinite(n) || n <= 0
           ? null
@@ -901,7 +322,7 @@ export default function Dashboard() {
               ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
               : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
           }`}
-          title="Design this page — spacing, columns, text size, card look"
+          title="Design this page — spacing, text size, card look"
         >
           <Palette size={15} />
         </button>
@@ -1014,8 +435,6 @@ export default function Dashboard() {
                           onOrder={(v) => setWidgetOrder(widget.id, v)}
                           widthPx={widget.widthPx ?? ''}
                           heightPx={widget.heightPx ?? ''}
-                          widthUnits={widget.widthUnits}
-                          columns={design.columns}
                           style={widget.style}
                           measured={sizes[widget.id]}
                           onSize={(patch) => saveWidgetSize(widget.id, patch)}
@@ -1366,30 +785,12 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Two ways of PLACING the same widgets. The free canvas has
-                no columns at all, so nothing is ever rounded up and no gap
-                is left behind; the automatic one packs them for you. */}
-            {design.layout === 'free' ? (
-              <FreeCanvas
-                items={widgetItems}
-                frames={frames}
-                editable={isAdmin && arranging}
-                snap={design.snap}
-                onChange={saveWidgetFrame}
-              />
-            ) : (
-              <MasonryGrid
-                items={widgetItems}
-                gap={design.gapX}
-                gapY={design.gapY}
-                columns={design.columns}
-                packing={design.packing}
-                stretch={design.snapWidths}
-                draggable={isAdmin && arranging}
-                onMove={moveWidgetTo}
-                onMeasure={noteSize}
-              />
-            )}
+            <WidgetCanvas
+              items={widgetItems}
+              gapX={design.gapX}
+              gapY={design.gapY}
+              onMeasure={noteSize}
+            />
 
             {loading && view.widgets.length === 0 && (
               <div className="card py-10 text-center text-slate-400">Loading…</div>
@@ -1407,8 +808,6 @@ export default function Dashboard() {
           onChange={setDesignDraft}
           onThemeChange={setThemeDraft}
           onSave={savePageDesign}
-          onSeedFrames={seedFrames}
-          onTidy={tidyCanvas}
           onClose={() => {
             setDesigning(false)
             // An unsaved design is discarded on close rather than left

@@ -8,21 +8,17 @@
 // going round again.
 //
 // So the whole of a page's appearance is editable on the page itself: the
-// gaps between widgets, how many columns the canvas is divided into, the
-// text size, the card surface, the backdrop -- and the order of the widgets,
-// by dragging them.
+// gaps between widgets, how wide the canvas may get, the text size, the card
+// surface and the backdrop -- and every widget's own size, typed in pixels.
 //
-// Nothing here is a preset that cannot be left. A widget's width is columns
-// OR exact pixels; the column count itself is a setting; the gaps are two
-// separate numbers because vertical and horizontal rhythm are not the same
-// decision. What the page looks like is entirely the admin's, and none of it
-// is baked into the code.
+// Nothing here is a preset that cannot be left. A widget's width is a number
+// of pixels the admin types; the canvas has no columns to round it up to
+// (see lib/flowPack.js); the gaps are two separate numbers because vertical
+// and horizontal rhythm are not the same decision. What the page looks like
+// is entirely the admin's, and none of it is baked into the code.
 //
 // Pure: numbers and objects in, numbers and objects out, so all of it can be
 // tested without a browser.
-
-/** How many columns the canvas may be divided into. */
-export const COLUMN_CHOICES = [6, 8, 12, 16, 24]
 
 export const GAP_MIN = 0
 export const GAP_MAX = 64
@@ -35,7 +31,6 @@ export const DEFAULT_DESIGN = {
   // tighter than that, not looser.
   gapX: 12,
   gapY: 12,
-  columns: 12,
   // Everything on the page scales together. A dashboard on a wall-mounted
   // screen and the same dashboard on a laptop are the same design at two
   // sizes, not two designs.
@@ -49,42 +44,7 @@ export const DEFAULT_DESIGN = {
   // How wide the canvas is allowed to get on a very large screen. 0 means
   // "all of it".
   maxWidth: 0,
-  // 'auto' is the twelve-column packer below; 'free' is a canvas with no
-  // columns at all, where a widget is exactly where and exactly the size the
-  // admin put it (see lib/freeLayout.js). The column settings below apply
-  // only to 'auto', and are left alone rather than deleted so that switching
-  // back finds the page as it was.
-  layout: 'auto',
-  // How far a free canvas rounds a drag. 0 is "anywhere", and that is a
-  // supported way to work rather than a broken one.
-  snap: 8,
-  // 'masonry' fills gaps; 'rows' keeps the admin's order strictly, left to
-  // right, wrapping at the edge. Neither is right for every page, which is
-  // why it is a setting and not a decision baked into the packer.
-  packing: 'masonry',
-  // Whether a widget pinned to an exact pixel width fills the columns it
-  // claimed. Off, its number is drawn exactly and the remainder is dead
-  // space beside it; on, the row closes up.
-  snapWidths: false,
 }
-
-export const LAYOUT_MODES = [
-  {
-    value: 'auto',
-    label: 'Automatic',
-    hint: 'Widgets are packed into columns for you. Simple, and it re-flows on every screen by itself.',
-  },
-  {
-    value: 'free',
-    label: 'Free canvas',
-    hint: 'Drag and resize anything anywhere. No columns, so nothing is ever rounded up and no gap is left behind.',
-  },
-]
-
-export const PACKING_MODES = [
-  { value: 'masonry', label: 'Fill gaps', hint: 'Shorter widgets are tucked under each other. Best for cards of very different heights.' },
-  { value: 'rows', label: 'Keep my order', hint: 'Strictly left to right, wrapping at the edge. Rows line up and nothing jumps the queue.' },
-]
 
 const clamp = (value, min, max, fallback) => {
   const n = Number(value)
@@ -101,16 +61,10 @@ const clamp = (value, min, max, fallback) => {
  */
 export function clampDesign(design) {
   const d = { ...DEFAULT_DESIGN, ...(design || {}) }
-  const columns = COLUMN_CHOICES.includes(Number(d.columns)) ? Number(d.columns) : DEFAULT_DESIGN.columns
   return {
     ...d,
-    layout: d.layout === 'free' ? 'free' : 'auto',
-    snap: Math.round(clamp(d.snap, 0, 64, 8)),
-    packing: d.packing === 'rows' ? 'rows' : 'masonry',
-    snapWidths: d.snapWidths === true,
     gapX: Math.round(clamp(d.gapX, GAP_MIN, GAP_MAX, DEFAULT_DESIGN.gapX)),
     gapY: Math.round(clamp(d.gapY, GAP_MIN, GAP_MAX, DEFAULT_DESIGN.gapY)),
-    columns,
     fontScale: Math.round(clamp(d.fontScale, SCALE_MIN, SCALE_MAX, 1) * 100) / 100,
     cardRadius: d.cardRadius === null || d.cardRadius === '' ? null : Math.round(clamp(d.cardRadius, 0, 48, 16)),
     cardPadding: d.cardPadding === null || d.cardPadding === '' ? null : Math.round(clamp(d.cardPadding, 0, 48, 16)),
@@ -171,47 +125,4 @@ export function moveItem(list, from, to) {
   const [moved] = items.splice(from, 1)
   items.splice(target, 0, moved)
   return items
-}
-
-/**
- * Which slot a drop at this point lands in.
- *
- * The nearest widget by the distance to its centre, and then which SIDE of
- * that centre the pointer is on -- past it means after. Distance to the
- * centre rather than "is the pointer inside a box", because on a masonry
- * canvas there are real gaps between the boxes and a drop into one of them
- * has to mean something rather than nothing.
- *
- * Returns `null` when there is nothing to drop onto.
- */
-export function dropTargetAt(boxes, point, exclude) {
-  let best = null
-  for (const box of boxes || []) {
-    if (!box || box.id === exclude) continue
-    const cx = box.left + box.width / 2
-    const cy = box.top + box.height / 2
-    const distance = Math.hypot(point.x - cx, point.y - cy)
-    if (!best || distance < best.distance) {
-      best = { id: box.id, distance, after: point.x > cx, box }
-    }
-  }
-  return best ? { id: best.id, after: best.after } : null
-}
-
-/**
- * The index `moveItem` should be given for a drop on `overId`.
- *
- * Dropping AFTER something you were already in front of means its index,
- * not one past it -- because removing yourself first has already shifted
- * everything down by one. Getting this wrong is the classic drag-and-drop
- * bug where an item refuses to move one place to the right.
- */
-export function dropIndex(ids, dragId, overId, after) {
-  const from = ids.indexOf(dragId)
-  const over = ids.indexOf(overId)
-  if (from === -1 || over === -1) return from
-
-  let to = after ? over + 1 : over
-  if (from < to) to -= 1
-  return Math.max(0, Math.min(ids.length - 1, to))
 }
