@@ -1891,6 +1891,7 @@ src/
   lib/pageDesign.js       A page's own look: gaps, scale, card surface
   lib/flowPack.js         Laying widgets out by the space each one asks for
   lib/tdz.js              Finds a const used before the line that declares it
+  lib/staleRef.js         Finds a ref read from inside a state updater
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties

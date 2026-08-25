@@ -319,13 +319,21 @@ export default function FlowDiagram({
   }
 
   function movePan(e) {
-    if (!drag.current) return
-    drag.current.moved = true
-    setView((v) => ({
-      ...v,
-      x: drag.current.ox + (e.clientX - drag.current.x),
-      y: drag.current.oy + (e.clientY - drag.current.y),
-    }))
+    const d = drag.current
+    if (!d) return
+    d.moved = true
+
+    // Worked out HERE, not inside the updater.
+    //
+    // A state updater does not run when it is queued -- it runs when React
+    // gets round to it, which can be after the pointer has come up and
+    // `endPan` has set this ref to null. Reading `drag.current` from inside
+    // it therefore threw "Cannot read properties of null" on perfectly
+    // ordinary pans. The numbers are captured while they exist and the
+    // updater is left with nothing to look up.
+    const x = d.ox + (e.clientX - d.x)
+    const y = d.oy + (e.clientY - d.y)
+    setView((v) => ({ ...v, x, y }))
   }
 
   function endPan() {
