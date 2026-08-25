@@ -839,6 +839,82 @@ And one thing found for you: the **worst drop-off** in the whole canvas, as a
 chip. On two hundred nodes across four levels, hunting that by eye is exactly
 the work a computer should have done first. Click it to zoom straight there.
 
+### The Flow Map — the same tree, all on one plate
+
+The Flow widget is a thing you **open**: one number, a few branches, a click
+for each level. That's the right shape for exploring and the wrong shape for
+the other half of the job — standing back and seeing the whole process at
+once, where the volume goes and where it stops going.
+
+**Flow Map** is that other half. Same trees, same levels, same conditions,
+same drill-throughs — **the same editor**, because it's the same
+configuration — drawn all at once. Nothing to expand, nothing to hunt for.
+
+And it is **always exactly the size of the card it's in**: the layout is
+computed from the measured box, so "it fits on screen" is a property of the
+drawing rather than something you have to achieve with a zoom control.
+
+#### Four plates
+
+Which shape reads best genuinely depends on the data, so you switch between
+them with one click and the meaning never changes:
+
+| | |
+|---|---|
+| **Bands** | A Sankey. Volume flows left to right, each band as thick as what's travelling along it. Children stack **inside** their parent's own extent, so no band ever crosses another and following one path from the left edge to a leaf is a straight read rather than an untangling exercise. |
+| **Icicle** | Every level as a solid column. The densest of the four — no whitespace between siblings to spend — so two hundred branches still fit. |
+| **Treemap** | Area against area, squarified so the rectangles come out near-square. Slice-and-dice produces slivers, and a sliver is a rectangle whose area nobody can judge, which defeats the only thing a treemap is for. |
+| **Sunburst** | The icicle wrapped into a circle. Depth reads as distance from the middle, which is the one layout that makes a deep, narrow tree look small instead of long. |
+
+#### What went nowhere, drawn
+
+On a funnel this is the whole point: 1,000 came in, 600 went one way and 380
+the other, and the **20 that went nowhere** is the number somebody is paid to
+care about. Every plate draws that gap rather than leaving it to be worked
+out by subtraction — on **Bands** it's an explicit hatched block, so it can
+never be mistaken for a branch, since it's the absence of one. It's in the
+CSV export too, as *Unaccounted for*.
+
+#### Everything on the plate
+
+Nowhere to go and nothing to open in order to understand what's in front of
+you — which is the whole brief:
+
+- A **summary strip**: what came in at the top, how many branches and how
+  deep, the **biggest branch**, and the **worst drop-off in the whole flow**.
+  The last two are buttons — click either and its panel opens. On two hundred
+  nodes, hunting the worst drop-off by eye is exactly the work a computer
+  should have done first.
+- **Levels** — draw all of them, or just the first *n*. Level four is where
+  any diagram stops being readable, and this is how you say "just the first
+  two" without rebuilding anything.
+- **Colour by top branch** (the default — every descendant of *Pune* is a
+  shade of Pune's colour, so a path can be followed across four levels
+  without reading a single label), **by level**, or **by drop-off**, which
+  turns the plate into a heat map of where things are being lost.
+- **Order** — the same five orders as the flow, including *worst drop-off
+  first*.
+- **Highlight** — type, and everything that doesn't match goes quiet. It
+  matches on the path too, so *Pune* highlights everything under Pune.
+- **Hover** for a tooltip with the full path, the share, the drop-off and
+  what went nowhere. **Click** for a panel with the same in a form that
+  stays put, plus *Only this* and *Filter page*. **Double-click** to make a
+  branch the whole plate, with a breadcrumb back out.
+- **Filter page** drills the whole dashboard exactly as every other widget
+  does — a flow map isn't a picture off to the side, it's a control surface.
+- A **magnifier**: `+` / `−` and a reset. It starts at 100% and reset *means*
+  100%, because the plate is already fitted — a "fit" button on a drawing
+  that always fits would be a control that does nothing.
+- **Full screen**, `Esc` to leave. And **CSV**, of exactly what's drawn.
+
+#### Which one to reach for
+
+Use the **Flow** widget when the question is *"what's under this?"* and you
+want to choose the depth as you go. Use the **Flow Map** when the question is
+*"where does it all go?"* and you want the answer without clicking. They're
+the same data, configured once — put both on a page if you want, pointed at
+the same trees.
+
 #### Several trees on one canvas
 
 A flow widget holds a **list of trees**, not one. Each has its own table, its
@@ -896,6 +972,7 @@ stacking two contradictory filters.
 | Type | What it does |
 |---|---|
 | **KPI Card** | One number from a tab + column + calculation. Counts up on change; with filters active it shows the unfiltered total underneath. Can express a conversion between two tabs. Its mark can be an emoji **or an image URL**. |
+| **Flow Map** | The same trees as a Flow, drawn whole on one plate — bands, icicle, treemap or sunburst. Nothing to expand; what went nowhere is drawn, not implied. |
 | **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and a pop-up of KPIs, a pivot and a leaderboard. Click a stage, a KPI, a leaderboard row or a pivot cell to drill in. |
 | **Flow (drill-down tree)** | One or more trees on a shared canvas. Each opens level by level — by column, by conditions, into named numbers, by a list on a reference tab, across a **key into another tab**, or into other tabs outright — and each can blend a second table into its rows first. Full screen, pan and zoom. See below. |
 | **Filter Panel** | The page's filters as a column of labelled button groups, on the canvas — the right-hand panel of a classic report. |
@@ -1772,6 +1849,7 @@ src/
   lib/flow.js             The drill-down tree: levels, branches, tab hops
   lib/flowLayout.js       Tidy-tree geometry for the flow's diagram view
   lib/flowView.js         Reading a flow: search, lineage, pruning, zoom, minimap
+  lib/flowMap.js          Whole-flow plates: sankey, icicle, sunburst, squarified treemap
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties

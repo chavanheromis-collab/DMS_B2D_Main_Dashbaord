@@ -175,3 +175,88 @@ test('the canvas takes focus and reads the keyboard through flowKeyAction', () =
 test('typing in the search box does not zoom the canvas', () => {
   assert.ok(diagram.includes('if (e.target instanceof HTMLInputElement)'))
 })
+
+// ---------------------------------------------------------------------
+// The flow MAP -- the same tree, drawn whole
+// ---------------------------------------------------------------------
+const map = read('components/widgets/FlowMapWidget.jsx')
+
+test('all four plates are offered, and switching one resets the view', () => {
+  assert.ok(map.includes('FLOW_MAP_PLATES.map((p) => ('))
+  assert.ok(map.includes('setPlate(p.value)'))
+  assert.ok(wiredNear(map, 'setPlate(p.value)', 'resetView()'), 'a magnifier held over the old shape is nonsense')
+})
+
+test('the plate is laid out to the MEASURED box, so it always fits', () => {
+  // The whole promise of this widget: fitting is a property of the drawing,
+  // not something the reader has to achieve with a zoom control.
+  assert.ok(map.includes('new ResizeObserver(measure)'))
+  assert.ok(map.includes('flowMapLayout(plate, roots, { width: box.width, height: box.height'))
+})
+
+test('every level is drawn without anybody clicking', () => {
+  assert.ok(map.includes('autoExpand: 99'), 'a plate that only drew what was opened is the tree view with worse ergonomics')
+})
+
+test('the depth, colour, order and highlight controls are wired', () => {
+  assert.ok(map.includes("setMaxDepth(e.target.value === 'all' ? null : Number(e.target.value))"))
+  assert.ok(map.includes('onChange={(e) => setColorBy(e.target.value)}'))
+  assert.ok(map.includes('onChange={(e) => setSortOrder(e.target.value)}'))
+  assert.ok(map.includes('onChange={(e) => setQuery(e.target.value)}'))
+})
+
+test('zoom in, zoom out and reset are wired, and reset means fitted', () => {
+  assert.ok(wiredNear(map, 'title="Zoom in"', 'onClick={() => zoomBy(1.25)}'))
+  assert.ok(wiredNear(map, 'title="Zoom out"', 'onClick={() => zoomBy(1 / 1.25)}'))
+  assert.ok(wiredNear(map, 'title="Back to fitted size"', 'onClick={resetView}'))
+  assert.ok(map.includes('const resetView = () => setView({ zoom: 1, x: 0, y: 0 })'))
+})
+
+test('panning only happens once there is something to pan', () => {
+  assert.ok(map.includes('if (view.zoom <= 1) return'))
+})
+
+test('the map has full screen, and Escape leaves it', () => {
+  assert.ok(wiredNear(map, "title={fullscreen ? 'Leave full screen (Esc)' : 'Full screen'}", 'setFullscreen((f) => !f)'))
+  assert.ok(map.includes("if (e.key === 'Escape') setFullscreen(false)"))
+  assert.ok(map.includes("document.body.style.overflow = 'hidden'"))
+})
+
+test('the summary is on the plate, and its two findings are clickable', () => {
+  assert.ok(map.includes('label="Worst drop-off"'))
+  assert.ok(map.includes('label="Biggest branch"'))
+  assert.ok(map.includes('onClick={stats.worstDrop ? () => setSelected(nodeKey(stats.worstDrop)) : undefined}'))
+})
+
+test('what went nowhere is drawn, not left to be worked out', () => {
+  assert.ok(map.includes('layout.gaps.map((gap) => ('))
+  assert.ok(map.includes('did not go on anywhere'))
+  assert.ok(map.includes('url(#flowmap-lost)'), 'hatched, so it never reads as a branch')
+})
+
+test('hover explains, click selects, double-click zooms in', () => {
+  assert.ok(map.includes('onPointerEnter: (e) => onHover(item.node, e)'))
+  assert.ok(map.includes('onClick: () => onSelect(item.node)'))
+  assert.ok(map.includes('onDoubleClick: () => (item.node.children || []).length > 0 && onFocus(item.node)'))
+  assert.ok(map.includes('{tooltip && <Tooltip'))
+})
+
+test('a branch zoomed into can be got back out of', () => {
+  assert.ok(map.includes('focused'))
+  assert.ok(map.includes("setFocusByTree((all) => ({ ...all, [one.tree.id]: '' }))"))
+})
+
+test('the map drills the page the same way every other widget does', () => {
+  assert.ok(map.includes('flowCrossFilter(widget, node)'))
+  assert.ok(map.includes('flowNodeIsDrilled(widget, node, crossFilters)'))
+})
+
+test('the map exports what it draws, including what went nowhere', () => {
+  assert.ok(map.includes("'Unaccounted for'"))
+  assert.ok(map.includes('<ExportButton'))
+})
+
+test('the legend says what the colours mean, for each way of colouring', () => {
+  assert.ok(map.includes('function Legend('))
+  for (const mode of ["'drop'", "'level'"]) assert.ok(map.includes(`colorBy === ${mode}`), mode)
+})

@@ -186,12 +186,12 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
         buttonColumns: 2,
         showSelectAll: true,
       })
-    } else if (addType === 'flow') {
+    } else if (addType === 'flow' || addType === 'flowmap') {
       // Ships with one working level rather than an empty shell: a flow with
       // no levels is just a number, and the first thing anyone wants to see
       // is that clicking it opens something.
       Object.assign(base, {
-        title: `${name} flow`,
+        title: addType === 'flowmap' ? `${name} map` : `${name} flow`,
         flow: {
           ...DEFAULT_FLOW,
           label: name,
@@ -552,7 +552,11 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
               {widget.type === 'pipeline' && (
                 <PipelineEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
-              {widget.type === 'flow' && (
+              {/* One editor for both: a flow map is the same trees, the
+                  same levels and the same conditions, drawn all at once
+                  instead of opened a level at a time. Two editors for one
+                  configuration would drift apart within a month. */}
+              {(widget.type === 'flow' || widget.type === 'flowmap') && (
                 <FlowEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
               {widget.type === 'filters' && (
