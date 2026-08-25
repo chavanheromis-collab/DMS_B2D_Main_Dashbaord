@@ -82,7 +82,8 @@ test('the order is the order — nothing is ever moved past anything else', () =
 })
 
 test('a row is as tall as its tallest widget, so rows line up', () => {
-  const { positions, containerHeight } = packRowGroups([item('a', 400, 100), item('b', 400, 300), item('c', 400, 100)], {
+  // Three of the same height: nothing to stack under, so the third wraps.
+  const { positions, containerHeight } = packRowGroups([item('a', 400, 300), item('b', 400, 300), item('c', 400, 100)], {
     canvasWidth: 900,
     gapX: 12,
     gapY: 20,
@@ -328,4 +329,95 @@ test('a gap is measured from the widest widget on the row, not the last one', ()
   const gap = rowGaps(rows, positions, 1000, 12)[0]
   assert.equal(gap.left, 624, '400 + 12 + 200, then a gap')
   assert.equal(gap.width, 376)
+})
+
+// --- the space a short widget leaves ------------------------------------
+
+test('a widget that will not fit along the row goes UNDER a short one', () => {
+  // A widget half the height of the one beside it leaves a rectangle, and a
+  // rectangle that fits is not one anybody wants left empty.
+  const { positions } = packRowGroups([item('short', 400, 100), item('tall', 400, 300), item('next', 400, 120)], {
+    canvasWidth: 900,
+    gapX: 12,
+    gapY: 20,
+  })
+  assert.equal(positions.next.left, 0, 'under the short one, not on a new row')
+  assert.equal(positions.next.top, 120, 'its bottom, plus the gap')
+  assert.equal(positions.next.stacked, true)
+})
+
+test('it only drops into a gap once the row is actually full', () => {
+  // Reading order still runs left to right: nothing jumps into a hole ahead
+  // of its turn while there is room beside it.
+  const { positions } = packRowGroups([item('short', 200, 100), item('tall', 200, 300), item('next', 200, 80)], {
+    canvasWidth: 900,
+    gapX: 12,
+  })
+  assert.equal(positions.next.left, 424, 'beside them, because there is room')
+  assert.equal(positions.next.top, 0)
+  assert.ok(!positions.next.stacked)
+})
+
+test('a widget too tall for the gap still goes to the next row', () => {
+  const { positions } = packRowGroups([item('short', 400, 100), item('tall', 400, 300), item('big', 400, 400)], {
+    canvasWidth: 900,
+    gapX: 12,
+    gapY: 20,
+  })
+  assert.equal(positions.big.left, 0)
+  assert.ok(positions.big.top >= 320, 'a new row, not squashed into 180px')
+  assert.ok(!positions.big.stacked)
+})
+
+test('a widget too wide for the gap still goes to the next row', () => {
+  const { positions } = packRowGroups([item('short', 200, 100), item('tall', 600, 300), item('wide', 500, 80)], {
+    canvasWidth: 900,
+    gapX: 12,
+    gapY: 20,
+  })
+  assert.ok(!positions.wide.stacked, '500 does not fit in a 200-wide gap')
+})
+
+test('two can stack under the same short widget if they both fit', () => {
+  const { positions } = packRowGroups(
+    [item('short', 300, 60), item('tall', 500, 400), item('a', 300, 100), item('b', 300, 100)],
+    { canvasWidth: 900, gapX: 12, gapY: 10 }
+  )
+  assert.equal(positions.a.left, 0)
+  assert.equal(positions.a.top, 70)
+  assert.equal(positions.b.left, 0)
+  assert.equal(positions.b.top, 180, 'under the one that just went under')
+})
+
+test('stacked widgets never overlap what they were stacked under', () => {
+  const { positions } = packRowGroups([item('short', 400, 100), item('tall', 400, 300), item('next', 400, 120)], {
+    canvasWidth: 900,
+    gapX: 12,
+    gapY: 20,
+  })
+  assert.ok(positions.next.top >= positions.short.top + positions.short.height)
+})
+
+test('the gap under a short widget is offered as a size, like the one beside it', () => {
+  const { positions, rows } = packRowGroups([item('short', 400, 100), item('tall', 400, 300)], {
+    canvasWidth: 900,
+    gapX: 12,
+    gapY: 20,
+  })
+  const gaps = rowGaps(rows, positions, 900, 12, MIN_WIDTH, 20)
+  const under = gaps.find((g) => g.under)
+  assert.ok(under, 'the room below the short one is somewhere a widget could go')
+  assert.equal(under.left, 0)
+  assert.equal(under.top, 120)
+  assert.equal(under.width, 400)
+  assert.equal(under.height, 180)
+})
+
+test('a widget that fills its row leaves no gap underneath', () => {
+  const { positions, rows } = packRowGroups([item('a', 400, 300), item('b', 400, 300)], {
+    canvasWidth: 812,
+    gapX: 12,
+    gapY: 20,
+  })
+  assert.deepEqual(rowGaps(rows, positions, 812, 12, MIN_WIDTH, 20).filter((g) => g.under), [])
 })

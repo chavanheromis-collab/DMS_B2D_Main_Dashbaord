@@ -51,8 +51,8 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
 
   // The empty space at the end of each row, and what would fit in it.
   const gaps = useMemo(
-    () => (showRows && width > 0 ? rowGaps(layout.rows, layout.positions, width, gapX) : []),
-    [showRows, layout, width, gapX]
+    () => (showRows && width > 0 ? rowGaps(layout.rows, layout.positions, width, gapX, undefined, gapY) : []),
+    [showRows, layout, width, gapX, gapY]
   )
 
   // One observer per widget, so a table that grows a row pushes what is
@@ -120,7 +120,7 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
           room for 340 by 94", and that is a rectangle, not a caption. */}
       {gaps.map((gap) => (
         <div
-          key={`gap-${gap.row}`}
+          key={`gap-${gap.row}-${gap.left}-${gap.top}`}
           aria-hidden
           className="pointer-events-none absolute flex items-center justify-center rounded-lg border-2 border-dashed border-slate-300/80 bg-slate-50/40"
           style={{ left: gap.left, top: gap.top, width: gap.width, height: gap.height }}

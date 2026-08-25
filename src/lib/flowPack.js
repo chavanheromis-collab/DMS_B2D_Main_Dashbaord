@@ -124,27 +124,51 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
     let x = 0
     let height = 0
     const placed = []
+    // What sits at each x position on this row, and how far down it reaches.
+    // A widget shorter than its neighbours leaves room underneath it, and
+    // that room is somewhere a later widget can go.
+    const shelves = []
 
     for (let i = 0; i < waiting.length; i += 1) {
       const item = waiting[i]
       const width = requiredWidth(item, canvas)
+      const h = Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback))
 
-      // The first widget in a row is always placed, however wide it is, or
-      // one wider than the canvas would fall down the page for ever.
+      let left = x
+      let atTop = top
+
       if (placed.length > 0 && x + width > canvas + 0.5) {
-        overflow = waiting.slice(i)
-        break
+        // No room along the row. Before giving up on it, look UNDER what is
+        // already here: a widget half the height of the one beside it has
+        // left a rectangle, and a rectangle that fits is not a rectangle
+        // anybody wants left empty.
+        //
+        // Only tried when the row is full, so the reading order still runs
+        // left to right -- nothing jumps into a hole ahead of its turn.
+        const shelf = shelves.find(
+          (sh) => sh.width >= width - 0.5 && top + height - sh.bottom - gapY >= h - 0.5
+        )
+        if (!shelf) {
+          overflow = waiting.slice(i)
+          break
+        }
+        left = shelf.left
+        atTop = shelf.bottom + gapY
+        shelf.bottom = atTop + h
+        positions[item.id] = { left, top: atTop, width, height: h, row: rowNumber, stacked: true }
+        placed.push(item.id)
+        continue
       }
 
-      const h = Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback))
-      positions[item.id] = { left: x, top, width, height: h, row: rowNumber }
+      positions[item.id] = { left, top: atTop, width, height: h, row: rowNumber }
       placed.push(item.id)
+      shelves.push({ left, width, bottom: atTop + h })
       height = Math.max(height, h)
       x += width + gapX
     }
 
     if (placed.length > 0) {
-      rows.push({ row: rowNumber, top, height, ids: placed })
+      rows.push({ row: rowNumber, top, height, ids: placed, shelves })
       top += height + gapY
     }
     rowNumber += 1
@@ -166,7 +190,7 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
  * narrower than the space between two widgets is not somewhere a widget
  * could go, and drawing it would be noise.
  */
-export function rowGaps(rows, positions, canvasWidth, gapX = 12, minimum = MIN_WIDTH) {
+export function rowGaps(rows, positions, canvasWidth, gapX = 12, minimum = MIN_WIDTH, gapY = 12) {
   const out = []
   for (const row of rows || []) {
     let edge = 0
@@ -175,11 +199,26 @@ export function rowGaps(rows, positions, canvasWidth, gapX = 12, minimum = MIN_W
       if (box) edge = Math.max(edge, box.left + box.width)
     }
 
+    // The space at the END of the row.
     const left = edge + gapX
     const width = Math.round(canvasWidth - left)
-    if (width < minimum) continue
+    if (width >= minimum) out.push({ row: row.row, left, top: row.top, width, height: row.height })
 
-    out.push({ row: row.row, left, top: row.top, width, height: row.height })
+    // And the space UNDER anything shorter than the row it is on. This is
+    // the room a widget could actually be moved into, so it is worth as much
+    // as the space at the end -- and it is invisible unless it is drawn.
+    for (const shelf of row.shelves || []) {
+      const free = Math.round(row.top + row.height - shelf.bottom - gapY)
+      if (free < MIN_HEIGHT) continue
+      out.push({
+        row: row.row,
+        left: shelf.left,
+        top: shelf.bottom + gapY,
+        width: Math.round(shelf.width),
+        height: free,
+        under: true,
+      })
+    }
   }
   return out
 }

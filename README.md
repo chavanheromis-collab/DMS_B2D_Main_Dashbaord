@@ -354,12 +354,27 @@ reason.
 
 #### The empty space tells you what fits in it
 
-Wherever a row has room left over, **Arrange** mode draws a dotted box in it
+Wherever there is room left over, **Arrange** mode draws a dotted box in it
 labelled with its exact size — `428 × 94`. "There is room" was never the
 question anybody had while arranging a page; *"there is room for 428 by 94"*
 is, because it is the number you are about to type into a **W** box. A gap
-narrower than a widget could use isn't drawn, because a strip of nothing is
-not somewhere to put something.
+too small for a widget isn't drawn, because a strip of nothing is not
+somewhere to put something.
+
+That's both kinds of room: the space **at the end of a row**, and the space
+**under a widget shorter than the one beside it**.
+
+#### A short widget doesn't waste the space below it
+
+A row is as tall as its tallest widget, so a short one beside a tall one
+leaves a rectangle underneath. If a later widget fits in that rectangle, it
+goes there instead of starting a new row.
+
+It's only tried **once the row is actually full**, so reading order still
+runs left to right — nothing jumps into a hole ahead of its turn while there
+is still room beside it. A widget too tall or too wide for the gap goes to
+the next row as before, rather than being squashed into a space it doesn't
+fit. Several can stack under the same short widget if they each fit.
 
 #### Page controls are part of the design too
 

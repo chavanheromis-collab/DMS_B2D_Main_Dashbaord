@@ -159,7 +159,7 @@ test('clicking away or pressing Escape closes it', () => {
 test('the empty space is drawn as a box with its size in it', () => {
   // "There is room" is not the question anybody has while arranging; "there
   // is room for 428 by 94" is.
-  assert.ok(canvas.includes('rowGaps(layout.rows, layout.positions, width, gapX)'))
+  assert.ok(canvas.includes('rowGaps(layout.rows, layout.positions, width, gapX, undefined, gapY)'))
   assert.ok(canvas.includes('gaps.map((gap) => ('))
   assert.ok(canvas.includes('border-dashed'))
   assert.ok(canvas.includes('{gap.width} × {Math.round(gap.height)}'))
@@ -167,6 +167,15 @@ test('the empty space is drawn as a box with its size in it', () => {
 
 test('the gaps are only drawn while arranging', () => {
   assert.ok(canvas.includes('showRows && width > 0 ? rowGaps('))
+})
+
+test('the room under a short widget is offered too, not just the room beside it', () => {
+  // A widget half the height of the one beside it leaves a rectangle, and a
+  // rectangle that fits is not one anybody wants left empty.
+  const pack = read('lib/flowPack.js')
+  assert.ok(pack.includes('const shelves = []'))
+  assert.ok(pack.includes('stacked: true'))
+  assert.ok(pack.includes('under: true'))
 })
 
 // --- controls are part of the page's design ------------------------------
