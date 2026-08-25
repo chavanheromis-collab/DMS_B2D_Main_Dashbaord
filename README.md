@@ -803,12 +803,41 @@ Everything the canvas can do:
 
 | | |
 |---|---|
-| **Full screen** | The whole widget, not just the picture — the view switch, breadcrumb and breakdown pickers come with it, because a diagram you cannot steer is a poster. `Esc` leaves. |
-| **Pan** | Drag anywhere that isn't a card. |
-| **Zoom** | The `+` / `−` buttons, or **⌘/ctrl + scroll** anchored under the cursor — in full screen a plain scroll does it, since there is nothing behind to scroll past. The percentage doubles as a **Fit** button. |
+| **Find a branch** | A search box, top-left. Matches a node by its own name **or by the path that led to it** — searching *Pune* finds *Pune → Splendor → Financed*, because on a drill tree where a node sits is most of what it means. It counts the hits, and ▲ ▼ (or `Enter` / `shift+Enter`) walk between them, **centring each one** — a hit you can't see isn't a search result. |
+| **Follow one path** | Hover any node and its whole lineage lights up — up to the root, down through everything it became — while the rest of the canvas goes quiet. Tracing one path through a wide fan is otherwise squinting. |
+| **Know where you are** | A **minimap** in the corner shows the whole canvas with a rectangle around the part you're looking at. Click it to jump. Zoomed into level three of a five-level tree, this is the difference between navigating and wandering. |
+| **Ask about one node** | Click its ⓘ. A panel gives the full path, the value, the rows, the share, the drop-off and every metric — with *Open*, *Zoom in*, *Centre* and *Filter page* on it. A 178px card can't hold that, and shrinking the type until it does helps nobody. |
+| **Full screen** | The whole widget, not just the picture — the view switch, breadcrumb and breakdown pickers come with it, because a diagram you cannot steer is a poster. There's a button on the canvas too, since the canvas is where you run out of room. `F` toggles, `Esc` leaves. |
+| **Pan** | Drag anywhere that isn't a card, or use the **arrow keys**. |
+| **Zoom** | The `+` / `−` buttons, or **⌘/ctrl + scroll** anchored under the cursor — in full screen a plain scroll does it, since there is nothing behind to scroll past. Zooming is always about a *point*, so what you aimed at stays where you aimed. |
 | **Fit** | Frames everything. It re-frames itself as you open branches, and stops the moment you pan or zoom yourself. |
-| **Keyboard** | `+` `−` zoom, `0` or `F` fit, once the canvas has focus. |
-| **Zoom into a branch** | Double-click it, or use its ⤢ — it becomes the temporary top, with a breadcrumb back out. |
+| **100%** | The percentage readout is a button back to actual size. It used to be a second Fit button, which meant that once Fit had shrunk a big diagram there was no way back to reading it at full size. |
+| **Edge labels** | The number on each line can be turned off, for when the shape is what you're reading and forty pills are in the way. |
+| **Keyboard** | `+` `−` zoom · `0` fit · `1` actual size · `F` full screen · `/` search · `Esc` clear · arrows pan. Typing in the search box never zooms the canvas. |
+| **Zoom into a branch** | Double-click it, or use its ⤢ — it becomes the temporary top, with a **breadcrumb back out that now shows in both views** (it used to live only in the tree, so zooming in on the diagram left you with no visible way back). |
+
+#### Reading controls — the three questions a reader keeps re-asking
+
+Above both views, and changing not one number:
+
+- **Order** — *As built* (the admin's), *Biggest first*, *Smallest first*,
+  *A → Z*, or **Worst drop-off first**, which is the order you want when
+  you're hunting a leak. Roll-up buckets (*Other*, *(blank)*) stay **last**
+  however it's sorted: a big Other at the top of a list reads as the answer,
+  and it's a footnote.
+- **Hide under n%** — drops branches below a share of their parent. A split
+  that fans out forty ways where thirty-four are under one percent is
+  unreadable and the six that matter are the whole point. **What it hides is
+  counted on screen** — `· 34 hidden (218)` — because a diagram that silently
+  loses rows is a diagram that lies.
+- **% of its parent / % of the total** — the percentage base, which used to
+  be an admin-only setting. Reading down a branch you want *how much of that
+  survived to here*; comparing two branches you want their share of
+  everything. Neither is the right default for both.
+
+And one thing found for you: the **worst drop-off** in the whole canvas, as a
+chip. On two hundred nodes across four levels, hunting that by eye is exactly
+the work a computer should have done first. Click it to zoom straight there.
 
 #### Several trees on one canvas
 
@@ -1742,6 +1771,7 @@ src/
   lib/blend.js            Per-widget joins between two tabs
   lib/flow.js             The drill-down tree: levels, branches, tab hops
   lib/flowLayout.js       Tidy-tree geometry for the flow's diagram view
+  lib/flowView.js         Reading a flow: search, lineage, pruning, zoom, minimap
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties

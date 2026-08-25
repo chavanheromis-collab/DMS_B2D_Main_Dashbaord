@@ -1,27 +1,69 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Filter, Maximize2, Minus, Move, Plus, Scan } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Crosshair,
+  Expand,
+  Filter,
+  Info,
+  Map as MapIcon,
+  Maximize2,
+  Minus,
+  Move,
+  Plus,
+  Scan,
+  Search,
+  Shrink,
+  Tag,
+  X,
+} from 'lucide-react'
 import { formatNumber } from '../../lib/dataUtils.js'
 import { STAGE_PALETTE } from '../../lib/config.js'
 import { flowNodeCanDrill } from '../../lib/flow.js'
 import { fitToViewport, layoutForest } from '../../lib/flowLayout.js'
+import {
+  ZOOM_STEP,
+  centreOn,
+  flowKeyAction,
+  lineagePaths,
+  minimapGeometry,
+  minimapJump,
+  searchFlow,
+  stepMatch,
+  zoomAbout,
+} from '../../lib/flowView.js'
 
 /**
- * The flow as a diagram.
+ * The flow as a diagram you can actually analyse.
  *
  * Same trees, same numbers, same clicks as the indented view -- what changes
  * is what you can see at a glance: shape. Where a branch splits four ways
  * and three of them are hairlines, that is visible before you have read
  * anything, because the edge carries the volume.
  *
+ * Four things turn a picture into an instrument, and all four are here:
+ *
+ *   FIND IT. A canvas of three hundred nodes is a haystack. Search matches
+ *   a branch by its own name or by the path that led to it, counts the
+ *   hits, and walks between them -- each one centred, not merely coloured.
+ *
+ *   FOLLOW IT. Hovering a node lights its whole lineage, up to the root and
+ *   down through everything it became, and quiets the rest. Tracing one
+ *   path through a wide fan is otherwise squinting.
+ *
+ *   KNOW WHERE YOU ARE. A minimap, because zoomed into the third level of a
+ *   five-level tree you have no idea which part of it you are looking at,
+ *   and scrolling around to find out loses your place.
+ *
+ *   ASK ABOUT ONE. Selecting a node opens a panel with its full path, its
+ *   arithmetic and its metrics -- a 178px card cannot hold that, and
+ *   shrinking the type until it does helps nobody.
+ *
  * Nodes are HTML on top of an SVG edge layer rather than SVG throughout.
  * Text in SVG cannot wrap, truncate, or inherit the card's theme, and every
  * hover control would have to be hand-drawn; laying real elements over the
  * lines costs one absolutely positioned div per node and buys all of it.
- *
- * Several trees share ONE canvas rather than getting one box each. Trees on
- * the same page are read by looking between them, and two separately
- * scrolling boxes make that comparison impossible -- you can never get both
- * at the same size on the same screen at the same time.
  */
 export default function FlowDiagram({
   roots,
@@ -33,8 +75,10 @@ export default function FlowDiagram({
   onDrill,
   onFocus,
   fullscreen,
+  onToggleFullscreen,
 }) {
   const viewportRef = useRef(null)
+  const searchRef = useRef(null)
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
   const drag = useRef(null)
@@ -43,7 +87,25 @@ export default function FlowDiagram({
   // open a branch is the single most annoying thing a canvas can do.
   const touched = useRef(false)
 
+  const [query, setQuery] = useState('')
+  const [matchIndex, setMatchIndex] = useState(-1)
+  const [hovered, setHovered] = useState('')
+  const [selected, setSelected] = useState('')
+  const [showMap, setShowMap] = useState(true)
+  const [showEdgeLabels, setShowEdgeLabels] = useState(true)
+
   const layout = useMemo(() => layoutForest(roots, { orientation }), [roots, orientation])
+
+  const boxes = useMemo(() => {
+    const map = new Map()
+    for (const box of layout.nodes) map.set(`${box.node.treeId || ''}${box.node.path}`, box)
+    return map
+  }, [layout])
+
+  const viewportSize = () => {
+    const el = viewportRef.current
+    return { width: el?.clientWidth || 0, height: el?.clientHeight || 0 }
+  }
 
   const fit = useCallback(() => {
     const el = viewportRef.current
@@ -75,20 +137,68 @@ export default function FlowDiagram({
     touched.current = false
   }, [orientation, fullscreen])
 
-  /** Zoom about a point, so the thing under the cursor stays under it. */
   const zoomAt = useCallback((factor, px, py) => {
     touched.current = true
+    setView((v) => zoomAbout(v, factor, px, py))
+  }, [])
+
+  const zoomBy = useCallback(
+    (factor) => {
+      const { width, height: h } = viewportSize()
+      zoomAt(factor, width / 2, h / 2)
+    },
+    [zoomAt]
+  )
+
+  /** 100%: the size the diagram was drawn at, which fit may have shrunk. */
+  const actualSize = useCallback(() => {
+    touched.current = true
     setView((v) => {
-      const zoom = Math.max(0.2, Math.min(3, Number((v.zoom * factor).toFixed(4))))
-      const k = zoom / v.zoom
-      return { zoom, x: px - (px - v.x) * k, y: py - (py - v.y) * k }
+      const { width, height: h } = viewportSize()
+      const cx = (width / 2 - v.x) / v.zoom
+      const cy = (h / 2 - v.y) / v.zoom
+      return { zoom: 1, x: width / 2 - cx, y: h / 2 - cy }
     })
   }, [])
 
-  const zoomBy = (factor) => {
-    const el = viewportRef.current
-    zoomAt(factor, (el?.clientWidth || 0) / 2, (el?.clientHeight || 0) / 2)
-  }
+  /** Put one node in the middle, at a readable zoom. */
+  const goTo = useCallback(
+    (key, { zoom } = {}) => {
+      const box = boxes.get(key)
+      if (!box) return
+      touched.current = true
+      setView((v) => centreOn(box, viewportSize(), zoom ?? Math.max(v.zoom, 0.85)) || v)
+    },
+    [boxes]
+  )
+
+  // --- search ------------------------------------------------------------
+  const matches = useMemo(() => searchFlow(roots, query), [roots, query])
+
+  useEffect(() => {
+    setMatchIndex(matches.length ? 0 : -1)
+  }, [matches])
+
+  // Centring on the current match rather than only tinting it: a hit you
+  // cannot see is not a search result.
+  useEffect(() => {
+    if (matchIndex < 0 || !matches[matchIndex]) return
+    goTo(matches[matchIndex].key)
+  }, [matchIndex, matches, goTo])
+
+  const matchKeys = useMemo(() => new Set(matches.map((m) => m.key)), [matches])
+  const currentKey = matchIndex >= 0 ? matches[matchIndex]?.key : ''
+
+  const stepTo = (delta) => setMatchIndex((i) => stepMatch(matches.length, i, delta))
+
+  // --- what is lit -------------------------------------------------------
+  const lineage = useMemo(() => lineagePaths(roots, hovered || selected), [roots, hovered, selected])
+  const dimmed = (key) => (lineage ? !lineage.has(key) : false)
+
+  const selectedNode = useMemo(() => {
+    if (!selected) return null
+    return layout.nodes.find((b) => `${b.node.treeId || ''}${b.node.path}` === selected)?.node || null
+  }, [selected, layout])
 
   // Wheel zoom, but only when it cannot be mistaken for scrolling the page.
   // Hijacking a plain wheel inside a dashboard traps the reader in a widget
@@ -108,18 +218,54 @@ export default function FlowDiagram({
   }, [zoomAt, fullscreen])
 
   function onKeyDown(e) {
-    if (e.key === '+' || e.key === '=') zoomBy(1.2)
-    else if (e.key === '-' || e.key === '_') zoomBy(1 / 1.2)
-    else if (e.key === '0' || e.key.toLowerCase() === 'f') fit()
-    else return
+    // Inside the search box the keyboard belongs to the search box.
+    if (e.target instanceof HTMLInputElement) {
+      if (e.key === 'Escape') {
+        setQuery('')
+        e.currentTarget.focus?.()
+      }
+      if (e.key === 'Enter') stepTo(e.shiftKey ? -1 : 1)
+      return
+    }
+
+    const action = flowKeyAction(e.key, { ctrl: e.ctrlKey || e.metaKey })
+    if (!action) return
     e.preventDefault()
+
+    switch (action.type) {
+      case 'zoom':
+        zoomBy(action.factor)
+        break
+      case 'fit':
+        fit()
+        break
+      case 'actual':
+        actualSize()
+        break
+      case 'fullscreen':
+        onToggleFullscreen?.()
+        break
+      case 'search':
+        searchRef.current?.focus()
+        break
+      case 'clear':
+        setSelected('')
+        setQuery('')
+        break
+      case 'pan':
+        touched.current = true
+        setView((v) => ({ ...v, x: v.x + action.dx, y: v.y + action.dy }))
+        break
+      default:
+        break
+    }
   }
 
   function startPan(e) {
     // Only a drag on the canvas itself pans; a drag that starts on a card is
     // the browser's business (text selection, a click on a button).
-    if (e.target.closest('[data-flow-node]')) return
-    drag.current = { x: e.clientX, y: e.clientY, ox: view.x, oy: view.y }
+    if (e.target.closest('[data-flow-node]') || e.target.closest('[data-flow-ui]')) return
+    drag.current = { x: e.clientX, y: e.clientY, ox: view.x, oy: view.y, moved: false }
     touched.current = true
     setDragging(true)
     e.currentTarget.setPointerCapture?.(e.pointerId)
@@ -127,6 +273,7 @@ export default function FlowDiagram({
 
   function movePan(e) {
     if (!drag.current) return
+    drag.current.moved = true
     setView((v) => ({
       ...v,
       x: drag.current.ox + (e.clientX - drag.current.x),
@@ -135,9 +282,19 @@ export default function FlowDiagram({
   }
 
   function endPan() {
+    // A click on empty canvas clears the selection; a drag does not.
+    if (drag.current && !drag.current.moved) setSelected('')
     drag.current = null
     setDragging(false)
   }
+
+  const minimap = useMemo(
+    () => (showMap ? minimapGeometry(layout, view, viewportSize()) : null),
+    // The viewport size is read imperatively, so this has to re-run whenever
+    // anything that could have changed it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showMap, layout, view, fullscreen, height]
+  )
 
   return (
     // h-full so a fullscreen parent can hand the canvas a percentage height;
@@ -187,71 +344,209 @@ export default function FlowDiagram({
 
             {layout.edges.map((edge) => {
               const color = nodeColor(edge.node)
+              const key = `${edge.node.treeId || ''}${edge.to}`
+              const off = dimmed(key)
               return (
-                <g key={`${edge.node.treeId || ''}${edge.id}`}>
+                <g key={`${edge.node.treeId || ''}${edge.id}`} opacity={off ? 0.12 : 1}>
                   <path
                     d={edge.d}
                     fill="none"
                     stroke={color}
-                    strokeOpacity={0.35}
+                    strokeOpacity={lineage && !off ? 0.7 : 0.35}
                     strokeWidth={edge.width}
                     strokeLinecap="round"
                   />
                   {/* The count on the edge, the way a process map reads: how
                       many came THIS way, not just how many ended up here. */}
-                  <g transform={`translate(${edge.mx}, ${edge.my})`}>
-                    <rect x={-19} y={-8} width={38} height={16} rx={8} fill="white" fillOpacity={0.92} />
-                    <text
-                      x={0}
-                      y={4}
-                      textAnchor="middle"
-                      fontSize={10}
-                      fontWeight={600}
-                      fill={color}
-                      style={{ fontVariantNumeric: 'tabular-nums' }}
-                    >
-                      {shortNumber(edge.node.value)}
-                    </text>
-                  </g>
+                  {showEdgeLabels && (
+                    <g transform={`translate(${edge.mx}, ${edge.my})`}>
+                      <rect x={-19} y={-8} width={38} height={16} rx={8} fill="white" fillOpacity={0.92} />
+                      <text
+                        x={0}
+                        y={4}
+                        textAnchor="middle"
+                        fontSize={10}
+                        fontWeight={600}
+                        fill={color}
+                        style={{ fontVariantNumeric: 'tabular-nums' }}
+                      >
+                        {shortNumber(edge.node.value)}
+                      </text>
+                    </g>
+                  )}
                 </g>
               )
             })}
           </svg>
 
-          {layout.nodes.map(({ node, x, y, w, h }) => (
-            <FlowCard
-              key={`${node.treeId || ''}${node.path}`}
-              node={node}
-              style={{ left: x, top: y, width: w, height: h }}
-              flow={flow}
-              drilled={isDrilled(node)}
-              onToggle={onToggle}
-              onDrill={onDrill}
-              onFocus={onFocus}
-            />
-          ))}
+          {layout.nodes.map(({ node, x, y, w, h }) => {
+            const key = `${node.treeId || ''}${node.path}`
+            return (
+              <FlowCard
+                key={key}
+                node={node}
+                style={{ left: x, top: y, width: w, height: h }}
+                flow={flow}
+                drilled={isDrilled(node)}
+                dimmed={dimmed(key)}
+                matched={matchKeys.has(key)}
+                current={currentKey === key}
+                selected={selected === key}
+                onHover={setHovered}
+                onSelect={setSelected}
+                onToggle={onToggle}
+                onDrill={onDrill}
+                onFocus={onFocus}
+              />
+            )
+          })}
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-2">
-          <span className="flex items-center gap-1 rounded-lg bg-white/80 px-1.5 py-1 text-[9px] text-slate-400 backdrop-blur">
-            <Move size={10} /> drag to pan · {fullscreen ? 'scroll' : '⌘/ctrl + scroll'} to zoom · double-click a
-            branch to zoom into it
-          </span>
+        {/* --- the instrument panel ------------------------------------- */}
+        <div data-flow-ui className="pointer-events-none absolute inset-x-0 top-0 flex items-start gap-2 p-2">
+          <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-1.5 py-1 shadow-sm backdrop-blur">
+            <Search size={12} className="shrink-0 text-slate-400" />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find a branch…  /"
+              className="w-32 bg-transparent text-[11px] outline-none placeholder:text-slate-300 sm:w-44"
+              aria-label="Find a branch"
+            />
+            {query && (
+              <>
+                <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
+                  {matches.length ? `${matchIndex + 1}/${matches.length}` : 'none'}
+                </span>
+                <button
+                  onClick={() => stepTo(-1)}
+                  disabled={!matches.length}
+                  className="rounded p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-30"
+                  title="Previous match (shift+Enter)"
+                >
+                  <ChevronUp size={12} />
+                </button>
+                <button
+                  onClick={() => stepTo(1)}
+                  disabled={!matches.length}
+                  className="rounded p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-30"
+                  title="Next match (Enter)"
+                >
+                  <ChevronDown size={12} />
+                </button>
+                <button onClick={() => setQuery('')} className="rounded p-0.5 text-slate-300 hover:text-rose-500" title="Clear">
+                  <X size={12} />
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="pointer-events-auto ml-auto flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-1 py-1 shadow-sm backdrop-blur">
+            <button
+              onClick={() => setShowEdgeLabels((s) => !s)}
+              className={`rounded p-1 ${showEdgeLabels ? 'text-indigo-600' : 'text-slate-300'} hover:bg-slate-50`}
+              title={showEdgeLabels ? 'Hide the number on each line' : 'Show the number on each line'}
+            >
+              <Tag size={12} />
+            </button>
+            <button
+              onClick={() => setShowMap((s) => !s)}
+              className={`rounded p-1 ${showMap ? 'text-indigo-600' : 'text-slate-300'} hover:bg-slate-50`}
+              title={showMap ? 'Hide the minimap' : 'Show the minimap'}
+            >
+              <MapIcon size={12} />
+            </button>
+            {onToggleFullscreen && (
+              <button
+                onClick={onToggleFullscreen}
+                className="rounded p-1 text-slate-400 hover:bg-slate-50 hover:text-indigo-600"
+                title={fullscreen ? 'Leave full screen (Esc)' : 'Full screen (F)'}
+              >
+                {fullscreen ? <Shrink size={12} /> : <Expand size={12} />}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* --- the node panel ------------------------------------------- */}
+        {selectedNode && (
+          <NodePanel
+            node={selectedNode}
+            flow={flow}
+            drilled={isDrilled(selectedNode)}
+            onClose={() => setSelected('')}
+            onToggle={onToggle}
+            onDrill={onDrill}
+            onFocus={onFocus}
+            onCentre={() => goTo(selected, { zoom: 1 })}
+          />
+        )}
+
+        <div data-flow-ui className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2">
+          <div className="flex items-end gap-2">
+            <span className="hidden items-center gap-1 rounded-lg bg-white/80 px-1.5 py-1 text-[9px] text-slate-400 backdrop-blur sm:flex">
+              <Move size={10} /> drag to pan · {fullscreen ? 'scroll' : '⌘/ctrl + scroll'} to zoom · click a node for
+              detail · double-click to zoom in
+            </span>
+            {minimap && (
+              <div
+                className="pointer-events-auto relative shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white/90 shadow-sm backdrop-blur"
+                style={{ width: minimap.width, height: minimap.height }}
+                onPointerDown={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  touched.current = true
+                  setView(
+                    minimapJump(layout, viewportSize(), view, {
+                      x: e.clientX - rect.left,
+                      y: e.clientY - rect.top,
+                    })
+                  )
+                }}
+                title="Click to jump there"
+              >
+                {layout.nodes.map(({ node, x, y, w, h }) => (
+                  <span
+                    key={`${node.treeId || ''}${node.path}`}
+                    className="absolute rounded-[1px]"
+                    style={{
+                      left: x * minimap.scale,
+                      top: y * minimap.scale,
+                      width: Math.max(1, w * minimap.scale),
+                      height: Math.max(1, h * minimap.scale),
+                      backgroundColor: nodeColor(node),
+                      opacity: dimmed(`${node.treeId || ''}${node.path}`) ? 0.15 : 0.55,
+                    }}
+                  />
+                ))}
+                <span
+                  className="pointer-events-none absolute rounded-sm border-2 border-indigo-500/70 bg-indigo-500/10"
+                  style={{
+                    left: minimap.rect.x,
+                    top: minimap.rect.y,
+                    width: minimap.rect.width,
+                    height: minimap.rect.height,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
           <div className="pointer-events-auto flex flex-col items-end gap-1">
             <button
-              onClick={fit}
+              onClick={actualSize}
               className="flow-tool w-auto px-1.5 text-[10px] font-semibold tabular-nums"
-              title="Fit to view (0 / F)"
+              title="Back to 100% (1)"
             >
               {Math.round(view.zoom * 100)}%
             </button>
-            <button onClick={fit} className="flow-tool" title="Fit to view">
+            <button onClick={fit} className="flow-tool" title="Fit to view (0)">
               <Scan size={13} />
             </button>
-            <button onClick={() => zoomBy(1.2)} className="flow-tool" title="Zoom in (+)">
+            <button onClick={() => zoomBy(ZOOM_STEP)} className="flow-tool" title="Zoom in (+)">
               <Plus size={13} />
             </button>
-            <button onClick={() => zoomBy(1 / 1.2)} className="flow-tool" title="Zoom out (−)">
+            <button onClick={() => zoomBy(1 / ZOOM_STEP)} className="flow-tool" title="Zoom out (−)">
               <Minus size={13} />
             </button>
           </div>
@@ -273,7 +568,143 @@ function shortNumber(n) {
   return String(Math.round(v * 10) / 10)
 }
 
-function FlowCard({ node, style, flow, drilled, onToggle, onDrill, onFocus }) {
+/**
+ * Everything about one branch, at a size you can read.
+ *
+ * A 178px card holds a name, a number and a percentage. The full path, the
+ * arithmetic behind the share, the drop-off and four metrics do not fit,
+ * and shrinking the type until they do helps nobody -- so selecting a node
+ * opens this instead.
+ */
+function NodePanel({ node, flow, drilled, onClose, onToggle, onDrill, onFocus, onCentre }) {
+  const color = nodeColor(node)
+  const share = flow.percentBase === 'root' ? node.shareOfRoot : node.share
+  const canDrill = flowNodeCanDrill(node)
+
+  return (
+    <div
+      data-flow-ui
+      className="pointer-events-auto absolute right-2 top-12 w-60 rounded-xl border border-slate-200 bg-white/97 p-2.5 shadow-lg backdrop-blur"
+    >
+      <div className="mb-1.5 flex items-start gap-1.5">
+        <span className="mt-0.5 h-3 w-1 shrink-0 rounded" style={{ backgroundColor: color }} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-semibold text-slate-800" title={node.label}>
+            {node.icon} {node.label}
+          </p>
+          <p className="truncate text-[10px] text-slate-400" title={node.trail.join(' → ')}>
+            {node.trail.length ? node.trail.join(' → ') : 'the whole table'}
+          </p>
+        </div>
+        <button onClick={onClose} className="shrink-0 text-slate-300 hover:text-rose-500" title="Close">
+          <X size={12} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-1 text-[10px]">
+        <Stat label="Value" value={shortNumber(node.value)} strong color={color} />
+        <Stat label="Rows" value={node.count.toLocaleString('en-IN')} />
+        <Stat
+          label={flow.percentBase === 'root' ? 'Of the total' : 'Of its parent'}
+          value={share === null || share === undefined ? '—' : `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`}
+        />
+        <Stat
+          label="Lost from above"
+          value={node.level === 0 || !node.dropOff ? '—' : `${Math.round(node.dropOff * 100)}%`}
+          warn={node.dropOff > 0.5}
+        />
+      </div>
+
+      {node.tab && (
+        <p className="mt-1.5 truncate rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500" title={node.tab}>
+          {node.tab}
+        </p>
+      )}
+
+      {node.metrics.length > 0 && (
+        <div className="mt-1.5 space-y-0.5 border-t border-slate-100 pt-1.5">
+          {node.metrics.map((m) => (
+            <p key={m.id || m.label} className="flex items-baseline justify-between gap-2 text-[10px]">
+              <span className="truncate text-slate-500">{m.label}</span>
+              <strong className="shrink-0 font-semibold tabular-nums text-slate-700">
+                {formatNumber(m.value, m.format, m.aggregation)}
+              </strong>
+            </p>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-2 flex flex-wrap gap-1">
+        {node.hasChildren && (
+          <PanelButton onClick={() => onToggle(node)}>
+            {node.open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+            {node.open ? 'Close' : 'Open'}
+          </PanelButton>
+        )}
+        {node.hasChildren && node.level > 0 && (
+          <PanelButton onClick={() => onFocus(node)}>
+            <Maximize2 size={10} /> Zoom in
+          </PanelButton>
+        )}
+        <PanelButton onClick={onCentre}>
+          <Crosshair size={10} /> Centre
+        </PanelButton>
+        {canDrill && (
+          <PanelButton onClick={() => onDrill(node)} active={drilled}>
+            <Filter size={10} /> {drilled ? 'Filtering' : 'Filter page'}
+          </PanelButton>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Stat({ label, value, strong, warn, color }) {
+  return (
+    <div className="rounded bg-slate-50 px-1.5 py-1">
+      <p className="truncate text-[9px] uppercase tracking-wide text-slate-400">{label}</p>
+      <p
+        className={`truncate font-semibold tabular-nums ${warn ? 'text-amber-600' : 'text-slate-700'} ${
+          strong ? 'text-[13px]' : 'text-[11px]'
+        }`}
+        style={strong && color ? { color } : undefined}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function PanelButton({ children, onClick, active }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[10px] font-medium ${
+        active
+          ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
+          : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function FlowCard({
+  node,
+  style,
+  flow,
+  drilled,
+  dimmed,
+  matched,
+  current,
+  selected,
+  onHover,
+  onSelect,
+  onToggle,
+  onDrill,
+  onFocus,
+}) {
   const color = nodeColor(node)
   const share = flow.percentBase === 'root' ? node.shareOfRoot : node.share
   const hasShare = share !== null && share !== undefined
@@ -281,14 +712,23 @@ function FlowCard({ node, style, flow, drilled, onToggle, onDrill, onFocus }) {
   const isRoot = node.level === 0
   const canOpen = node.hasChildren
   const canDrill = flowNodeCanDrill(node)
+  const key = `${node.treeId || ''}${node.path}`
 
   return (
     <div
       data-flow-node
+      onPointerEnter={() => onHover(key)}
+      onPointerLeave={() => onHover('')}
       className={`group absolute overflow-hidden rounded-xl border bg-white/95 shadow-sm backdrop-blur transition-all hover:shadow-md ${
-        drilled ? 'border-transparent ring-2 ring-offset-1' : 'border-slate-200/80'
-      }`}
-      style={{ ...style, ...(drilled ? { '--tw-ring-color': color } : {}) }}
+        drilled || selected || current ? 'border-transparent ring-2 ring-offset-1' : 'border-slate-200/80'
+      } ${matched && !current ? 'ring-1 ring-amber-400' : ''}`}
+      style={{
+        ...style,
+        opacity: dimmed ? 0.22 : 1,
+        ...(drilled || selected || current
+          ? { '--tw-ring-color': current ? '#f59e0b' : selected ? '#6366f1' : color }
+          : {}),
+      }}
       // Zooming into a branch is the deepest thing you can want from a node,
       // so it gets the gesture that costs nothing to discover.
       onDoubleClick={() => canOpen && !isRoot && onFocus(node)}
@@ -368,6 +808,15 @@ function FlowCard({ node, style, flow, drilled, onToggle, onDrill, onFocus }) {
       </button>
 
       <span className="absolute right-1 top-1 flex gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <button
+          onClick={() => onSelect(selected ? '' : key)}
+          className={`rounded bg-white/90 p-1 shadow-sm hover:text-indigo-600 ${
+            selected ? 'text-indigo-600' : 'text-slate-400'
+          }`}
+          title="What is this branch?"
+        >
+          <Info size={10} />
+        </button>
         {canOpen && !isRoot && (
           <button
             onClick={() => onFocus(node)}

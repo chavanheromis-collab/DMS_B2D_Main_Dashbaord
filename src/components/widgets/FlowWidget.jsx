@@ -6,8 +6,12 @@ import {
   Expand,
   Filter,
   GitBranch,
+  ArrowDownWideNarrow,
+  EyeOff,
   ListTree,
   Maximize2,
+  Percent,
+  TrendingDown,
   Minus,
   MoveHorizontal,
   MoveVertical,
@@ -29,6 +33,13 @@ import {
   flowNodeCanDrill,
   flowNodeIsDrilled,
 } from '../../lib/flow.js'
+import {
+  FLOW_VIEW_SORTS,
+  SIGNIFICANCE_STEPS,
+  flowStats,
+  pruneBySignificance,
+  sortFlowRoots,
+} from '../../lib/flowView.js'
 
 /**
  * A flowchart you read by opening it.
@@ -78,6 +89,13 @@ export default function FlowWidget({
   const [view, setView] = useState(flow.view === 'diagram' ? 'diagram' : 'tree')
   const [orientation, setOrientation] = useState(flow.orientation === 'horizontal' ? 'horizontal' : 'vertical')
   const [fullscreen, setFullscreen] = useState(false)
+  // Three questions the admin answered once and the reader keeps re-asking:
+  // in what order, measured against what, and without the noise. None of
+  // these change a single number -- they change which numbers are in front
+  // of you, which is what reading a flow actually consists of.
+  const [sortOrder, setSortOrder] = useState('natural')
+  const [minShare, setMinShare] = useState(0)
+  const [percentBase, setPercentBase] = useState(flow.percentBase === 'root' ? 'root' : 'parent')
 
   const forest = useMemo(() => {
     const built = buildFlowTrees({
@@ -211,14 +229,25 @@ export default function FlowWidget({
     return sample ? Object.keys(sample).filter((c) => c !== '_row') : []
   }
 
-  const rootFor = (one) => findFlowNode(one.root, focusByTree[one.tree.id] || '') || one.root
+  // The trees as the READER has asked to see them: focused into, re-ordered,
+  // and with the hairlines dropped. A stable array, so the diagram does not
+  // re-lay itself out on every unrelated re-render of the page.
+  //
+  // Focus first (it decides which tree there even is), then sort, then
+  // prune -- pruning before sorting would drop branches by a share and then
+  // rearrange what is left, which is harder to reason about and gives the
+  // same answer.
+  const shaped = useMemo(() => {
+    const focused = forest.trees.map((one) => findFlowNode(one.root, focusByTree[one.tree.id] || '') || one.root)
+    return pruneBySignificance(sortFlowRoots(focused, sortOrder), minShare)
+  }, [forest, focusByTree, sortOrder, minShare])
 
-  // A stable array, so the diagram does not re-lay itself out on every
-  // unrelated re-render of the page.
-  const roots = useMemo(
-    () => forest.trees.map((one) => findFlowNode(one.root, focusByTree[one.tree.id] || '') || one.root),
-    [forest, focusByTree]
-  )
+  const roots = shaped.roots
+  const stats = useMemo(() => flowStats(roots), [roots])
+
+  // The flow as the reader has it, so the diagram, the tree and the node
+  // panel all measure their percentages against the same thing.
+  const viewFlow = useMemo(() => ({ ...flow, percentBase }), [flow, percentBase])
 
   const card = (
     <div className={`card ${fullscreen ? 'flex h-full flex-col overflow-hidden' : ''}`}>
@@ -342,16 +371,104 @@ export default function FlowWidget({
         </div>
       )}
 
+      {/* --- how the reader wants to look at it ----------------------- */}
+      {forest.depth > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-y border-slate-100 py-1.5 text-[10px]">
+          <label className="flex items-center gap-1" title="Re-orders the branches. No number changes.">
+            <ArrowDownWideNarrow size={11} className="text-slate-400" />
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value)}
+              className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600"
+              aria-label="Order the branches"
+            >
+              {FLOW_VIEW_SORTS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex items-center gap-1" title="Hides branches under this share of their parent.">
+            <EyeOff size={11} className="text-slate-400" />
+            <select
+              value={String(minShare)}
+              onChange={(e) => setMinShare(Number(e.target.value))}
+              className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600"
+              aria-label="Hide small branches"
+            >
+              {SIGNIFICANCE_STEPS.map((v) => (
+                <option key={v} value={v}>
+                  {v === 0 ? 'Show every branch' : `Hide under ${Math.round(v * 100)}%`}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            onClick={() => setPercentBase((b) => (b === 'parent' ? 'root' : 'parent'))}
+            className="flex items-center gap-1 rounded border border-slate-200 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50"
+            title="What each percentage is measured against"
+          >
+            <Percent size={10} className="text-slate-400" />
+            {percentBase === 'parent' ? '% of its parent' : '% of the total'}
+          </button>
+
+          {/* The thing you opened the diagram to find, found for you. On a
+              canvas of two hundred nodes, hunting the worst drop-off by eye
+              across four levels is exactly the work a computer should have
+              done first. */}
+          {stats.worstDrop && (
+            <button
+              onClick={() => focusNode(stats.worstDrop)}
+              className="flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-amber-700 hover:bg-amber-100"
+              title={`${stats.worstDrop.trail.join(' → ')} loses ${Math.round(
+                stats.worstDrop.dropOff * 100
+              )}% of the branch above it — click to zoom in`}
+            >
+              <TrendingDown size={10} /> Worst drop: {stats.worstDrop.label} ▼
+              {Math.round(stats.worstDrop.dropOff * 100)}%
+            </button>
+          )}
+
+          <span className="ml-auto text-slate-400">
+            {stats.nodes.toLocaleString('en-IN')} branches · {stats.depth} deep
+            {shaped.hidden > 0 && (
+              <span className="text-amber-600">
+                {' '}
+                · {shaped.hidden} hidden ({Math.round(shaped.hiddenValue).toLocaleString('en-IN')})
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
+      {/* The way back out of a branch you zoomed into -- in BOTH views. It
+          used to live inside the tree, so zooming in on the diagram left the
+          reader with no visible way back. */}
+      {forest.trees.map((one) => (
+        <FocusTrail
+          key={one.tree.id}
+          built={one}
+          label={forest.multi ? one.tree.label || one.tree.tab : ''}
+          focusPath={focusByTree[one.tree.id] || ''}
+          onFocus={focusNode}
+          onClear={() => setFocusByTree((all) => ({ ...all, [one.tree.id]: '' }))}
+        />
+      ))}
+
       {forest.depth === 0 ? (
         <p className="empty-state">No levels configured yet</p>
       ) : view === 'diagram' ? (
         <div className={fullscreen || fillHeight ? 'min-h-0 flex-1' : ''}>
           <FlowDiagram
             roots={roots}
-            flow={flow}
+            flow={viewFlow}
             orientation={orientation}
             height={fullscreen || fillHeight ? '100%' : Number(flow.diagramHeight) || 420}
             fullscreen={fullscreen}
+            onToggleFullscreen={() => setFullscreen((f) => !f)}
             isDrilled={isDrilled}
             onToggle={toggle}
             onDrill={drill}
@@ -360,17 +477,15 @@ export default function FlowWidget({
         </div>
       ) : (
         <div className={`-mx-1 space-y-3 px-1 ${fullscreen ? 'min-h-0 flex-1 overflow-auto' : 'overflow-x-auto'}`}>
-          {forest.trees.map((one) => (
+          {forest.trees.map((one, i) => (
             <TreeSection
               key={one.tree.id}
               built={one}
-              node={rootFor(one)}
-              flow={flow}
+              node={roots[i] || one.root}
+              flow={viewFlow}
               widget={widget}
               showHeader={forest.multi}
               crossFilters={crossFilters}
-              focusPath={focusByTree[one.tree.id] || ''}
-              onClearFocus={() => setFocusByTree((all) => ({ ...all, [one.tree.id]: '' }))}
               onToggle={toggle}
               onDrill={drill}
               onFocus={focusNode}
@@ -398,25 +513,14 @@ export default function FlowWidget({
 }
 
 /**
- * One tree on the page, with the breadcrumb that walks back out of it.
+ * The way back out of a branch somebody zoomed into.
  *
- * A canvas with several trees needs each to say what it is; a canvas with
- * one does not, and a heading above a single tree that already has a title
- * is noise.
+ * It used to live inside the tree view, which meant double-clicking a node
+ * on the DIAGRAM zoomed you in and left you with nothing to click to get
+ * back out -- the one thing a zoom-in gesture must always come with. It now
+ * sits above whichever view is open, and belongs to neither.
  */
-function TreeSection({
-  built,
-  node,
-  flow,
-  widget,
-  showHeader,
-  crossFilters,
-  focusPath,
-  onClearFocus,
-  onToggle,
-  onDrill,
-  onFocus,
-}) {
+function FocusTrail({ built, label, focusPath, onFocus, onClear }) {
   const trail = useMemo(() => {
     if (!focusPath) return []
     const out = [built.root]
@@ -430,6 +534,43 @@ function TreeSection({
     return out
   }, [built.root, focusPath])
 
+  if (trail.length < 2) return null
+
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg bg-indigo-50/70 px-2 py-1 text-[11px]">
+      <span className="text-[10px] uppercase tracking-wide text-indigo-400">{label ? `${label} ·` : ''} focused</span>
+      {trail.map((item, i) => (
+        <span key={item.path} className="flex items-center gap-1">
+          {i > 0 && <ChevronRight size={11} className="text-indigo-300" />}
+          <button
+            onClick={() => onFocus(item)}
+            className={`max-w-[160px] truncate hover:underline ${
+              i === trail.length - 1 ? 'font-semibold text-indigo-700' : 'text-indigo-500'
+            }`}
+          >
+            {item.label}
+          </button>
+        </span>
+      ))}
+      <button
+        onClick={onClear}
+        className="ml-1 rounded p-0.5 text-indigo-400 hover:bg-indigo-100 hover:text-indigo-600"
+        title="Back to the whole tree"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  )
+}
+
+/**
+ * One tree on the page.
+ *
+ * A canvas with several trees needs each to say what it is; a canvas with
+ * one does not, and a heading above a single tree that already has a title
+ * is noise.
+ */
+function TreeSection({ built, node, flow, widget, showHeader, crossFilters, onToggle, onDrill, onFocus }) {
   return (
     <div>
       {showHeader && (
@@ -448,32 +589,6 @@ function TreeSection({
               blended
             </span>
           )}
-        </div>
-      )}
-
-      {trail.length > 1 && (
-        <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg bg-indigo-50/70 px-2 py-1 text-[11px]">
-          <span className="text-[10px] uppercase tracking-wide text-indigo-400">focused</span>
-          {trail.map((item, i) => (
-            <span key={item.path} className="flex items-center gap-1">
-              {i > 0 && <ChevronRight size={11} className="text-indigo-300" />}
-              <button
-                onClick={() => onFocus(item)}
-                className={`max-w-[160px] truncate hover:underline ${
-                  i === trail.length - 1 ? 'font-semibold text-indigo-700' : 'text-indigo-500'
-                }`}
-              >
-                {item.label}
-              </button>
-            </span>
-          ))}
-          <button
-            onClick={onClearFocus}
-            className="ml-1 rounded p-0.5 text-indigo-400 hover:bg-indigo-100 hover:text-indigo-600"
-            title="Back to the whole tree"
-          >
-            <X size={12} />
-          </button>
         </div>
       )}
 
