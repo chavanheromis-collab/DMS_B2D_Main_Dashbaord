@@ -17,7 +17,7 @@ import {
   widthUnitsLabel,
 } from '../../lib/config'
 import { looksLikeDateColumn } from '../../lib/dataUtils'
-import { DEFAULT_PIE_OPTIONS, PIE_LABEL_STYLES } from '../../lib/pieData'
+import { DEFAULT_PIE_OPTIONS, PIE_LABEL_STYLES, PIE_PERCENT_BASES } from '../../lib/pieData'
 import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
 import { hasCustomStyle } from '../../lib/widgetStyle'
 import { COLOR_MODES, DEFAULT_REFERENCE, REFERENCE_KINDS, chartCaps, unsupportedNote } from '../../lib/chartOptions'
@@ -1394,6 +1394,24 @@ function ChartEditor({ widget, cols, set }) {
               ]}
             />
           </div>
+          {widget.pieOverflow === 'scroll' && (
+            <>
+              <div className="pb-1.5">
+                <Toggle
+                  checked={widget.pieFillWindow !== false}
+                  onChange={(v) => set({ pieFillWindow: v })}
+                  label="Fill the circle with what is on screen"
+                />
+              </div>
+              <Field label="A % means" className="w-52">
+                <Select
+                  value={widget.piePercentBase === 'shown' ? 'shown' : 'total'}
+                  onChange={(v) => set({ piePercentBase: v })}
+                  options={PIE_PERCENT_BASES}
+                />
+              </Field>
+            </>
+          )}
           {widget.pieOverflow !== 'scroll' && (
             <>
               <Field label="Slices to draw" className="w-32" hint="Including Other.">

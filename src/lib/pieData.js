@@ -101,9 +101,18 @@ export function labelledSlices(slices, labelMinPercent = DEFAULT_PIE_OPTIONS.lab
   return (slices || []).filter((s) => (s.percent ?? 0) >= floor)
 }
 
-/** Text for one slice's label, in the style the admin picked. */
-export function sliceLabel(slice, style, format = (v) => String(v)) {
-  const pct = `${((slice.percent ?? 0) * 100).toFixed((slice.percent ?? 0) < 0.1 ? 1 : 0)}%`
+/**
+ * Text for one slice's label, in the style the admin picked.
+ *
+ * `base` decides which percentage a "%" means: the share of everything, or
+ * the share of what the circle is currently showing. They are the same
+ * number until a pie is scrolled through a long tail, and wildly different
+ * after that -- which is exactly why it is the admin's choice and why the
+ * caption underneath says which one is on.
+ */
+export function sliceLabel(slice, style, format = (v) => String(v), base = 'total') {
+  const share = base === 'shown' && slice.percentShown !== undefined ? slice.percentShown : slice.percent ?? 0
+  const pct = `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`
   switch (style) {
     case 'value':
       return format(slice.value)
@@ -120,6 +129,11 @@ export function sliceLabel(slice, style, format = (v) => String(v)) {
       return `${slice.name} ${pct}`
   }
 }
+
+export const PIE_PERCENT_BASES = [
+  { value: 'total', label: '% of everything' },
+  { value: 'shown', label: '% of what is on screen' },
+]
 
 export const PIE_LABEL_STYLES = [
   { value: 'name_percent', label: 'Name and %' },
@@ -168,27 +182,59 @@ export const REST_LABEL = 'Not in view'
  * window, so the number beside a slice means the same thing however the
  * list happens to be scrolled.
  */
-export function pieWindow(slices, { start = 0, count = 8, restLabel = REST_LABEL } = {}) {
+export function pieWindow(slices, { start = 0, count = 8, restLabel = REST_LABEL, fill = true } = {}) {
   const list = slices || []
   const size = Math.max(1, Math.round(count))
   const from = Math.max(0, Math.min(Math.round(start), Math.max(0, list.length - size)))
   const shown = list.slice(from, from + size)
 
   const total = list.reduce((sum, s) => sum + (s.value || 0), 0)
-  const restValue = list.reduce((sum, s, i) => (i >= from && i < from + size ? sum : sum + (s.value || 0)), 0)
+  const shownValue = shown.reduce((sum, s) => sum + (s.value || 0), 0)
+  const restValue = Math.max(0, total - shownValue)
 
-  const out = [...shown]
-  if (restValue > 0 && total > 0) {
+  // Two numbers per slice, because they answer two different questions and
+  // a chart that offers only one of them is answering the wrong one half
+  // the time:
+  //
+  //   `percent`      its share of EVERYTHING -- the honest number, the one
+  //                  that means the same thing however the list is scrolled
+  //   `percentShown` its share of what is on screen -- the one the geometry
+  //                  uses when the circle is filled by the window
+  //
+  // Deep in the tail of a hundred and twenty categories, eight slices worth
+  // 1% between them drawn against a 99% grey wedge is a chart of nothing.
+  // Filling the circle with them is what makes the tail readable at all --
+  // and it is only not a lie because the caption says what the circle is,
+  // and every label can still carry the share of the whole.
+  const withShare = shown.map((s) => ({
+    ...s,
+    percentShown: shownValue > 0 ? (s.value || 0) / shownValue : 0,
+  }))
+
+  const out = [...withShare]
+  if (!fill && restValue > 0 && total > 0) {
     out.push({
       name: restLabel,
       value: restValue,
       percent: restValue / total,
+      percentShown: 0,
       isRest: true,
       hidden: list.length - shown.length,
     })
   }
 
-  return { slices: out, start: from, count: size, total, restValue, restCount: list.length - shown.length }
+  return {
+    slices: out,
+    start: from,
+    count: size,
+    total,
+    shownValue,
+    restValue,
+    restCount: list.length - shown.length,
+    // What the circle is a picture of, as a share of everything.
+    shownShare: total > 0 ? shownValue / total : 0,
+    fill,
+  }
 }
 
 /** How many legend rows fit, given the room and the height of one. */

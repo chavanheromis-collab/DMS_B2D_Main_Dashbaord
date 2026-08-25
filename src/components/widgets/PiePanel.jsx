@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Sector } from 'recharts'
-import { DEFAULT_PIE_OPTIONS, REST_LABEL, labelledSlices, legendScrollStart, legendWindowSize, pieSlices, pieWindow, rollupNote, sliceLabel } from '../../lib/pieData.js'
+import { DEFAULT_PIE_OPTIONS, PIE_PERCENT_BASES, REST_LABEL, labelledSlices, legendScrollStart, legendWindowSize, pieSlices, pieWindow, rollupNote, sliceLabel } from '../../lib/pieData.js'
 
 /**
  * A part-of-whole chart that survives real data.
@@ -43,10 +43,21 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
   const [start, setStart] = useState(0)
   const [rows, setRows] = useState(DEFAULT_PIE_OPTIONS.maxSlices)
 
+  // Whether the circle is filled by what is on screen, or keeps the whole
+  // and draws the rest as one grey wedge. Filling is the default: eight
+  // slices worth 1% between them against a 99% wedge is a chart of nothing.
+  const fill = widget.pieFillWindow !== false
+
   const view = useMemo(
-    () => (scrolling ? pieWindow(result.slices, { start, count: rows }) : null),
-    [scrolling, result.slices, start, rows]
+    () => (scrolling ? pieWindow(result.slices, { start, count: rows, fill }) : null),
+    [scrolling, result.slices, start, rows, fill]
   )
+
+  // Which percentage a label means. On a filled circle the geometry is the
+  // share of what is shown, so saying "% of everything" beside a slice that
+  // looks like a third of the pie needs the caption underneath to explain
+  // it -- which it does.
+  const percentBase = widget.piePercentBase === 'shown' ? 'shown' : 'total'
 
   const slices = view ? view.slices : result.slices
   const labelFloor = widget.pieLabelMinPercent ?? DEFAULT_PIE_OPTIONS.labelMinPercent
@@ -99,7 +110,7 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
                 endAngle={-270}
                 isAnimationActive={false}
                 labelLine={false}
-                label={showLabels ? renderLabel({ labelled, labelStyle, fmt }) : false}
+                label={showLabels ? renderLabel({ labelled, labelStyle, fmt, percentBase }) : false}
                 activeIndex={isRose ? undefined : hover}
                 activeShape={isRose ? undefined : ActiveSlice}
                 onMouseEnter={(_, index) => setHover(index)}
@@ -169,9 +180,20 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
           should be told that the circle is showing a window of it. */}
       {scrolling && view?.restCount > 0 && (
         <p className="mt-1 shrink-0 text-[10px] text-slate-400">
-          Showing {view.slices.length - 1} of {result.slices.length} — scroll the list to move the pie through
-          them. The rest is the one grey wedge, {(view.restValue / (result.total || 1) * 100).toFixed(0)}% of the
-          whole.
+          {fill ? (
+            <>
+              The circle is these {view.slices.length} of {result.slices.length} — scroll the list to move it
+              through them. Together they are{' '}
+              <strong>{(view.shownShare * 100).toFixed(view.shownShare < 0.1 ? 1 : 0)}% of the whole</strong>
+              {percentBase === 'shown' ? ', and the percentages beside them are shares of the circle.' : '.'}
+            </>
+          ) : (
+            <>
+              Showing {view.slices.length - 1} of {result.slices.length} — scroll the list to move the pie through
+              them. The rest is the one grey wedge, {((view.restValue / (result.total || 1)) * 100).toFixed(0)}% of
+              the whole.
+            </>
+          )}
         </p>
       )}
     </div>
@@ -200,8 +222,8 @@ function ActiveSlice(props) {
 }
 
 /** Outside labels, only where one fits. */
-function renderLabel({ labelled, labelStyle, fmt }) {
-  return function Label({ cx, cy, midAngle, outerRadius, name, value, percent, index }) {
+function renderLabel({ labelled, labelStyle, fmt, percentBase = 'total' }) {
+  return function Label({ cx, cy, midAngle, outerRadius, name, value, percent, index, payload }) {
     if (!labelled.has(name)) return null
 
     const rad = -midAngle * (Math.PI / 180)
@@ -212,7 +234,21 @@ function renderLabel({ labelled, labelStyle, fmt }) {
 
     // Long category names are why these charts fall apart; the full name is
     // one glance away in the list, so the label carries the short form.
-    const text = sliceLabel({ name: truncate(name, 16), value, percent }, labelStyle, fmt)
+    // `percent` from the chart is the share of what it DREW, which on a
+    // filled window is the share of the window. The slice's own numbers ride
+    // along in `payload`, so a label asking for "% of everything" gets the
+    // number that actually means that.
+    const text = sliceLabel(
+      {
+        name: truncate(name, 16),
+        value,
+        percent: payload?.percent ?? percent,
+        percentShown: payload?.percentShown ?? percent,
+      },
+      labelStyle,
+      fmt,
+      percentBase
+    )
 
     return (
       <text

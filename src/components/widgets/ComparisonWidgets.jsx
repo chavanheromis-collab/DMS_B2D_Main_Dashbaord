@@ -137,6 +137,11 @@ export function StackedWidget({
           >
           <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 280}>
             <BarChart
+              // "Every bar the same height" is the question "what is the MIX
+              // here", asked of categories whose totals are wildly different
+              // -- a branch with 40 rows and one with 4,000 are the same
+              // width, and only their composition is being compared.
+              stackOffset={!grouped && widget.percentStack ? 'expand' : undefined}
               data={data}
               margin={{ top: 5, right: 10, bottom: 5, left: -12 }}
               onClick={onChartClick}

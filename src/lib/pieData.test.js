@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   DEFAULT_PIE_OPTIONS,
+  PIE_PERCENT_BASES,
   labelledSlices,
   legendScrollStart,
   legendWindowSize,
@@ -183,23 +184,56 @@ test('scrolling the legend moves the pie through the data', () => {
   assert.equal(later.start, 40)
 })
 
-test('the circle still adds up to the whole', () => {
-  // A pie that silently showed 6% of the data as a full circle would be the
-  // worst kind of wrong: confident, well drawn, and off by a factor of
-  // sixteen.
+test('the circle is filled by the values on screen', () => {
+  // Eight slices worth 1% between them, drawn against a 99% grey wedge, is
+  // a chart of nothing. Filling the circle with them is what makes the tail
+  // of a hundred and twenty categories readable at all.
   const all = pieSlices(hundredPlus, { rollup: false }).slices
-  const win = pieWindow(all, { start: 10, count: 8 })
-  const drawn = win.slices.reduce((sum, s) => sum + s.percent, 0)
+  const win = pieWindow(all, { start: 100, count: 8 })
+  const drawn = win.slices.reduce((sum, s) => sum + s.percentShown, 0)
   assert.ok(Math.abs(drawn - 1) < 1e-9, `${drawn}`)
+  assert.ok(!win.slices.some((s) => s.isRest), 'no grey wedge when the circle is filled')
 })
 
-test('what is out of view is one quiet wedge that says how much it is', () => {
+test('and it says what fraction of everything that circle is', () => {
+  // The number that stops a filled circle being a lie.
   const all = pieSlices(hundredPlus, { rollup: false }).slices
-  const win = pieWindow(all, { start: 0, count: 8 })
+  const win = pieWindow(all, { start: 100, count: 8 })
+  assert.ok(win.shownShare > 0 && win.shownShare < 0.2)
+  assert.ok(Math.abs(win.shownValue / win.total - win.shownShare) < 1e-9)
+})
+
+test('the honest share of everything is on every slice as well', () => {
+  const all = pieSlices(hundredPlus, { rollup: false }).slices
+  const win = pieWindow(all, { start: 100, count: 8 })
+  for (const slice of win.slices) {
+    assert.ok(slice.percent < slice.percentShown, 'a slice is a smaller part of everything than of the window')
+  }
+})
+
+test('the grey wedge is still there when the circle is NOT filled', () => {
+  const all = pieSlices(hundredPlus, { rollup: false }).slices
+  const win = pieWindow(all, { start: 0, count: 8, fill: false })
   const rest = win.slices.at(-1)
   assert.equal(rest.isRest, true)
   assert.equal(rest.hidden, 112)
-  assert.ok(rest.percent > 0 && rest.percent < 1)
+  const drawn = win.slices.reduce((sum, s) => sum + s.percent, 0)
+  assert.ok(Math.abs(drawn - 1) < 1e-9, 'and then the circle adds up to the whole')
+})
+
+test('a label can read either percentage, and the admin picks which', () => {
+  const slice = { name: 'A', value: 5, percent: 0.01, percentShown: 0.4 }
+  assert.equal(sliceLabel(slice, 'percent', String, 'total'), '1.0%', 'a small share keeps a decimal')
+  assert.equal(sliceLabel(slice, 'percent', String, 'shown'), '40%')
+  assert.equal(sliceLabel(slice, 'name_percent', String, 'shown'), 'A 40%')
+  assert.equal(sliceLabel(slice, 'value', String, 'shown'), '5', 'a value is a value either way')
+})
+
+test('every percentage base offered is one the label understands', () => {
+  const slice = { name: 'A', value: 5, percent: 0.25, percentShown: 0.5 }
+  for (const { value } of PIE_PERCENT_BASES) {
+    assert.ok(sliceLabel(slice, 'percent', String, value).endsWith('%'), value)
+  }
 })
 
 test('a percentage is a share of the whole, not of the window', () => {
@@ -222,7 +256,7 @@ test('scrolling past the end shows the last full window rather than a gap', () =
   const all = pieSlices(hundredPlus, { rollup: false }).slices
   const win = pieWindow(all, { start: 900, count: 8 })
   assert.equal(win.start, 112)
-  assert.equal(win.slices.at(-1).isRest, true)
+  assert.equal(win.slices.length, 8, 'the last eight, not an empty circle')
 })
 
 test('an empty list is an empty pie, not a crash', () => {

@@ -461,6 +461,27 @@ export default function ChartWidget({
   )
   const valueAxis = scale ? { ticks: scale.ticks, domain: scale.domain, allowDecimals: false } : {}
 
+  // A log axis, for a chart whose top bar is fifty times its bottom one.
+  //
+  // On a linear axis SPLENDOR at 1,667 makes everything under about 200 a
+  // stub of the same height, and the difference between 40 and 4 -- which
+  // may be the whole point -- is invisible. A log axis is the honest way to
+  // show a range like that, and a dishonest way to show a narrow one, which
+  // is why it is a choice and not a heuristic.
+  //
+  // It overrides the tick settings above: a log axis's ticks are decades,
+  // and an evenly spaced set of them would land in the wrong places. Zero
+  // has no logarithm, so the floor is the smallest positive value there is.
+  const logScale = widget.logScale === true && caps.axisStep
+  const logAxis = logScale
+    ? {
+        scale: 'log',
+        domain: [Math.max(1, Math.min(...data.map((d) => Number(d.value) || Infinity), Infinity) || 1), 'auto'],
+        allowDataOverflow: false,
+      }
+    : null
+  const axisProps = logAxis || valueAxis
+
   const showLabels = caps.labels && widget.showLabels
   const showGrid = caps.grid && widget.showGrid !== false
   const showLegend = widget.showLegend === true
@@ -618,7 +639,7 @@ export default function ChartWidget({
           >
             {grid}
             {xAxis}
-            <YAxis yAxisId="left" tick={{ fontSize: 11 }} {...valueAxis} />
+            <YAxis yAxisId="left" tick={{ fontSize: 11 }} {...axisProps} />
             {/* The cumulative axis is pinned to 0-100: a percentage that
                 rescales to its own maximum makes the 80% line meaningless. */}
             <YAxis
@@ -666,7 +687,7 @@ export default function ChartWidget({
           >
             {grid}
             {xAxis}
-            <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
+            <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             <Tooltip
               contentStyle={tooltipStyle.contentStyle}
               cursor={{ fill: '#f8fafc' }}
@@ -694,7 +715,7 @@ export default function ChartWidget({
           >
             {grid}
             <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-35} textAnchor="end" height={58} />
-            <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
+            <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
             {refLines('y')}
             {/* Bins touch: a histogram with gaps reads as a bar chart of
@@ -715,7 +736,7 @@ export default function ChartWidget({
           >
             {grid}
             {xAxis}
-            <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
+            <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
             {refLines('y')}
             {/* A hairline bar is the stem; the scatter dot is the head. Far
@@ -748,7 +769,7 @@ export default function ChartWidget({
           >
             {grid}
             <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-            <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
+            <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             <Tooltip {...tooltipStyle} />
             {showLegend && <Legend wrapperStyle={legendBox} />}
             {refLines('y')}
@@ -781,7 +802,7 @@ export default function ChartWidget({
             </defs>
             {grid}
             <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-            <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
+            <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             <Tooltip {...tooltipStyle} />
             {showLegend && <Legend wrapperStyle={legendBox} />}
             {refLines('y')}
@@ -812,7 +833,7 @@ export default function ChartWidget({
             {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" horizontal={false} />}
             {/* On a horizontal bar chart the VALUE axis is x, so the scale
                 and the reference lines move with it. */}
-            <XAxis type="number" tick={{ fontSize: 11 }} {...valueAxis} />
+            <XAxis type="number" tick={{ fontSize: 11 }} {...axisProps} />
             <YAxis
               type="category"
               dataKey="name"
@@ -845,7 +866,7 @@ export default function ChartWidget({
           >
             {grid}
             {xAxis}
-            <YAxis tick={{ fontSize: 11 }} {...valueAxis} />
+            <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
             {refLines('y')}
             {type === 'cylinder' && <CylinderSheen />}

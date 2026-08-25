@@ -407,7 +407,7 @@ const pie = read('components/widgets/PiePanel.jsx')
 
 test('scrolling the legend moves the pie through the categories', () => {
   assert.ok(pie.includes("const scrolling = widget.pieOverflow === 'scroll'"))
-  assert.ok(pie.includes('pieWindow(result.slices, { start, count: rows })'))
+  assert.ok(pie.includes('pieWindow(result.slices, { start, count: rows, fill })'))
   assert.ok(pie.includes('legendScrollStart(el.scrollTop, ROW_HEIGHT)'))
   assert.ok(pie.includes('legendWindowSize(el.clientHeight, ROW_HEIGHT)'))
 })
@@ -428,6 +428,24 @@ test('the admin picks between rolling up and scrolling', () => {
   const panel = read('pages/admin/WidgetsPanel.jsx')
   assert.ok(panel.includes("onChange={(v) => set({ pieOverflow: v })}"))
   assert.ok(panel.includes("value: 'scroll'"))
+})
+
+test('the circle is filled by the values on screen, and says what share that is', () => {
+  // Eight slices worth 1% between them against a 99% grey wedge is a chart
+  // of nothing. Filling it is what makes the tail readable -- and the
+  // caption is what stops that being a lie.
+  assert.ok(pie.includes('const fill = widget.pieFillWindow !== false'))
+  assert.ok(pie.includes('(view.shownShare * 100)'))
+  assert.ok(pie.includes('% of the whole'))
+})
+
+test('a label can read either percentage, and the admin picks which', () => {
+  assert.ok(pie.includes("const percentBase = widget.piePercentBase === 'shown' ? 'shown' : 'total'"))
+  assert.ok(pie.includes('labelStyle, fmt, percentBase )') || pie.includes('fmt, percentBase'))
+  assert.ok(pie.includes('renderLabel({ labelled, labelStyle, fmt, percentBase })'))
+  const panel = read('pages/admin/WidgetsPanel.jsx')
+  assert.ok(panel.includes('onChange={(v) => set({ piePercentBase: v })}'))
+  assert.ok(panel.includes('onChange={(v) => set({ pieFillWindow: v })}'))
 })
 
 test('the admin picks what a slice label says', () => {
