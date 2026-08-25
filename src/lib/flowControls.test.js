@@ -350,9 +350,28 @@ test('the diagram is built once and drawn twice — canvas and glass', () => {
 })
 
 test('the glass follows the cursor and sits where the maths says', () => {
-  assert.ok(diagram.includes('setLensAt({ x: e.clientX - rect.left, y: e.clientY - rect.top })'))
+  assert.ok(diagram.includes('lastPointer.current = { x: e.clientX - box.left, y: e.clientY - box.top }'))
+  assert.ok(diagram.includes('setLensAt(lastPointer.current)'))
   assert.ok(diagram.includes('lensPosition(lensAt, viewportSize(), LENS_RADIUS)'))
   assert.ok(diagram.includes('lensTransform(lensAt, view, { radius: LENS_RADIUS, factor: lensFactor })'))
+})
+
+test('holding ctrl brings the glass out, and letting go puts it away', () => {
+  // A thing you reach for over one label and put down again. A mode you
+  // have to remember to leave is a mode you leave on.
+  assert.ok(diagram.includes("if (e.key === 'Control' || e.key === 'Meta') setCtrlHeld(false)"))
+  assert.ok(diagram.includes('const lens = lensPinned || ctrlHeld'))
+  assert.ok(diagram.includes("window.addEventListener('keyup', up)"))
+})
+
+test('it comes out where the pointer already is, without waiting for a move', () => {
+  assert.ok(diagram.includes('if (lastPointer.current) setLensAt(lastPointer.current)'))
+})
+
+test('alt-tabbing away while holding ctrl does not leave it out', () => {
+  // The keyup never arrives, so without this the glass would still be there
+  // when you came back with nothing held down.
+  assert.ok(diagram.includes("window.addEventListener('blur', clear)"))
 })
 
 test('the glass never takes the pointer', () => {
@@ -361,9 +380,8 @@ test('the glass never takes the pointer', () => {
   assert.ok(diagram.includes('className="pointer-events-none absolute z-[45] overflow-hidden rounded-full'))
 })
 
-test('it can be turned on, turned off, and told how much to magnify', () => {
-  assert.ok(wiredNear(diagram, "'Magnifier — a glass that follows the cursor'", 'onClick={() => {'))
-  assert.ok(diagram.includes('setLens((on) => !on)'))
+test('the button pins it out, for when both hands are needed', () => {
+  assert.ok(diagram.includes('setLensPinned((on) => !on)'))
   assert.ok(diagram.includes('LENS_FACTORS[(LENS_FACTORS.indexOf(f) + 1) % LENS_FACTORS.length]'))
 })
 
@@ -381,4 +399,39 @@ test('the magnifier gets out of the way of the controls', () => {
   // anybody wants to look at.
   assert.ok(diagram.includes("if (e.target.closest?.('[data-flow-ui]')) {"))
   assert.ok(bodyOf(diagram, 'function trackLens').includes('setLensAt(null)'))
+})
+
+// --- the pie, when there are a hundred and twenty of them ----------------
+
+const pie = read('components/widgets/PiePanel.jsx')
+
+test('scrolling the legend moves the pie through the categories', () => {
+  assert.ok(pie.includes("const scrolling = widget.pieOverflow === 'scroll'"))
+  assert.ok(pie.includes('pieWindow(result.slices, { start, count: rows })'))
+  assert.ok(pie.includes('legendScrollStart(el.scrollTop, ROW_HEIGHT)'))
+  assert.ok(pie.includes('legendWindowSize(el.clientHeight, ROW_HEIGHT)'))
+})
+
+test('the legend lists every category, not just the drawn ones', () => {
+  assert.ok(pie.includes('slices={scrolling ? result.slices : slices}'))
+  assert.ok(pie.includes("rollup: scrolling ? false : widget.pieRollup !== false"))
+})
+
+test('what is out of view is a grey wedge, and it is not drillable', () => {
+  // Nothing is hidden -- it is all in the list -- but the circle has to
+  // still add up to the whole or it is confidently, well-drawn wrong.
+  assert.ok(pie.includes('slice.isOther || slice.isRest'))
+  assert.ok(pie.includes('scrolling && view?.restCount > 0'))
+})
+
+test('the admin picks between rolling up and scrolling', () => {
+  const panel = read('pages/admin/WidgetsPanel.jsx')
+  assert.ok(panel.includes("onChange={(v) => set({ pieOverflow: v })}"))
+  assert.ok(panel.includes("value: 'scroll'"))
+})
+
+test('the admin picks what a slice label says', () => {
+  const panel = read('pages/admin/WidgetsPanel.jsx')
+  assert.ok(panel.includes('onChange={(v) => set({ labelStyle: v })}'))
+  assert.ok(panel.includes('options={PIE_LABEL_STYLES}'))
 })

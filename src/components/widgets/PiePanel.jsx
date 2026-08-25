@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Sector } from 'recharts'
-import { DEFAULT_PIE_OPTIONS, labelledSlices, pieSlices, rollupNote, sliceLabel } from '../../lib/pieData.js'
+import { DEFAULT_PIE_OPTIONS, REST_LABEL, labelledSlices, legendScrollStart, legendWindowSize, pieSlices, pieWindow, rollupNote, sliceLabel } from '../../lib/pieData.js'
 
 /**
  * A part-of-whole chart that survives real data.
@@ -25,17 +25,30 @@ import { DEFAULT_PIE_OPTIONS, labelledSlices, pieSlices, rollupNote, sliceLabel 
 export default function PiePanel({ type, data, widget, fmt, colorFor, activeName, onDrill, height }) {
   const [hover, setHover] = useState(-1)
 
+  // "Scroll" is the other answer to a hundred and twenty categories: every
+  // one of them in the legend, and the pie showing whichever are in view.
+  const scrolling = widget.pieOverflow === 'scroll'
+
   const result = useMemo(
     () =>
       pieSlices(data, {
         maxSlices: Number(widget.pieMaxSlices) > 0 ? Number(widget.pieMaxSlices) : DEFAULT_PIE_OPTIONS.maxSlices,
         minPercent: widget.pieMinPercent ?? DEFAULT_PIE_OPTIONS.minPercent,
-        rollup: widget.pieRollup !== false,
+        rollup: scrolling ? false : widget.pieRollup !== false,
       }),
-    [data, widget.pieMaxSlices, widget.pieMinPercent, widget.pieRollup]
+    [data, widget.pieMaxSlices, widget.pieMinPercent, widget.pieRollup, scrolling]
   )
 
-  const slices = result.slices
+  // Where the legend is scrolled to, and how many rows it can show.
+  const [start, setStart] = useState(0)
+  const [rows, setRows] = useState(DEFAULT_PIE_OPTIONS.maxSlices)
+
+  const view = useMemo(
+    () => (scrolling ? pieWindow(result.slices, { start, count: rows }) : null),
+    [scrolling, result.slices, start, rows]
+  )
+
+  const slices = view ? view.slices : result.slices
   const labelFloor = widget.pieLabelMinPercent ?? DEFAULT_PIE_OPTIONS.labelMinPercent
   const labelled = useMemo(
     () => new Set(labelledSlices(slices, labelFloor).map((s) => s.name)),
@@ -62,7 +75,7 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
   function drill(slice) {
     // "Other" is a bucket this chart invented, not a value any row holds --
     // there is nothing coherent to filter the page to.
-    if (!slice || slice.isOther) return
+    if (!slice || slice.isOther || slice.isRest) return
     onDrill?.(slice.name)
   }
 
@@ -96,7 +109,7 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
                 {slices.map((slice, i) => (
                   <Cell
                     key={`${slice.name}-${i}`}
-                    fill={slice.isOther ? '#cbd5e1' : colorFor(slice, i)}
+                    fill={slice.isOther || slice.isRest ? '#cbd5e1' : colorFor(slice, i)}
                     fillOpacity={dim(slice)}
                     stroke="#fff"
                     strokeWidth={1}
@@ -127,7 +140,9 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
 
         {showLegend && (
           <SliceList
-            slices={slices}
+            // Scrolling lists EVERY category; rolling up lists the slices
+            // that were drawn, which already include Other.
+            slices={scrolling ? result.slices : slices}
             colorFor={colorFor}
             fmt={fmt}
             hover={hover}
@@ -135,12 +150,29 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
             onHover={setHover}
             onDrill={drill}
             canDrill={Boolean(onDrill)}
+            windowed={scrolling}
+            start={view?.start ?? 0}
+            count={rows}
+            onWindow={(nextStart, nextRows) => {
+              setStart(nextStart)
+              if (nextRows) setRows(nextRows)
+            }}
           />
         )}
       </div>
 
       {result.truncated && (
         <p className="mt-1 shrink-0 text-[10px] text-slate-400">{rollupNote(result, fmt)}</p>
+      )}
+
+      {/* Nothing is hidden here -- it is all in the list -- but the reader
+          should be told that the circle is showing a window of it. */}
+      {scrolling && view?.restCount > 0 && (
+        <p className="mt-1 shrink-0 text-[10px] text-slate-400">
+          Showing {view.slices.length - 1} of {result.slices.length} — scroll the list to move the pie through
+          them. The rest is the one grey wedge, {(view.restValue / (result.total || 1) * 100).toFixed(0)}% of the
+          whole.
+        </p>
       )}
     </div>
   )
@@ -211,22 +243,54 @@ function truncate(text, at) {
  * and click as the circle -- so it is not a legend to cross-reference, it
  * is the readable half of one chart.
  */
-function SliceList({ slices, colorFor, fmt, hover, activeName, onHover, onDrill, canDrill }) {
+const ROW_HEIGHT = 24
+
+function SliceList({
+  slices,
+  colorFor,
+  fmt,
+  hover,
+  activeName,
+  onHover,
+  onDrill,
+  canDrill,
+  windowed = false,
+  start = 0,
+  count = 8,
+  onWindow,
+}) {
+  const boxRef = useRef(null)
+
+  // Which rows are in view, worked out from the scroll rather than from
+  // anything React knows -- a list of a hundred and twenty rows is scrolled
+  // by the browser, and the browser is the only thing that knows where.
+  const report = () => {
+    if (!windowed || !onWindow || !boxRef.current) return
+    const el = boxRef.current
+    onWindow(legendScrollStart(el.scrollTop, ROW_HEIGHT), legendWindowSize(el.clientHeight, ROW_HEIGHT))
+  }
+
   return (
-    <div className="max-h-[220px] shrink-0 overflow-y-auto pr-1 sm:max-h-none sm:w-[42%] sm:max-w-[240px]">
+    <div
+      ref={boxRef}
+      onScroll={report}
+      onPointerEnter={report}
+      className="max-h-[220px] shrink-0 overflow-y-auto pr-1 sm:max-h-none sm:w-[42%] sm:max-w-[240px]">
       <ul className="space-y-px">
         {slices.map((slice, i) => {
           const on = hover === i || activeName === slice.name
+          // Which of these the pie is currently drawing.
+          const inView = !windowed || (i >= start && i < start + count)
           return (
-            <li key={`${slice.name}-${i}`}>
+            <li key={`${slice.name}-${i}`} style={windowed ? { height: ROW_HEIGHT } : undefined}>
               <button
                 onMouseEnter={() => onHover(i)}
                 onMouseLeave={() => onHover(-1)}
                 onClick={() => onDrill(slice)}
                 disabled={!canDrill || slice.isOther}
-                className={`flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors ${
+                className={`flex h-full w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors ${
                   on ? 'bg-slate-100' : 'hover:bg-slate-50'
-                } disabled:cursor-default`}
+                } ${inView ? '' : 'opacity-45'} disabled:cursor-default`}
                 title={
                   slice.isOther
                     ? `${slice.members.map((m) => `${m.name} ${fmt(m.value)}`).slice(0, 12).join('\n')}${

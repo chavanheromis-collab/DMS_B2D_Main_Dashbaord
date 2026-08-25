@@ -1385,13 +1385,16 @@ function ChartEditor({ widget, cols, set }) {
 
         <div className="flex flex-wrap items-end gap-3 border-t border-slate-200/70 pt-2">
           <div className="pb-1.5">
-            <Toggle
-              checked={widget.pieRollup !== false}
-              onChange={(v) => set({ pieRollup: v })}
-              label="Group the small ones into “Other”"
+            <Select
+              value={widget.pieOverflow === 'scroll' ? 'scroll' : 'rollup'}
+              onChange={(v) => set({ pieOverflow: v })}
+              options={[
+                { value: 'rollup', label: 'Roll the tail into “Other”' },
+                { value: 'scroll', label: 'List them all — scroll the pie through them' },
+              ]}
             />
           </div>
-          {widget.pieRollup !== false && (
+          {widget.pieOverflow !== 'scroll' && (
             <>
               <Field label="Slices to draw" className="w-32" hint="Including Other.">
                 <TextInput
@@ -1412,7 +1415,7 @@ function ChartEditor({ widget, cols, set }) {
         </div>
 
         <p className="text-[10px] text-slate-400">
-          {widget.pieRollup !== false ? (
+          {widget.pieOverflow !== 'scroll' ? (
             <>
               Everything past the cut is <strong>grouped</strong>, never dropped, so every percentage is a percentage
               of the real total. A pie that keeps its top 12 of 120 and throws the rest away is not a simpler chart —
@@ -1420,8 +1423,10 @@ function ChartEditor({ widget, cols, set }) {
             </>
           ) : (
             <>
-              Off: every category gets a slice. With more than about a dozen that is a grey smear — the list beside
-              the chart stays readable, but the circle will not.
+              Every category is in the list, in order, with its own share — and the circle draws whichever are in
+              view, so scrolling the list moves the pie through them. Everything outside the window is one grey
+              wedge with its share on it, because a pie that quietly showed 6% of the data as a full circle would
+              be confident, well drawn and wrong by a factor of sixteen.
             </>
           )}{' '}
           The list shows every slice with its value and share, and hovering either half highlights the other. A rose

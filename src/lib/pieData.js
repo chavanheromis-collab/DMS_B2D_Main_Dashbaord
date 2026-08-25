@@ -140,3 +140,64 @@ export function rollupNote(result, format = (v) => String(v)) {
   const share = ((result.hiddenValue / result.total) * 100).toFixed(result.hiddenValue / result.total < 0.1 ? 1 : 0)
   return `${result.rolled} smaller categories grouped into Other — ${format(result.hiddenValue)}, ${share}% of the total`
 }
+
+// ---------------------------------------------------------------------
+// Scrolling through the slices instead of rolling them up
+// ---------------------------------------------------------------------
+// Rolling a hundred and twenty categories into "Other (113)" is honest and
+// often right, but it answers the wrong question when the tail is the point
+// -- when somebody wants to see all hundred and twenty, in order, and read
+// each one's share.
+//
+// So the other way: every category in a scrollable legend, and the pie draws
+// the ones currently in view. Scrolling the list moves the pie through the
+// data, which is what makes a hundred and twenty categories readable in a
+// space that fits eight.
+//
+// The circle still adds up to the whole. Everything outside the window is
+// drawn as ONE quiet wedge with its own share on it -- because a pie that
+// silently showed 6% of the data as a full circle would be the worst kind of
+// wrong: confident, well drawn, and off by a factor of sixteen.
+
+export const REST_LABEL = 'Not in view'
+
+/**
+ * The slices to draw for a legend scrolled to `start`, showing `count`.
+ *
+ * Percentages are untouched -- they are shares of the WHOLE, not of the
+ * window, so the number beside a slice means the same thing however the
+ * list happens to be scrolled.
+ */
+export function pieWindow(slices, { start = 0, count = 8, restLabel = REST_LABEL } = {}) {
+  const list = slices || []
+  const size = Math.max(1, Math.round(count))
+  const from = Math.max(0, Math.min(Math.round(start), Math.max(0, list.length - size)))
+  const shown = list.slice(from, from + size)
+
+  const total = list.reduce((sum, s) => sum + (s.value || 0), 0)
+  const restValue = list.reduce((sum, s, i) => (i >= from && i < from + size ? sum : sum + (s.value || 0)), 0)
+
+  const out = [...shown]
+  if (restValue > 0 && total > 0) {
+    out.push({
+      name: restLabel,
+      value: restValue,
+      percent: restValue / total,
+      isRest: true,
+      hidden: list.length - shown.length,
+    })
+  }
+
+  return { slices: out, start: from, count: size, total, restValue, restCount: list.length - shown.length }
+}
+
+/** How many legend rows fit, given the room and the height of one. */
+export function legendWindowSize(availableHeight, rowHeight = 22, min = 3) {
+  const rows = Math.floor((Number(availableHeight) || 0) / Math.max(1, rowHeight))
+  return Math.max(min, rows)
+}
+
+/** Which row a scrolled legend is showing first. */
+export function legendScrollStart(scrollTop, rowHeight = 22) {
+  return Math.max(0, Math.round((Number(scrollTop) || 0) / Math.max(1, rowHeight)))
+}

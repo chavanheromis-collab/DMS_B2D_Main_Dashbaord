@@ -1,7 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { DEFAULT_PIE_OPTIONS, labelledSlices, pieSlices, rollupNote, sliceLabel } from './pieData.js'
+import {
+  DEFAULT_PIE_OPTIONS,
+  labelledSlices,
+  legendScrollStart,
+  legendWindowSize,
+  pieSlices,
+  pieWindow,
+  rollupNote,
+  sliceLabel,
+} from './pieData.js'
 
 const many = (n) => Array.from({ length: n }, (_, i) => ({ name: `C${i + 1}`, value: n - i }))
 
@@ -155,4 +164,81 @@ test('a chart that hid nothing says nothing', () => {
 test('the defaults are the ones a 120-slice pie needs', () => {
   assert.ok(DEFAULT_PIE_OPTIONS.maxSlices <= 12)
   assert.ok(DEFAULT_PIE_OPTIONS.rollup)
+})
+
+// --- scrolling through them instead of rolling them up -------------------
+
+const hundredPlus = Array.from({ length: 120 }, (_, i) => ({ name: `C${i}`, value: 120 - i }))
+
+test('the pie draws the slices the legend is showing', () => {
+  const all = pieSlices(hundredPlus, { rollup: false }).slices
+  const win = pieWindow(all, { start: 0, count: 8 })
+  assert.deepEqual(win.slices.slice(0, 8).map((s) => s.name), all.slice(0, 8).map((s) => s.name))
+})
+
+test('scrolling the legend moves the pie through the data', () => {
+  const all = pieSlices(hundredPlus, { rollup: false }).slices
+  const later = pieWindow(all, { start: 40, count: 8 })
+  assert.equal(later.slices[0].name, all[40].name)
+  assert.equal(later.start, 40)
+})
+
+test('the circle still adds up to the whole', () => {
+  // A pie that silently showed 6% of the data as a full circle would be the
+  // worst kind of wrong: confident, well drawn, and off by a factor of
+  // sixteen.
+  const all = pieSlices(hundredPlus, { rollup: false }).slices
+  const win = pieWindow(all, { start: 10, count: 8 })
+  const drawn = win.slices.reduce((sum, s) => sum + s.percent, 0)
+  assert.ok(Math.abs(drawn - 1) < 1e-9, `${drawn}`)
+})
+
+test('what is out of view is one quiet wedge that says how much it is', () => {
+  const all = pieSlices(hundredPlus, { rollup: false }).slices
+  const win = pieWindow(all, { start: 0, count: 8 })
+  const rest = win.slices.at(-1)
+  assert.equal(rest.isRest, true)
+  assert.equal(rest.hidden, 112)
+  assert.ok(rest.percent > 0 && rest.percent < 1)
+})
+
+test('a percentage is a share of the whole, not of the window', () => {
+  // The number beside a slice means the same thing however the list happens
+  // to be scrolled.
+  const all = pieSlices(hundredPlus, { rollup: false }).slices
+  const first = pieWindow(all, { start: 0, count: 8 }).slices[0]
+  const same = pieWindow(all, { start: 0, count: 40 }).slices[0]
+  assert.equal(first.percent, same.percent)
+})
+
+test('when everything fits there is no rest wedge at all', () => {
+  const few = pieSlices([{ name: 'A', value: 3 }, { name: 'B', value: 1 }], { rollup: false }).slices
+  const win = pieWindow(few, { start: 0, count: 8 })
+  assert.equal(win.slices.length, 2)
+  assert.equal(win.restCount, 0)
+})
+
+test('scrolling past the end shows the last full window rather than a gap', () => {
+  const all = pieSlices(hundredPlus, { rollup: false }).slices
+  const win = pieWindow(all, { start: 900, count: 8 })
+  assert.equal(win.start, 112)
+  assert.equal(win.slices.at(-1).isRest, true)
+})
+
+test('an empty list is an empty pie, not a crash', () => {
+  const win = pieWindow([], { start: 0, count: 8 })
+  assert.deepEqual(win.slices, [])
+  assert.equal(win.total, 0)
+})
+
+test('the window is sized from the room the legend has', () => {
+  assert.equal(legendWindowSize(220, 22), 10)
+  assert.equal(legendWindowSize(0, 22), 3, 'never fewer than a few')
+  assert.equal(legendWindowSize(45, 22), 3)
+})
+
+test('the first row in view is worked out from the scroll', () => {
+  assert.equal(legendScrollStart(0, 22), 0)
+  assert.equal(legendScrollStart(44, 22), 2)
+  assert.equal(legendScrollStart(50, 22), 2, 'the nearest row, not a fraction of one')
 })

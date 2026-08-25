@@ -106,10 +106,18 @@ export default function FlowDiagram({
   // it differently: the peek says what is UNDER a branch, in words; the
   // glass just makes the ink bigger, which on a canvas zoomed out to see the
   // whole shape is very often all anybody wants.
-  const [lens, setLens] = useState(false)
+  // Held down rather than switched on: the glass is a thing you reach for
+  // over one label and put down again, and a mode you have to remember to
+  // leave is a mode you leave on. The button pins it for the times you want
+  // both hands free.
+  const [lensPinned, setLensPinned] = useState(false)
+  const [ctrlHeld, setCtrlHeld] = useState(false)
+  const lens = lensPinned || ctrlHeld
+
   // Read inside the peek's callbacks, which are memoised on their own deps.
   const lensRef = useRef(false)
   lensRef.current = lens
+  const lastPointer = useRef(null)
   const [lensFactor, setLensFactor] = useState(LENS_FACTORS[1])
   const [lensAt, setLensAt] = useState(null)
 
@@ -155,6 +163,34 @@ export default function FlowDiagram({
   useEffect(() => () => {
     clearTimeout(openTimer.current)
     clearTimeout(closeTimer.current)
+  }, [])
+
+  // Ctrl (or Cmd) brings the glass out and releasing it puts it away.
+  //
+  // `blur` matters as much as `keyup`: alt-tabbing away while holding Ctrl
+  // means the keyup never arrives, and without this the glass would still be
+  // there when you came back with nothing held down.
+  useEffect(() => {
+    const down = (e) => {
+      if (e.key !== 'Control' && e.key !== 'Meta') return
+      // Straight to where the pointer already is, rather than waiting for
+      // the next move.
+      if (lastPointer.current) setLensAt(lastPointer.current)
+      setCtrlHeld(true)
+    }
+    const up = (e) => {
+      if (e.key === 'Control' || e.key === 'Meta') setCtrlHeld(false)
+    }
+    const clear = () => setCtrlHeld(false)
+
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', clear)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', clear)
+    }
   }, [])
 
   const layout = useMemo(() => layoutForest(roots, { orientation }), [roots, orientation])
@@ -342,9 +378,17 @@ export default function FlowDiagram({
 
   /** Where the glass is, in viewport coordinates. */
   function trackLens(e) {
-    if (!lens) return
     const el = viewportRef.current
     if (!el) return
+
+    // Where the pointer is, remembered on EVERY move whether the glass is
+    // out or not -- otherwise holding ctrl without moving the mouse shows
+    // nothing until you jiggle it. A ref, not state: a re-render per pointer
+    // move on a canvas of three hundred nodes is not free.
+    const box = el.getBoundingClientRect()
+    lastPointer.current = { x: e.clientX - box.left, y: e.clientY - box.top }
+
+    if (!lens) return
 
     // Not over the controls. The glass is drawn above them, so magnifying
     // there covers the very button being reached for -- and a magnified
@@ -354,8 +398,7 @@ export default function FlowDiagram({
       return
     }
 
-    const rect = el.getBoundingClientRect()
-    setLensAt({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+    setLensAt(lastPointer.current)
   }
 
   function movePan(e) {
@@ -564,11 +607,15 @@ export default function FlowDiagram({
             </button>
             <button
               onClick={() => {
-                setLens((on) => !on)
+                setLensPinned((on) => !on)
                 setLensAt(null)
               }}
-              className={`rounded p-1 ${lens ? 'text-indigo-600' : 'text-slate-300'} hover:bg-slate-50`}
-              title={lens ? 'Put the magnifier away' : 'Magnifier — a glass that follows the cursor'}
+              className={`rounded p-1 ${lensPinned ? 'text-indigo-600' : 'text-slate-300'} hover:bg-slate-50`}
+              title={
+                lensPinned
+                  ? 'Put the magnifier away'
+                  : 'Magnifier — hold ctrl to bring it out, or click to leave it out'
+              }
             >
               <SearchCode size={12} />
             </button>

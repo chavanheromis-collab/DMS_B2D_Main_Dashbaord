@@ -918,7 +918,7 @@ Everything the canvas can do:
 |---|---|
 | **Find a branch** | A search box, top-left. Matches a node by its own name **or by the path that led to it** — searching *Pune* finds *Pune → Splendor → Financed*, because on a drill tree where a node sits is most of what it means. It counts the hits, and ▲ ▼ (or `Enter` / `shift+Enter`) walk between them, **centring each one** — a hit you can't see isn't a search result. |
 | **Peek inside a branch** | Hover any node and a **magnified square window** opens beside it — at full size whatever the canvas is zoomed to — listing everything directly underneath. It **scrolls**, so a branch with forty children is all there rather than the six that fitted on the card. **Click a row to move the window into that branch**, with a back arrow to walk out again: a whole path can be read without touching the canvas, the zoom, or what's open. Filter the page or open the branch on the canvas from its footer; `Esc` closes. |
-| **Magnifier** | A round glass that follows the cursor, the way you'd hold one over a newspaper. Zoomed out far enough to see the shape of a whole flow, the labels are too small to read — this reads them without giving up the shape. 1.75×, 2.5× or 4× on top of whatever the canvas is already at. It never takes the pointer: hovering, clicking and dragging go straight through to the diagram underneath, and it lifts off the toolbar so it never magnifies the button you are reaching for. |
+| **Magnifier** | **Hold ctrl** and a round glass follows the cursor, the way you'd hold one over a newspaper — let go and it's gone. The 🔎 button pins it out for when both hands are needed. Zoomed out far enough to see the shape of a whole flow, the labels are too small to read — this reads them without giving up the shape. 1.75×, 2.5× or 4× on top of whatever the canvas is already at. It never takes the pointer: hovering, clicking and dragging go straight through to the diagram underneath, and it lifts off the toolbar so it never magnifies the button you are reaching for. |
 | **Follow one path** | Hover any node and its whole lineage lights up — up to the root, down through everything it became — while the rest of the canvas goes quiet. Tracing one path through a wide fan is otherwise squinting. |
 | **Know where you are** | A **minimap** in the corner shows the whole canvas with a rectangle around the part you're looking at. Click it to jump. Zoomed into level three of a five-level tree, this is the difference between navigating and wandering. |
 | **Ask about one node** | Click its ⓘ. A panel gives the full path, the value, the rows, the share, the drop-off and every metric — with *Open*, *Zoom in*, *Centre* and *Filter page* on it. A 178px card can't hold that, and shrinking the type until it does helps nobody. |
@@ -1432,10 +1432,34 @@ never lose one.**
   it is a bucket the chart invented and there is no coherent thing to filter
   the page to.
 
+#### Or scroll the pie through them
+
+Rolling the tail into "Other" is honest and usually right. It answers the
+wrong question when the tail **is** the point — when somebody wants all 120,
+in order, each with its own share.
+
+So there's a second answer, chosen by the admin: **List them all — scroll the
+pie through them.**
+
+- Every category is in the list, in order, with its value and its share.
+- **The circle draws whichever are in view.** Scroll the list and the pie
+  moves through the data, so 120 categories are readable in a space that
+  fits eight. Rows the circle isn't currently drawing are dimmed in the list,
+  so it's always clear which is which.
+- **The circle still adds up to the whole.** Everything outside the window is
+  one grey wedge with its own share on it — because a pie that quietly showed
+  6% of the data as a full circle would be the worst kind of wrong:
+  confident, well drawn, and off by a factor of sixteen. A caption says how
+  many are in view and what share the grey wedge is.
+- **A percentage is always a share of the whole**, never of the window, so
+  the number beside a category means the same thing however the list happens
+  to be scrolled.
+- The grey wedge isn't clickable, for the same reason "Other" isn't: it's a
+  bucket the chart invented, not a value any row holds.
+
 All of it is adjustable: how many slices to draw, the smallest slice worth
-its own wedge, the label threshold, what the labels say, and whether to roll
-up at all. Turn the roll-up off and you get all 120 — the list stays
-readable, the circle will not.
+its own wedge, the label threshold, **what each label says** (name, value, %,
+or any pair of them), and which of the two answers to a long tail you want.
 
 ### Advanced charts
 
