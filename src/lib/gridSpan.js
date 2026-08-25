@@ -29,15 +29,22 @@ export const BREAKPOINTS = { md: 768, lg: 1024 } // Tailwind's defaults, which t
  * on a 360px screen would be an unreadable sliver, so the same doubling the
  * presets use applies -- roughly double at `md`, full width at `base`.
  */
-export function spanForWidth(width, breakpoint, units) {
+export function spanForWidth(width, breakpoint, units, columns = COLUMNS) {
+  // The presets and the admin's exact spans are both written in twelfths,
+  // because twelve is what the canvas was when they were saved. A page whose
+  // admin has since divided the canvas into twenty-four gets the same
+  // FRACTION, not the same number -- "half" means half of whatever the
+  // canvas is, which is the whole point of the column count being a setting.
+  const scale = (twelfths) => Math.max(1, Math.min(columns, Math.round((twelfths * columns) / COLUMNS)))
+
   if (Number.isFinite(units) && units >= 1) {
     const exact = Math.min(COLUMNS, Math.round(units))
-    if (breakpoint === 'lg') return exact
-    if (breakpoint === 'md') return Math.min(COLUMNS, exact * 2)
-    return COLUMNS
+    if (breakpoint === 'lg') return scale(exact)
+    if (breakpoint === 'md') return Math.min(columns, scale(exact) * 2)
+    return columns
   }
   const m = SPAN_MAP[width] || SPAN_MAP.full
-  return m[breakpoint] ?? m.base
+  return scale(m[breakpoint] ?? m.base)
 }
 
 /**
@@ -146,7 +153,7 @@ export function spanForItem(item, breakpoint, colWidth, gap = 12, columns = COLU
     const fromPx = spanForPixels(item.widthPx, colWidth, gap, columns)
     if (fromPx !== null) return fromPx
   }
-  return Math.min(columns, Math.max(1, spanForWidth(item?.width, breakpoint, item?.widthUnits)))
+  return Math.min(columns, Math.max(1, spanForWidth(item?.width, breakpoint, item?.widthUnits, columns)))
 }
 
 /**

@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { GripVertical } from 'lucide-react'
 
 // The span maths lives in lib/gridSpan.js so it can be tested without a DOM
 // -- Node cannot import a .jsx file. Re-exported because callers (and its
 // own tests) have long imported `spanForWidth` from here.
 import { COLUMNS, breakpointFor, drawnWidth, spanForItem, spanForWidth } from '../lib/gridSpan'
+import { dropTargetAt } from '../lib/pageDesign'
 
 export { spanForWidth }
 
@@ -24,7 +26,7 @@ const FALLBACK_HEIGHT = 220 // used only when an item has no estimatedHeight and
  * KPI stack the admin built to sit in one column stays in that column
  * forever, exactly in that order.
  */
-export function assignColumns(items, breakpoint, columns = COLUMNS, colWidth = 0, gap = 12) {
+export function assignColumns(items, breakpoint, columns = COLUMNS, colWidth = 0, gap = 12, gapY = gap) {
   const colHeights = new Array(columns).fill(0)
   const slots = {}
   for (const item of items) {
@@ -35,7 +37,7 @@ export function assignColumns(items, breakpoint, columns = COLUMNS, colWidth = 0
       if (y < best.y) best = { col: c, y }
     }
     slots[item.id] = { col: best.col, span }
-    const landed = best.y + (item.estimatedHeight ?? FALLBACK_HEIGHT) + 1
+    const landed = best.y + (item.estimatedHeight ?? FALLBACK_HEIGHT) + gapY
     for (let c = best.col; c < best.col + span; c++) colHeights[c] = landed
   }
   return slots
@@ -86,7 +88,17 @@ export function packMasonry(items, slots, heights, gap = 12, columns = COLUMNS) 
  * `items`: [{ id, width, estimatedHeight?, content }] where `width` is one
  * of the existing quarter/third/half/twothird/full values.
  */
-export default function MasonryGrid({ items, gap = 12, className = '', onMeasure }) {
+export default function MasonryGrid({
+  items,
+  gap = 12,
+  gapY,
+  columns = COLUMNS,
+  className = '',
+  onMeasure,
+  draggable = false,
+  onMove,
+}) {
+  const rowGap = Number.isFinite(gapY) ? gapY : gap
   const containerRef = useRef(null)
   // Held in a ref so a caller passing a fresh arrow function every render
   // cannot re-create every observer on every render.
@@ -107,9 +119,9 @@ export default function MasonryGrid({ items, gap = 12, className = '', onMeasure
   // A pixel-sized widget's SPAN depends on how wide a column currently is,
   // so the column width is part of the key -- rounded, so sub-pixel resize
   // noise cannot churn the layout.
-  const slotKey = items
+  const slotKey = `${columns}|${items
     .map((i) => `${i.id}:${i.width}:${i.widthUnits ?? ''}:${i.widthPx ?? ''}`)
-    .join('|')
+    .join('|')}`
 
   // Exact column pixel width, and the breakpoint that follows from it.
   //
@@ -153,22 +165,72 @@ export default function MasonryGrid({ items, gap = 12, className = '', onMeasure
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slotKey])
 
-  const colWidth = containerWidth > 0 ? (containerWidth - gap * (COLUMNS - 1)) / COLUMNS : 0
+  // --- dragging a widget somewhere else ---------------------------------
+  // Only in design mode, and only from the handle: a card is full of
+  // buttons, and a whole-card drag would make every one of them a coin toss
+  // between "I clicked that" and "I moved this".
+  const [drag, setDrag] = useState(null)
+  const dragRef = useRef(null)
+
+  const startDrag = useCallback(
+    (id, e) => {
+      if (!draggable) return
+      e.preventDefault()
+      e.stopPropagation()
+      dragRef.current = { id, x: e.clientX, y: e.clientY, moved: false }
+      setDrag({ id, x: e.clientX, y: e.clientY, over: null })
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+    },
+    [draggable]
+  )
+
+  const moveDrag = useCallback(
+    (e) => {
+      if (!dragRef.current) return
+      const host = containerRef.current
+      if (!host) return
+      const rect = host.getBoundingClientRect()
+      const point = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+
+      // Measured from the laid-out boxes, not from the DOM: the DOM boxes
+      // move as the drop indicator reflows, and a target that moves while
+      // you aim at it is not a target.
+      const boxes = Object.entries(layoutRef.current)
+        .map(([id, info]) => (info?.box ? { id, ...info.box } : null))
+        .filter(Boolean)
+
+      dragRef.current.moved = true
+      setDrag((d) => (d ? { ...d, x: e.clientX, y: e.clientY, over: dropTargetAt(boxes, point, d.id) } : d))
+    },
+    []
+  )
+
+  const endDrag = useCallback(() => {
+    const current = dragRef.current
+    dragRef.current = null
+    setDrag((d) => {
+      // A press that never moved is a press, not a drop.
+      if (d && current?.moved && d.over && d.over.id !== d.id) onMove?.(d.id, d.over.id, d.over.after)
+      return null
+    })
+  }, [onMove])
+
+  const colWidth = containerWidth > 0 ? (containerWidth - gap * (columns - 1)) / columns : 0
 
   // PASS 1 -- stable. Only recomputed when the widget list or breakpoint
   // actually changes, never when live data (and therefore `heights`)
   // changes.
   const slots = useMemo(
-    () => assignColumns(items, breakpoint, COLUMNS, colWidth, gap),
+    () => assignColumns(items, breakpoint, columns, colWidth, gap, rowGap),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [slotKey, breakpoint, Math.round(colWidth), gap]
+    [slotKey, breakpoint, Math.round(colWidth), gap, rowGap, columns]
   )
 
   // PASS 2 -- live. Recomputed whenever a widget's real height changes,
   // using the columns already fixed by PASS 1.
   const { positions, containerHeight } = useMemo(
-    () => packMasonry(items, slots, heights, gap, COLUMNS),
-    [items, slots, heights, gap]
+    () => packMasonry(items, slots, heights, rowGap, columns),
+    [items, slots, heights, rowGap, columns]
   )
 
   return (
@@ -191,18 +253,54 @@ export default function MasonryGrid({ items, gap = 12, className = '', onMeasure
         }
         const left = p.col * (colWidth + gap)
         const spanWidth = p.span * colWidth + (p.span - 1) * gap
-        layoutRef.current[item.id] = { span: p.span, spanWidth: Math.round(spanWidth), columns: COLUMNS }
+        layoutRef.current[item.id] = {
+          span: p.span,
+          spanWidth: Math.round(spanWidth),
+          columns,
+          box: { left, top: p.top, width, height: heights[item.id] ?? item.estimatedHeight ?? FALLBACK_HEIGHT },
+        }
         // A pixel-sized widget draws at exactly its number, but never past
         // the right edge -- measured from where it actually sits, not from
         // the canvas origin, or a widget in column 7 spills off the page.
         const width = drawnWidth(item.widthPx, { left, containerWidth, spanWidth })
+        const dragging = drag?.id === item.id
+        const marked = drag && drag.over?.id === item.id
         return (
           <div
             key={item.id}
             ref={(node) => itemRefs.current.set(item.id, node)}
-            className="absolute transition-[top,left,width] duration-300 ease-out"
+            className={`absolute transition-[top,left,width] duration-300 ease-out ${
+              dragging ? 'z-40 opacity-60' : ''
+            }`}
             style={{ top: p.top, left, width }}
           >
+            {/* Where it would land. On the side the pointer is, so the
+                answer to "which of these two gaps" is never a guess. */}
+            {marked && (
+              <span
+                aria-hidden
+                className={`pointer-events-none absolute inset-y-0 z-30 w-1 rounded-full bg-indigo-500 ${
+                  drag.over.after ? '-right-1.5' : '-left-1.5'
+                }`}
+              />
+            )}
+            {draggable && (
+              <button
+                onPointerDown={(e) => startDrag(item.id, e)}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                className={`absolute -top-1 right-6 z-20 flex items-center gap-0.5 rounded-lg border px-1 py-0.5 shadow-sm backdrop-blur ${
+                  dragging
+                    ? 'cursor-grabbing border-indigo-400 bg-indigo-50 text-indigo-600'
+                    : 'cursor-grab border-slate-200 bg-white/90 text-slate-400 hover:text-indigo-600'
+                }`}
+                title="Drag to move this widget"
+                aria-label="Move this widget"
+              >
+                <GripVertical size={12} />
+              </button>
+            )}
             {item.content}
           </div>
         )

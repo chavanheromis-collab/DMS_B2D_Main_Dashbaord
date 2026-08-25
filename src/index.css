@@ -433,3 +433,25 @@ aside.fixed.right-0 {
   color: #4f46e5;
   border-color: #c7d2fe;
 }
+
+/* ---------------------------------------------------------------------
+   A page's own design
+   ---------------------------------------------------------------------
+   The gaps, the columns and the card surface all reach the page as custom
+   properties set on the canvas (see lib/pageDesign.js), so nothing here
+   needs a class per setting -- and a page nobody has designed sets none of
+   them and inherits exactly what it always looked like.
+
+   Text scale is the one that cannot be a custom property alone: `rem` is
+   relative to the ROOT, which this must not touch (it would take the
+   sidebar and every other page with it). `em` on a container scales
+   everything inside it that is sized in `em`... which Tailwind's `text-*`
+   utilities are not -- they are `rem`. So the canvas is zoomed instead,
+   which scales text, spacing and borders together, and is what "the same
+   design, bigger" actually means. */
+.page-canvas {
+  font-size: calc(1rem * var(--font-scale, 1));
+}
+.page-canvas :where(.card, .page-chrome) {
+  zoom: var(--font-scale, 1);
+}

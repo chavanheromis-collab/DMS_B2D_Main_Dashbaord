@@ -291,6 +291,60 @@ value, so anything that isn't plainly an image location is dropped rather than
 escaped. A rejected URL falls back to the app default rather than painting a
 blank slab.
 
+### Designing a page, from the page
+
+The admin panel is where a page is **built** — which tabs, which widgets,
+which conditions. It's the wrong place to decide how a page **looks**,
+because looking at it is the only way to tell, and a form on another screen
+means changing a number, saving, navigating back, squinting, and going round
+again.
+
+So an admin gets a **palette button** in the page header, and everything
+about the page's appearance is edited on the page itself, applied as you
+drag the slider:
+
+| | |
+|---|---|
+| **Gap across / gap down** | Two separate numbers, 0–64px. The eye reads a row and a column differently, and a dashboard that needs air between its columns very often wants its rows tighter than that, not looser. |
+| **Columns** | 6, 8, 12, 16 or 24. **The canvas division itself is a setting** — nothing is locked to twelfths. Every width is a *fraction* of it, so "half" stays half and a 3-unit widget becomes 6 units when you double the columns. |
+| **Canvas width** | How wide the page may get on a large screen. 0 means all of it. |
+| **Card look** | Any of the widget themes, page-wide — a default underneath every widget, not an override: a widget you restyled deliberately keeps its own look. |
+| **Corner radius · padding · surface colour · border colour** | Page-wide, with **auto** on each to hand it back to the theme. |
+| **Text size** | 75%–140%. Everything scales together — the same design at a different size, not a different design. |
+
+Nothing is written until **Save for everyone**. A design being fiddled with
+is not a design the other forty people looking at this page should be
+watching change under them — but *this* screen updates on every keystroke,
+because judging it any other way is impossible. Closing the panel discards
+an unsaved draft rather than leaving the page looking wrong for no visible
+reason.
+
+#### Move a widget by dragging it
+
+In arrange mode every widget grows a **⣿ handle**. Drag it and a blue bar
+shows where the widget would land — on the side of the neighbour your
+pointer is on, so "which of these two gaps" is never a guess. Dropping
+**reorders the page itself**, for everyone: dragging a widget on the canvas
+is designing the page, which is the one thing the per-user ordering
+deliberately is not.
+
+Only the handle drags, not the whole card. A card is full of buttons, and a
+whole-card drag makes every one of them a coin toss between *I clicked that*
+and *I moved this*. A press that never moved is a press, not a drop.
+
+#### Restyle one widget, on the widget
+
+The 🖌 on a widget's pill opens its own look: theme, surface, accent, border
+and text colour, radius, padding, border width, shadow — and its **width in
+columns**, as a slider, so a widget can be sized without pixels at all
+(setting one takes the pixel pin off, because choosing columns is how you
+say *columns, not pixels*). Every field has an **auto** that hands it back to
+the page. One button puts the whole widget back to the page's look.
+
+Everything on this page — the design, the order, every widget's size and
+look — is written to the **page** and saved by **admins only**, and the
+Firestore rules say so independently of the missing button.
+
 ### Sizing a widget on the page
 
 An admin on the dashboard itself gets **⇅ Arrange**, and every widget grows a
@@ -1775,6 +1829,7 @@ src/
   lib/flowLayout.js       Tidy-tree geometry for the flow's diagram view
   lib/flowView.js         Reading a flow: search, lineage, pruning, zoom, minimap, peek
   lib/history.js          Undo/redo: a past, a present and a future
+  lib/pageDesign.js       A page's own look: gaps, columns, scale, and moving widgets
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties

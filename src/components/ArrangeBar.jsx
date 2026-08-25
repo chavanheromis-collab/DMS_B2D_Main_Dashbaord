@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Maximize2, X } from 'lucide-react'
+import { Maximize2, Paintbrush, X } from 'lucide-react'
 import { widthSlack } from '../lib/gridSpan'
+import { DEFAULT_WIDGET_STYLE, SHADOW_LEVELS, WIDGET_THEMES } from '../lib/widgetStyle'
 
 /**
  * The per-widget handle shown in arrange mode: its position, and its pinned
@@ -74,11 +75,16 @@ export default function ArrangeBar({
   onOrder,
   widthPx,
   heightPx,
+  widthUnits,
+  columns = 12,
+  style,
   measured,
   onSize,
+  onStyle,
   title = 'this widget',
 }) {
   const [open, setOpen] = useState(false)
+  const [painting, setPainting] = useState(false)
   const ref = useRef(null)
 
   // Closing on blur rather than on click-outside: the pill is a group of
@@ -101,6 +107,20 @@ export default function ArrangeBar({
   const slack = widthSlack(w, measured?.spanWidth)
   const wasteful = slack > 16 && measured?.spanWidth > 0
   const snap = () => onSize({ widthPx: String(measured.spanWidth) })
+
+  if (painting) {
+    return (
+      <WidgetPaint
+        title={title}
+        style={style}
+        widthUnits={widthUnits}
+        columns={columns}
+        onStyle={onStyle}
+        onSize={onSize}
+        onClose={() => setPainting(false)}
+      />
+    )
+  }
 
   if (!open) {
     return (
@@ -164,6 +184,18 @@ export default function ArrangeBar({
           <Maximize2 size={12} />
         </button>
       )}
+      {onStyle && (
+        <button
+          onClick={() => {
+            setOpen(false)
+            setPainting(true)
+          }}
+          className="rounded p-0.5 text-slate-400 hover:text-indigo-600"
+          title="How this widget looks"
+        >
+          <Paintbrush size={12} />
+        </button>
+      )}
       {pinned && (
         <button
           onClick={() => onSize({ widthPx: '', heightPx: '' })}
@@ -176,3 +208,142 @@ export default function ArrangeBar({
     </div>
   )
 }
+
+/**
+ * How one widget looks, edited on the widget.
+ *
+ * The same fields the admin panel's style editor has, in the place where
+ * the answer is visible. A page theme is the default underneath all of it
+ * -- see withPageTheme -- so everything here is an override, and "auto"
+ * really does mean "whatever the page says", not a value we re-stated.
+ */
+function WidgetPaint({ title, style, widthUnits, columns, onStyle, onSize, onClose }) {
+  const s = { ...DEFAULT_WIDGET_STYLE, ...(style || {}) }
+  const set = (patch) => onStyle({ ...s, ...patch })
+
+  return (
+    <div className="absolute -left-1 -top-1 z-40 w-56 rounded-xl border border-indigo-300 bg-white p-2 shadow-xl">
+      <div className="mb-1.5 flex items-center gap-1">
+        <Paintbrush size={11} className="text-indigo-500" />
+        <span className="truncate text-[11px] font-semibold text-slate-700" title={title}>
+          {title}
+        </span>
+        <button onClick={onClose} className="ml-auto text-slate-300 hover:text-rose-500" title="Done">
+          <X size={12} />
+        </button>
+      </div>
+
+      <label className="mb-1.5 block">
+        <span className="text-[10px] text-slate-500">Look</span>
+        <select
+          value={s.theme || ''}
+          onChange={(e) => set({ theme: e.target.value })}
+          className="w-full rounded border border-slate-200 px-1 py-0.5 text-[11px] text-slate-600"
+        >
+          {WIDGET_THEMES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {/* Width in COLUMNS, so a widget can be sized without pixels at all --
+          and the count is the page's, not a hard twelve. */}
+      <div className="mb-1.5">
+        <span className="text-[10px] text-slate-500">Width in columns</span>
+        <div className="mt-0.5 flex items-center gap-1.5">
+          <input
+            type="range"
+            min={1}
+            max={12}
+            value={Number(widthUnits) || Math.round(columns / 2)}
+            onChange={(e) => onSize({ widthUnits: Number(e.target.value) })}
+            className="flex-1 accent-indigo-600"
+            aria-label="Width in columns"
+          />
+          <span className="w-6 text-right text-[11px] font-semibold tabular-nums text-slate-700">
+            {Number(widthUnits) || '—'}
+          </span>
+        </div>
+      </div>
+
+      <div className="mb-1.5 grid grid-cols-2 gap-1.5">
+        <Colour label="Surface" value={s.bg} fallback="#ffffff" onChange={(v) => set({ bg: v })} />
+        <Colour label="Accent" value={s.accent} fallback="#4f46e5" onChange={(v) => set({ accent: v })} />
+        <Colour label="Border" value={s.borderColor} fallback="#e2e8f0" onChange={(v) => set({ borderColor: v })} />
+        <Colour label="Text" value={s.text} fallback="#0f172a" onChange={(v) => set({ text: v })} />
+      </div>
+
+      <Number_ label="Radius" value={s.radius} max={40} onChange={(v) => set({ radius: v })} />
+      <Number_ label="Padding" value={s.padding} max={40} onChange={(v) => set({ padding: v })} />
+      <Number_ label="Border width" value={s.borderWidth} max={6} onChange={(v) => set({ borderWidth: v })} />
+
+      <label className="mt-1.5 block">
+        <span className="text-[10px] text-slate-500">Shadow</span>
+        <select
+          value={s.shadow ?? ''}
+          onChange={(e) => set({ shadow: e.target.value || null })}
+          className="w-full rounded border border-slate-200 px-1 py-0.5 text-[11px] text-slate-600"
+        >
+          <option value="">Auto</option>
+          {SHADOW_LEVELS.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <button
+        onClick={() => onStyle({ ...DEFAULT_WIDGET_STYLE })}
+        className="mt-2 w-full rounded border border-slate-200 px-1 py-0.5 text-[10px] text-slate-500 hover:bg-slate-50"
+      >
+        Back to the page’s look
+      </button>
+    </div>
+  )
+}
+
+function Colour({ label, value, fallback, onChange }) {
+  return (
+    <label className="flex items-center gap-1">
+      <input
+        type="color"
+        value={value || fallback}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-5 w-5 shrink-0 cursor-pointer rounded border border-slate-200 bg-white p-0"
+      />
+      <span className="min-w-0 flex-1 truncate text-[10px] text-slate-500">{label}</span>
+      {value && (
+        <button onClick={() => onChange(null)} className="text-[9px] text-slate-300 hover:text-rose-500" title="Auto">
+          <X size={10} />
+        </button>
+      )}
+    </label>
+  )
+}
+
+function Number_({ label, value, max, onChange }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="w-20 shrink-0 text-[10px] text-slate-500">{label}</span>
+      <input
+        type="range"
+        min={0}
+        max={max}
+        value={value ?? 0}
+        onChange={(e) => onChange(globalThis.Number(e.target.value))}
+        className="flex-1 accent-indigo-600"
+        aria-label={label}
+      />
+      <span className="w-6 text-right text-[10px] tabular-nums text-slate-600">{value ?? 'auto'}</span>
+      {value !== null && value !== undefined && (
+        <button onClick={() => onChange(null)} className="text-[9px] text-slate-300 hover:text-rose-500" title="Auto">
+          <X size={10} />
+        </button>
+      )}
+    </div>
+  )
+}
+

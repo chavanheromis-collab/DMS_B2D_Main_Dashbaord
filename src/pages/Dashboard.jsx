@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, RefreshCw, RotateCcw } from 'lucide-react'
+import { ArrowUpDown, Palette, RefreshCw, RotateCcw } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
 import { usePageData } from '../hooks/usePageData'
@@ -17,6 +17,7 @@ import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/b
 import { normalizeKey } from '../lib/dataUtils'
 import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
 import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
+import { DEFAULT_DESIGN, clampDesign, designVars, dropIndex, moveItem } from '../lib/pageDesign'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
 import { fixedValues, initialValues, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
@@ -29,6 +30,7 @@ import AppShell from '../components/AppShell.jsx'
 import CrossFilterChips from '../components/CrossFilterChips.jsx'
 import MasonryGrid from '../components/MasonryGrid.jsx'
 import ArrangeBar from '../components/ArrangeBar.jsx'
+import PageDesignPanel from '../components/PageDesignPanel.jsx'
 import KpiWidget from '../components/widgets/KpiWidget.jsx'
 import PipelineWidget from '../components/widgets/PipelineWidget.jsx'
 import FlowWidget from '../components/widgets/FlowWidget.jsx'
@@ -89,6 +91,15 @@ export default function Dashboard() {
   const [arranging, setArranging] = useState(false)
   const [savingLayout, setSavingLayout] = useState(false)
 
+  // --- designing the page, from the page --------------------------------
+  // Held as a draft rather than written on every slider tick: a design being
+  // fiddled with is not a design the other forty people looking at this page
+  // should be watching change under them. It is applied to THIS screen
+  // immediately, though -- looking at it is the only way to judge it.
+  const [designDraft, setDesignDraft] = useState(null)
+  const [themeDraft, setThemeDraft] = useState(null)
+  const [designing, setDesigning] = useState(false)
+
   // What each widget currently measures, so the size boxes can show the
   // number a widget IS rather than an empty box.
   //
@@ -132,6 +143,15 @@ export default function Dashboard() {
   const page = pages.find((p) => p.id === pageId) || null
   const access = accessByPage[pageId]
   const canView = canViewPage(access, isAdmin)
+
+  // What is on screen: the draft while an admin is designing, the saved
+  // design the rest of the time.
+  const design = useMemo(
+    () => clampDesign(designDraft ?? page?.design),
+    [designDraft, page?.design]
+  )
+  const pageTheme = themeDraft ?? page?.theme ?? ''
+  const designDirty = designDraft !== null || themeDraft !== null
 
   /**
    * The rows this person is allowed to see on this page at all.
@@ -609,6 +629,71 @@ export default function Dashboard() {
    * Blank clears the pin rather than storing a zero, which would be a widget
    * one pixel tall.
    */
+  /**
+   * The page's own appearance, written for everybody.
+   *
+   * Admin-only, and the Firestore rules say so independently -- the missing
+   * button is a convenience, not the security.
+   */
+  async function savePageDesign() {
+    if (!isAdmin || !page?.id) return
+    setSavingLayout(true)
+    try {
+      await setDoc(
+        doc(db, 'dashboards', page.id),
+        stripUndefined({ design, ...(themeDraft === null ? {} : { theme: themeDraft }) }),
+        { merge: true }
+      )
+      setDesignDraft(null)
+      setThemeDraft(null)
+    } finally {
+      setSavingLayout(false)
+    }
+  }
+
+  /**
+   * A widget dragged somewhere else.
+   *
+   * Written to the PAGE, not to this admin's own preferences: dragging a
+   * widget on the canvas is designing the page, which is the one thing the
+   * per-user ordering deliberately is not.
+   */
+  async function moveWidgetTo(dragId, overId, after) {
+    if (!isAdmin || !page?.id) return
+    const widgets = page.widgets || []
+    const ids = widgets.map((w) => w.id)
+    const from = ids.indexOf(dragId)
+    const to = dropIndex(ids, dragId, overId, after)
+    if (from === -1 || from === to) return
+
+    setSavingLayout(true)
+    try {
+      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets: moveItem(widgets, from, to) }), {
+        merge: true,
+      })
+    } finally {
+      setSavingLayout(false)
+    }
+  }
+
+  /**
+   * How one widget looks, written for everybody.
+   *
+   * Same rule as its size: appearance is a property of the PAGE, not of the
+   * reader. A canvas where one widget is olive for one person and indigo
+   * for another is not a canvas anybody designed.
+   */
+  async function saveWidgetStyle(widgetId, style) {
+    if (!isAdmin || !page?.id) return
+    const widgets = (page.widgets || []).map((w) => (w.id === widgetId ? { ...w, style } : w))
+    setSavingLayout(true)
+    try {
+      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets }), { merge: true })
+    } finally {
+      setSavingLayout(false)
+    }
+  }
+
   async function saveWidgetSize(widgetId, patch) {
     if (!isAdmin || !page?.id) return
 
@@ -616,6 +701,15 @@ export default function Dashboard() {
     const clean = {}
     for (const [key, value] of Object.entries(patch)) {
       const n = Number(value)
+      // A column span is a count, not a measurement: it takes no pixel
+      // floor, and setting one is how somebody says "columns, not pixels",
+      // so the pixel pin comes off with it.
+      if (key === 'widthUnits') {
+        clean.widthUnits = Number.isFinite(n) && n >= 1 ? Math.round(n) : null
+        clean.widthPx = null
+        clean.widthMode = null
+        continue
+      }
       clean[key] =
         value === '' || value === null || !Number.isFinite(n) || n <= 0
           ? null
@@ -712,6 +806,24 @@ export default function Dashboard() {
 
   const headerActions = (
     <>
+      {isAdmin && (
+        <button
+          onClick={() => {
+            setDesigning((v) => !v)
+            // Designing and arranging are the same mode seen from two ends:
+            // opening one turns on the handles the other needs.
+            if (!designing) setArranging(true)
+          }}
+          className={`rounded-lg border p-2 transition-colors ${
+            designing
+              ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+          title="Design this page — spacing, columns, text size, card look"
+        >
+          <Palette size={15} />
+        </button>
+      )}
       {isAdmin && allowedWidgets.length > 1 && (
         <button
           onClick={() => setArranging((a) => !a)}
@@ -772,7 +884,16 @@ export default function Dashboard() {
       <AppShell pages={visiblePages} activePageId={pageId} title={page?.name || 'Dashboard'} actions={headerActions}>
       {/* Sits above the backdrop layers. The sidebar is z-30 and stays above
           both. */}
-      <div className={`relative z-[1] min-h-screen space-y-3 p-3 md:p-4 ${lightText ? 'page-invert' : ''}`}>
+      <div
+        className={`page-canvas relative z-[1] min-h-screen space-y-3 p-3 md:p-4 ${lightText ? 'page-invert' : ''}`}
+        // The whole design, as custom properties. `.card` already reads
+        // `--card-*` (see index.css), so a page-wide surface is one
+        // declaration on this element and no widget learns anything new.
+        style={{
+          ...designVars(design),
+          ...(design.maxWidth > 0 ? { maxWidth: design.maxWidth, marginInline: 'auto' } : null),
+        }}
+      >
         {/* --- Page header (desktop; mobile gets AppShell's top bar) ----- */}
         <div className="page-chrome hidden flex-wrap items-center justify-between gap-3 lg:flex">
           <div className="min-w-0">
@@ -818,13 +939,15 @@ export default function Dashboard() {
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-800">
             <ArrowUpDown size={13} />
             <span>
-              Every widget wears a pill showing its position and its real size — click one to edit.{' '}
-              <strong>#</strong> is the position: lower first, blank leaves it where it is, and it is yours alone.{' '}
-              <strong>W</strong> and <strong>H</strong> are pixels and belong to the page. They save when you leave
-              the box, press Enter, or pause; Escape puts back what was saved. A height is drawn exactly as typed
-              and only gives way on a phone; a width never runs past the edge of the canvas.{' '}
-              An amber <strong>+n</strong> on a pill means that widget claims n pixels of the twelve-column canvas
-              it doesn’t use — the dead strip beside it — and the ⤢ inside widens it to close the gap.
+              <strong>Drag the ⣿ handle</strong> to move a widget — that reorders the page for everyone. Every
+              widget also wears a pill showing its position and real size; click it to edit, or use its 🖌 to
+              change how that one widget looks. <strong>#</strong> is the position: lower first, blank leaves it
+              where it is, and it is yours alone. <strong>W</strong> and <strong>H</strong> are pixels and belong to
+              the page — or set a width in <em>columns</em> instead and no pixels are involved at all. They save
+              when you leave the box, press Enter, or pause; Escape puts back what was saved. An amber{' '}
+              <strong>+n</strong> means that widget claims n pixels of the canvas it doesn’t use, and the ⤢ inside
+              widens it to close the gap. The <strong>palette</strong> button in the page header opens spacing,
+              columns, text size and the card surface.
             </span>
             {savingLayout && <span className="text-[10px] font-medium text-indigo-500">saving…</span>}
             <div className="ml-auto flex gap-2">
@@ -920,7 +1043,11 @@ export default function Dashboard() {
             )}
 
             <MasonryGrid
-              gap={12}
+              gap={design.gapX}
+              gapY={design.gapY}
+              columns={design.columns}
+              draggable={isAdmin && arranging}
+              onMove={moveWidgetTo}
               onMeasure={noteSize}
               items={view.widgets.map((widget, index) => {
                 const blended = blendedByWidget[widget.id]
@@ -950,7 +1077,7 @@ export default function Dashboard() {
                 // admin can always take the data they administer.
                 const canExport = isAdmin || widget.allowExport !== false
                 // The page's look, unless this widget states its own.
-                const themed = withPageTheme(widget.style, page?.theme)
+                const themed = withPageTheme(widget.style, pageTheme)
 
                 // A widget the admin sized has to fill that size, not sit
                 // in the top of it: growing the card and leaving a 260px
@@ -994,8 +1121,12 @@ export default function Dashboard() {
                           onOrder={(v) => setWidgetOrder(widget.id, v)}
                           widthPx={widget.widthPx ?? ''}
                           heightPx={widget.heightPx ?? ''}
+                          widthUnits={widget.widthUnits}
+                          columns={design.columns}
+                          style={widget.style}
                           measured={sizes[widget.id]}
                           onSize={(patch) => saveWidgetSize(widget.id, patch)}
+                          onStyle={isAdmin ? (next) => saveWidgetStyle(widget.id, next) : undefined}
                           title={widget.title}
                         />
                       )}
@@ -1164,6 +1295,26 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {designing && isAdmin && (
+        <PageDesignPanel
+          design={design}
+          theme={pageTheme}
+          dirty={designDirty}
+          saving={savingLayout}
+          onChange={setDesignDraft}
+          onThemeChange={setThemeDraft}
+          onSave={savePageDesign}
+          onClose={() => {
+            setDesigning(false)
+            // An unsaved design is discarded on close rather than left
+            // hanging: a draft nobody can see the panel for is a page that
+            // looks wrong for no visible reason.
+            setDesignDraft(null)
+            setThemeDraft(null)
+          }}
+        />
+      )}
       </AppShell>
     </>
   )
