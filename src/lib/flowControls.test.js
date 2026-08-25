@@ -338,3 +338,39 @@ test('the canvas takes focus and reads the keyboard through flowKeyAction', () =
 test('typing in the search box does not zoom the canvas', () => {
   assert.ok(diagram.includes('if (e.target instanceof HTMLInputElement)'))
 })
+
+// --- the magnifier --------------------------------------------------------
+
+test('the diagram is built once and drawn twice — canvas and glass', () => {
+  // A second copy rather than a CSS filter: no CSS magnifies what is behind
+  // an element, and a copy stays crisp because it is the same vector
+  // drawing rendered again rather than a bitmap blown up.
+  assert.ok(diagram.includes('const canvasContent = ('))
+  assert.equal((diagram.match(/\{canvasContent\}/g) || []).length, 2)
+})
+
+test('the glass follows the cursor and sits where the maths says', () => {
+  assert.ok(diagram.includes('setLensAt({ x: e.clientX - rect.left, y: e.clientY - rect.top })'))
+  assert.ok(diagram.includes('lensPosition(lensAt, viewportSize(), LENS_RADIUS)'))
+  assert.ok(diagram.includes('lensTransform(lensAt, view, { radius: LENS_RADIUS, factor: lensFactor })'))
+})
+
+test('the glass never takes the pointer', () => {
+  // Hovering, clicking and dragging all go straight through to the diagram
+  // underneath, so it magnifies without getting in the way of anything.
+  assert.ok(diagram.includes('className="pointer-events-none absolute z-[45] overflow-hidden rounded-full'))
+})
+
+test('it can be turned on, turned off, and told how much to magnify', () => {
+  assert.ok(wiredNear(diagram, "'Magnifier — a glass that follows the cursor'", 'onClick={() => {'))
+  assert.ok(diagram.includes('setLens((on) => !on)'))
+  assert.ok(diagram.includes('LENS_FACTORS[(LENS_FACTORS.indexOf(f) + 1) % LENS_FACTORS.length]'))
+})
+
+test('the glass and the peek window do not fight for the same space', () => {
+  assert.ok(diagram.includes('if (lensRef.current) return'))
+})
+
+test('leaving the canvas puts the glass away', () => {
+  assert.ok(diagram.includes('setLensAt(null)'))
+})

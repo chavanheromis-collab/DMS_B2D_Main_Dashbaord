@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   FLOW_VIEW_SORTS,
+  LENS_FACTORS,
   ZOOM_MAX,
   ZOOM_MIN,
   ZOOM_STEP,
@@ -10,6 +11,8 @@ import {
   clampZoom,
   flowKeyAction,
   flowStats,
+  lensPosition,
+  lensTransform,
   lineagePaths,
   minimapGeometry,
   minimapJump,
@@ -424,4 +427,55 @@ test('children that add up exactly get no missing row', () => {
 test('a leaf peeks as an empty list rather than crashing', () => {
   assert.deepEqual(peekRows(node('/leaf', 'Leaf', 5)), [])
   assert.deepEqual(peekRows(null), [])
+})
+
+// --- the magnifier --------------------------------------------------------
+
+test('what is under the cursor is what is in the middle of the glass', () => {
+  // The whole contract: point at a label, see that label, however far the
+  // canvas itself has been panned or zoomed.
+  const view = { zoom: 0.5, x: -120, y: -40 }
+  const point = { x: 300, y: 200 }
+  const radius = 92
+  const lens = lensTransform(point, view, { radius, factor: 3 })
+
+  // The diagram coordinate the cursor is over...
+  const worldX = (point.x - view.x) / view.zoom
+  const worldY = (point.y - view.y) / view.zoom
+  // ...lands exactly at the centre of the glass.
+  assert.ok(Math.abs(worldX * lens.zoom + lens.x - radius) < 0.001)
+  assert.ok(Math.abs(worldY * lens.zoom + lens.y - radius) < 0.001)
+})
+
+test('the glass magnifies on top of whatever the canvas is already at', () => {
+  assert.equal(lensTransform({ x: 0, y: 0 }, { zoom: 0.5, x: 0, y: 0 }, { factor: 4 }).zoom, 2)
+  assert.equal(lensTransform({ x: 0, y: 0 }, { zoom: 1, x: 0, y: 0 }, { factor: 2.5 }).zoom, 2.5)
+})
+
+test('the glass cannot be magnified past what the canvas allows', () => {
+  const lens = lensTransform({ x: 0, y: 0 }, { zoom: 3, x: 0, y: 0 }, { factor: 4 })
+  assert.equal(lens.zoom, ZOOM_MAX, 'twelve times over would be a blur, not a magnifier')
+})
+
+test('every factor the toolbar offers produces a drawable transform', () => {
+  for (const factor of LENS_FACTORS) {
+    const lens = lensTransform({ x: 10, y: 10 }, { zoom: 1, x: 0, y: 0 }, { factor })
+    for (const v of Object.values(lens)) assert.ok(Number.isFinite(v), String(factor))
+  }
+})
+
+test('the glass follows the cursor but never leaves the canvas', () => {
+  const viewport = { width: 800, height: 400 }
+  assert.deepEqual(lensPosition({ x: 400, y: 200 }, viewport, 92), { left: 308, top: 108 })
+  assert.deepEqual(lensPosition({ x: 0, y: 0 }, viewport, 92), { left: 0, top: 0 }, 'not off the top-left')
+  assert.deepEqual(
+    lensPosition({ x: 800, y: 400 }, viewport, 92),
+    { left: 800 - 184, top: 400 - 184 },
+    'nor off the bottom-right'
+  )
+})
+
+test('a canvas smaller than the glass does not push it off the top', () => {
+  const out = lensPosition({ x: 10, y: 10 }, { width: 100, height: 100 }, 92)
+  assert.ok(out.left >= 0 && out.top >= 0)
 })

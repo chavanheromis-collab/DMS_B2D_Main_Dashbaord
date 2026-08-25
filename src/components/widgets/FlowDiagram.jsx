@@ -14,6 +14,7 @@ import {
   Plus,
   Scan,
   Search,
+  SearchCode,
   Shrink,
   Tag,
   X,
@@ -24,8 +25,12 @@ import { flowNodeCanDrill } from '../../lib/flow.js'
 import { fitToViewport, layoutForest } from '../../lib/flowLayout.js'
 import FlowPeek from './FlowPeek.jsx'
 import {
+  LENS_FACTORS,
+  LENS_RADIUS,
   ZOOM_STEP,
   centreOn,
+  lensPosition,
+  lensTransform,
   flowKeyAction,
   lineagePaths,
   minimapGeometry,
@@ -95,6 +100,19 @@ export default function FlowDiagram({
   const [showMap, setShowMap] = useState(true)
   const [showEdgeLabels, setShowEdgeLabels] = useState(true)
 
+  // --- the magnifier -----------------------------------------------------
+  // A round glass held over the diagram, the way you would over a
+  // newspaper. It answers the same question as the peek window and answers
+  // it differently: the peek says what is UNDER a branch, in words; the
+  // glass just makes the ink bigger, which on a canvas zoomed out to see the
+  // whole shape is very often all anybody wants.
+  const [lens, setLens] = useState(false)
+  // Read inside the peek's callbacks, which are memoised on their own deps.
+  const lensRef = useRef(false)
+  lensRef.current = lens
+  const [lensFactor, setLensFactor] = useState(LENS_FACTORS[1])
+  const [lensAt, setLensAt] = useState(null)
+
   // --- the peek ----------------------------------------------------------
   // Hovering a branch opens a magnified window over it. Deliberately on a
   // short delay: a window that appeared the instant the cursor crossed a
@@ -106,6 +124,10 @@ export default function FlowDiagram({
   const openPeek = useCallback((node, element) => {
     clearTimeout(closeTimer.current)
     clearTimeout(openTimer.current)
+    // Not while the glass is out. They answer the same question two ways,
+    // and both at once is a window fighting a magnifier for the same
+    // twenty square centimetres.
+    if (lensRef.current) return
     const rect = element?.getBoundingClientRect?.()
     if (!rect) return
     openTimer.current = setTimeout(
@@ -318,7 +340,17 @@ export default function FlowDiagram({
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
 
+  /** Where the glass is, in viewport coordinates. */
+  function trackLens(e) {
+    if (!lens) return
+    const el = viewportRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setLensAt({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+  }
+
   function movePan(e) {
+    trackLens(e)
     const d = drag.current
     if (!d) return
     d.moved = true
@@ -351,31 +383,13 @@ export default function FlowDiagram({
     [showMap, layout, view, fullscreen, height]
   )
 
-  return (
-    // h-full so a fullscreen parent can hand the canvas a percentage height;
-    // with an auto-height parent it resolves to auto and changes nothing.
-    <div className="relative h-full">
-      <div
-        ref={viewportRef}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-        className={`flow-canvas relative overflow-hidden rounded-xl border border-slate-200/70 outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
-          dragging ? 'cursor-grabbing' : 'cursor-grab'
-        }`}
-        style={{ height }}
-        onPointerDown={startPan}
-        onPointerMove={movePan}
-        onPointerUp={endPan}
-        onPointerLeave={endPan}
-      >
-        <div
-          className="absolute left-0 top-0 origin-top-left"
-          style={{
-            transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
-            width: layout.width,
-            height: layout.height,
-          }}
-        >
+  // The diagram itself, built once and drawn twice: once on the canvas,
+  // and again inside the magnifier at a larger scale. A second copy
+  // rather than a CSS filter, because no CSS magnifies what is behind an
+  // element -- and because a copy stays crisp, being the same vector
+  // drawing rendered again rather than a bitmap blown up.
+  const canvasContent = (
+    <>
           <svg
             width={layout.width}
             height={layout.height}
@@ -457,6 +471,38 @@ export default function FlowDiagram({
               />
             )
           })}
+    </>
+  )
+
+  return (
+    // h-full so a fullscreen parent can hand the canvas a percentage height;
+    // with an auto-height parent it resolves to auto and changes nothing.
+    <div className="relative h-full">
+      <div
+        ref={viewportRef}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        className={`flow-canvas relative overflow-hidden rounded-xl border border-slate-200/70 outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
+          dragging ? 'cursor-grabbing' : 'cursor-grab'
+        }`}
+        style={{ height }}
+        onPointerDown={startPan}
+        onPointerMove={movePan}
+        onPointerUp={endPan}
+        onPointerLeave={() => {
+          endPan()
+          setLensAt(null)
+        }}
+      >
+        <div
+          className="absolute left-0 top-0 origin-top-left"
+          style={{
+            transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
+            width: layout.width,
+            height: layout.height,
+          }}
+        >
+          {canvasContent}
         </div>
 
         {/* --- the instrument panel ------------------------------------- */}
@@ -508,6 +554,27 @@ export default function FlowDiagram({
               <Tag size={12} />
             </button>
             <button
+              onClick={() => {
+                setLens((on) => !on)
+                setLensAt(null)
+              }}
+              className={`rounded p-1 ${lens ? 'text-indigo-600' : 'text-slate-300'} hover:bg-slate-50`}
+              title={lens ? 'Put the magnifier away' : 'Magnifier — a glass that follows the cursor'}
+            >
+              <SearchCode size={12} />
+            </button>
+            {lens && (
+              <button
+                onClick={() =>
+                  setLensFactor((f) => LENS_FACTORS[(LENS_FACTORS.indexOf(f) + 1) % LENS_FACTORS.length])
+                }
+                className="rounded px-1 text-[10px] font-semibold tabular-nums text-indigo-600 hover:bg-slate-50"
+                title="How much it magnifies"
+              >
+                {lensFactor}×
+              </button>
+            )}
+            <button
               onClick={() => setShowMap((s) => !s)}
               className={`rounded p-1 ${showMap ? 'text-indigo-600' : 'text-slate-300'} hover:bg-slate-50`}
               title={showMap ? 'Hide the minimap' : 'Show the minimap'}
@@ -537,6 +604,36 @@ export default function FlowDiagram({
             onDrill={onDrill}
             isDrilled={isDrilled}
           />
+        )}
+
+        {/* The glass. It never takes the pointer -- hovering, clicking and
+            dragging all go straight through to the diagram underneath, so
+            it magnifies without getting in the way of anything. */}
+        {lens && lensAt && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute z-[45] overflow-hidden rounded-full border-2 border-white shadow-2xl ring-1 ring-slate-300"
+            style={{
+              ...lensPosition(lensAt, viewportSize(), LENS_RADIUS),
+              width: LENS_RADIUS * 2,
+              height: LENS_RADIUS * 2,
+              background: 'var(--card-bg, #fff)',
+            }}
+          >
+            <div
+              className="absolute left-0 top-0 origin-top-left"
+              style={(() => {
+                const t = lensTransform(lensAt, view, { radius: LENS_RADIUS, factor: lensFactor })
+                return {
+                  transform: `translate(${t.x}px, ${t.y}px) scale(${t.zoom})`,
+                  width: layout.width,
+                  height: layout.height,
+                }
+              })()}
+            >
+              {canvasContent}
+            </div>
+          </div>
         )}
 
         {/* --- the node panel ------------------------------------------- */}

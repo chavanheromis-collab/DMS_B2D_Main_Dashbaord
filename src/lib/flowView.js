@@ -425,3 +425,55 @@ export function peekRows(node) {
 
   return rows
 }
+
+// ---------------------------------------------------------------------
+// The magnifier
+// ---------------------------------------------------------------------
+// A round glass held over the page, the way you would over a newspaper.
+//
+// It answers the same question as the peek window and answers it
+// differently: the peek tells you what is UNDER a branch, in words; the
+// glass just makes the ink bigger. On a canvas zoomed out far enough to see
+// the shape of a whole flow, that is often all anybody wants -- to read the
+// three labels they are pointing at without losing the shape by zooming in.
+//
+// It is drawn as a second copy of the same content, transformed so that the
+// point under the cursor sits in the middle of the glass at a larger scale.
+// A copy rather than a CSS filter because there is no CSS that magnifies
+// what is behind an element -- and because a copy stays crisp, since it is
+// the same vector drawing rendered again rather than a bitmap blown up.
+
+export const LENS_RADIUS = 92
+export const LENS_FACTORS = [1.75, 2.5, 4]
+
+/**
+ * How to transform the copy inside the glass.
+ *
+ * `point` is where the cursor is, relative to the viewport. `view` is the
+ * canvas's own pan and zoom. The world point under the cursor is worked out
+ * from those, and then placed at the centre of the glass at the magnified
+ * scale -- so whatever you are pointing at is exactly what you see, however
+ * far the canvas itself has been panned or zoomed.
+ */
+export function lensTransform(point, view, { radius = LENS_RADIUS, factor = 2.5 } = {}) {
+  const zoom = clampZoom((view?.zoom || 1) * factor)
+
+  // Where the cursor is in the diagram's own coordinates.
+  const worldX = (point.x - (view?.x || 0)) / (view?.zoom || 1)
+  const worldY = (point.y - (view?.y || 0)) / (view?.zoom || 1)
+
+  return {
+    zoom,
+    x: radius - worldX * zoom,
+    y: radius - worldY * zoom,
+  }
+}
+
+/** Where the glass itself sits, clamped so it never leaves the canvas. */
+export function lensPosition(point, viewport, radius = LENS_RADIUS) {
+  const size = radius * 2
+  return {
+    left: Math.max(0, Math.min(point.x - radius, (viewport?.width || 0) - size)),
+    top: Math.max(0, Math.min(point.y - radius, (viewport?.height || 0) - size)),
+  }
+}
