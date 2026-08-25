@@ -49,7 +49,20 @@ export const DEFAULT_DESIGN = {
   // How wide the canvas is allowed to get on a very large screen. 0 means
   // "all of it".
   maxWidth: 0,
+  // 'masonry' fills gaps; 'rows' keeps the admin's order strictly, left to
+  // right, wrapping at the edge. Neither is right for every page, which is
+  // why it is a setting and not a decision baked into the packer.
+  packing: 'masonry',
+  // Whether a widget pinned to an exact pixel width fills the columns it
+  // claimed. Off, its number is drawn exactly and the remainder is dead
+  // space beside it; on, the row closes up.
+  snapWidths: false,
 }
+
+export const PACKING_MODES = [
+  { value: 'masonry', label: 'Fill gaps', hint: 'Shorter widgets are tucked under each other. Best for cards of very different heights.' },
+  { value: 'rows', label: 'Keep my order', hint: 'Strictly left to right, wrapping at the edge. Rows line up and nothing jumps the queue.' },
+]
 
 const clamp = (value, min, max, fallback) => {
   const n = Number(value)
@@ -69,6 +82,8 @@ export function clampDesign(design) {
   const columns = COLUMN_CHOICES.includes(Number(d.columns)) ? Number(d.columns) : DEFAULT_DESIGN.columns
   return {
     ...d,
+    packing: d.packing === 'rows' ? 'rows' : 'masonry',
+    snapWidths: d.snapWidths === true,
     gapX: Math.round(clamp(d.gapX, GAP_MIN, GAP_MAX, DEFAULT_DESIGN.gapX)),
     gapY: Math.round(clamp(d.gapY, GAP_MIN, GAP_MAX, DEFAULT_DESIGN.gapY)),
     columns,

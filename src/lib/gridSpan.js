@@ -129,7 +129,13 @@ export const MIN_HEIGHT_PX = 60
  * part that spilled would simply be unreachable. Falls back to the span the
  * packer reserved when no pixel width was pinned.
  */
-export function drawnWidth(widthPx, { left = 0, containerWidth = 0, spanWidth = 0 }) {
+export function drawnWidth(widthPx, { left = 0, containerWidth = 0, spanWidth = 0, stretch = false }) {
+  // "Fill the columns you claimed." A pinned width almost never lands on a
+  // column boundary, and the few pixels left over are dead: too narrow to
+  // hold anything, and nothing can be placed there in any case. Three cards
+  // in a row each leaving 51px is a 150px strip of nothing, which is what a
+  // row of KPIs looks like when it looks wrong.
+  if (stretch && spanWidth > 0) return spanWidth
   if (!(widthPx > 0)) return spanWidth
   // Never wider than the columns it claimed -- that room belongs to the
   // widget beside it -- and never past the right edge of the canvas, where
@@ -164,6 +170,47 @@ export function spanForItem(item, breakpoint, colWidth, gap = 12, columns = COLU
  * window with the sidebar expanded the grid only gets ~930px, and sizing
  * four "quarter" widgets as if it had 1200 crushes them.
  */
+/**
+ * Straight order, left to right, wrapping at the edge -- a page of rows
+ * rather than a masonry.
+ *
+ * Masonry fills gaps, which is what you want for a wall of cards of wildly
+ * different heights. It is exactly what you do NOT want when the order
+ * means something: a widget that will not fit in the space left beside a
+ * short one gets pushed past it, and the hole it left behind can only ever
+ * be filled by something narrow enough -- so on a page of three KPIs and
+ * two wide charts, it is never filled at all.
+ *
+ * Here every widget goes after the one before it. A row ends when the next
+ * widget will not fit, and the next row starts below the tallest thing in
+ * this one, so rows line up and the reading order is exactly the order the
+ * admin set.
+ */
+export function packRows(items, spans, heights, gap = 12, columns = COLUMNS, fallback = 220) {
+  const positions = {}
+  let col = 0
+  let rowTop = 0
+  let rowHeight = 0
+
+  for (const item of items) {
+    const span = Math.max(1, Math.min(columns, spans[item.id] || 1))
+
+    // Wrap. A widget as wide as the canvas starts its own row rather than
+    // being squeezed onto the end of this one.
+    if (col > 0 && col + span > columns) {
+      rowTop += rowHeight + gap
+      col = 0
+      rowHeight = 0
+    }
+
+    positions[item.id] = { col, span, top: rowTop }
+    rowHeight = Math.max(rowHeight, heights[item.id] ?? item.estimatedHeight ?? fallback)
+    col += span
+  }
+
+  return { positions, containerHeight: rowTop + rowHeight }
+}
+
 export function breakpointFor(width, fallbackWidth = 1280) {
   const w = width || fallbackWidth
   if (w >= BREAKPOINTS.lg) return 'lg'

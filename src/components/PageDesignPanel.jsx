@@ -3,6 +3,7 @@ import { Columns3, Layout, Palette, RotateCcw, Type, X } from 'lucide-react'
 import {
   COLUMN_CHOICES,
   DEFAULT_DESIGN,
+  PACKING_MODES,
   GAP_MAX,
   GAP_MIN,
   SCALE_MAX,
@@ -76,6 +77,46 @@ export default function PageDesignPanel({ design, theme, onChange, onThemeChange
       <div className="max-h-[54vh] space-y-2.5 overflow-y-auto p-2.5">
         {tab === 'layout' && (
           <>
+            {/* First, because it is the one that decides whether the page
+                reads in the order it was built in. */}
+            <Row label="How widgets pack">
+              <div className="flex gap-1">
+                {PACKING_MODES.map((m) => (
+                  <button
+                    key={m.value}
+                    onClick={() => set({ packing: m.value })}
+                    title={m.hint}
+                    className={`flex-1 rounded border px-1.5 py-1 text-[11px] ${
+                      d.packing === m.value
+                        ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
+                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-0.5 text-[10px] text-slate-400">
+                {PACKING_MODES.find((m) => m.value === d.packing)?.hint}
+              </p>
+            </Row>
+
+            <label className="flex items-start gap-1.5">
+              <input
+                type="checkbox"
+                checked={d.snapWidths}
+                onChange={(e) => set({ snapWidths: e.target.checked })}
+                className="mt-0.5 h-3 w-3"
+              />
+              <span>
+                <span className="text-[11px] font-medium text-slate-600">Widths fill their columns</span>
+                <span className="block text-[10px] text-slate-400">
+                  A widget pinned to 260px on a canvas of 316px columns leaves 56px beside it that nothing can
+                  ever fill. Three in a row is a strip of nothing. This closes it.
+                </span>
+              </span>
+            </label>
+
             <Slider
               label="Gap across"
               hint="Between widgets, left to right"

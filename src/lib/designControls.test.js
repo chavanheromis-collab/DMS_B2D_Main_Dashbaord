@@ -135,3 +135,25 @@ test('a widget’s look is saved to the page, for everyone', () => {
 test('a widget can be put back to the page’s look', () => {
   assert.ok(bar.includes('onStyle({ ...DEFAULT_WIDGET_STYLE })'))
 })
+
+// --- how the page packs, and whether widths fill their columns -----------
+
+test('the packing mode and the width snap reach the grid', () => {
+  assert.ok(dashboard.includes('packing={design.packing}'))
+  assert.ok(dashboard.includes('stretch={design.snapWidths}'))
+})
+
+test('the grid actually packs in rows when it is told to', () => {
+  assert.ok(grid.includes("if (packing === 'rows') {"))
+  assert.ok(grid.includes('return packRows(items, spans, heights, rowGap, columns)'))
+})
+
+test('a snapped width is passed through to the width that is drawn', () => {
+  assert.ok(grid.includes('drawnWidth(item.widthPx, { left, containerWidth, spanWidth, stretch })'))
+})
+
+test('both are controls on the panel, not settings only code can reach', () => {
+  assert.ok(panel.includes('onClick={() => set({ packing: m.value })}'))
+  assert.ok(panel.includes('onChange={(e) => set({ snapWidths: e.target.checked })}'))
+  assert.ok(panel.includes('PACKING_MODES.map'))
+})

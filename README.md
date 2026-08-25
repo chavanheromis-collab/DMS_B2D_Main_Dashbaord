@@ -306,6 +306,8 @@ drag the slider:
 | | |
 |---|---|
 | **Gap across / gap down** | Two separate numbers, 0–64px. The eye reads a row and a column differently, and a dashboard that needs air between its columns very often wants its rows tighter than that, not looser. |
+| **How widgets pack** | **Fill gaps** (masonry — shorter widgets tucked under each other) or **Keep my order** (strictly left to right, wrapping at the edge, rows lining up). Masonry is right for a wall of cards of wildly different heights and wrong when the order means something: a widget that won't fit beside a short one gets pushed past it, and the hole it leaves can only be filled by something narrow enough — so on a page of three KPIs and two wide charts it is never filled at all. |
+| **Widths fill their columns** | A widget pinned to 260px where the columns are 316px leaves 56px beside it that nothing can ever use. Three of them in a row is a 168px strip of nothing. Turn this on and pinned widths stretch to the columns they claimed. |
 | **Columns** | 6, 8, 12, 16 or 24. **The canvas division itself is a setting** — nothing is locked to twelfths. Every width is a *fraction* of it, so "half" stays half and a 3-unit widget becomes 6 units when you double the columns. |
 | **Canvas width** | How wide the page may get on a large screen. 0 means all of it. |
 | **Card look** | Any of the widget themes, page-wide — a default underneath every widget, not an override: a widget you restyled deliberately keeps its own look. |

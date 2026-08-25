@@ -1046,6 +1046,8 @@ export default function Dashboard() {
               gap={design.gapX}
               gapY={design.gapY}
               columns={design.columns}
+              packing={design.packing}
+              stretch={design.snapWidths}
               draggable={isAdmin && arranging}
               onMove={moveWidgetTo}
               onMeasure={noteSize}

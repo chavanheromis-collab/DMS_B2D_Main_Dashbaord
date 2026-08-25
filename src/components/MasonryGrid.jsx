@@ -4,7 +4,7 @@ import { GripVertical } from 'lucide-react'
 // The span maths lives in lib/gridSpan.js so it can be tested without a DOM
 // -- Node cannot import a .jsx file. Re-exported because callers (and its
 // own tests) have long imported `spanForWidth` from here.
-import { COLUMNS, breakpointFor, drawnWidth, spanForItem, spanForWidth } from '../lib/gridSpan'
+import { COLUMNS, breakpointFor, drawnWidth, packRows, spanForItem, spanForWidth } from '../lib/gridSpan'
 import { dropTargetAt } from '../lib/pageDesign'
 
 export { spanForWidth }
@@ -93,6 +93,8 @@ export default function MasonryGrid({
   gap = 12,
   gapY,
   columns = COLUMNS,
+  packing = 'masonry',
+  stretch = false,
   className = '',
   onMeasure,
   draggable = false,
@@ -228,10 +230,15 @@ export default function MasonryGrid({
 
   // PASS 2 -- live. Recomputed whenever a widget's real height changes,
   // using the columns already fixed by PASS 1.
-  const { positions, containerHeight } = useMemo(
-    () => packMasonry(items, slots, heights, rowGap, columns),
-    [items, slots, heights, rowGap, columns]
-  )
+  const { positions, containerHeight } = useMemo(() => {
+    if (packing === 'rows') {
+      const spans = {}
+      for (const item of items) spans[item.id] = spanForItem(item, breakpoint, colWidth, gap, columns)
+      return packRows(items, spans, heights, rowGap, columns)
+    }
+    return packMasonry(items, slots, heights, rowGap, columns)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, slots, heights, rowGap, columns, packing, breakpoint, Math.round(colWidth), gap])
 
   return (
     <div
@@ -256,7 +263,7 @@ export default function MasonryGrid({
         // A pixel-sized widget draws at exactly its number, but never past
         // the right edge -- measured from where it actually sits, not from
         // the canvas origin, or a widget in column 7 spills off the page.
-        const width = drawnWidth(item.widthPx, { left, containerWidth, spanWidth })
+        const width = drawnWidth(item.widthPx, { left, containerWidth, spanWidth, stretch })
 
         // Recorded AFTER the width exists, not before: a drop is aimed at
         // these boxes, and a box cannot know how wide it is before its

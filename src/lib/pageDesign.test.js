@@ -14,7 +14,7 @@ import {
   isDefaultDesign,
   moveItem,
 } from './pageDesign.js'
-import { spanForWidth } from './gridSpan.js'
+import { drawnWidth, packRows, spanForWidth } from './gridSpan.js'
 
 // --- the design itself ----------------------------------------------------
 
@@ -158,4 +158,85 @@ test('a widget is never a drop target for itself', () => {
 test('nothing to drop onto is null, not a guess', () => {
   assert.equal(dropTargetAt([], { x: 0, y: 0 }, 'a'), null)
   assert.equal(dropTargetAt([boxes[0]], { x: 0, y: 0 }, 'a'), null)
+})
+
+// --- how the page packs ---------------------------------------------------
+
+test('the packing mode is a setting, and nonsense falls back to masonry', () => {
+  assert.equal(clampDesign({ packing: 'rows' }).packing, 'rows')
+  assert.equal(clampDesign({ packing: 'diagonal' }).packing, 'masonry')
+  assert.equal(clampDesign(undefined).packing, 'masonry')
+})
+
+test('snapping widths is off unless it is actually turned on', () => {
+  assert.equal(clampDesign({ snapWidths: true }).snapWidths, true)
+  assert.equal(clampDesign({ snapWidths: 'yes' }).snapWidths, false, 'a truthy string is not a decision')
+  assert.equal(clampDesign(undefined).snapWidths, false)
+})
+
+test('rows keeps the admin’s order, left to right, wrapping at the edge', () => {
+  // The layout the screenshot needed: three KPIs across the top and the
+  // wide widgets underneath, in the order they were put there.
+  const items = [
+    { id: 'k1', estimatedHeight: 94 },
+    { id: 'k2', estimatedHeight: 94 },
+    { id: 'k3', estimatedHeight: 94 },
+    { id: 'w4', estimatedHeight: 583 },
+    { id: 'w5', estimatedHeight: 483 },
+  ]
+  const spans = { k1: 3, k2: 3, k3: 3, w4: 4, w5: 4 }
+  const { positions } = packRows(items, spans, {}, 12, 12)
+
+  assert.deepEqual(
+    ['k1', 'k2', 'k3'].map((id) => positions[id].col),
+    [0, 3, 6],
+    'the KPI row runs across'
+  )
+  assert.equal(positions.k1.top, 0)
+  assert.equal(positions.w4.col, 0, 'the next row starts at the left, not in the gap beside a KPI')
+  assert.equal(positions.w4.top, 106, 'below the tallest thing in the row above')
+  assert.equal(positions.w5.col, 4, 'and the one after it follows on')
+  assert.equal(positions.w5.top, 106)
+})
+
+test('a row ends when the next widget will not fit', () => {
+  const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  const spans = { a: 8, b: 8, c: 8 }
+  const { positions } = packRows(items, spans, { a: 100, b: 100, c: 100 }, 10, 12)
+  assert.deepEqual([positions.a.col, positions.b.col, positions.c.col], [0, 0, 0])
+  assert.deepEqual([positions.a.top, positions.b.top, positions.c.top], [0, 110, 220])
+})
+
+test('a full-width widget gets its own row rather than being squeezed in', () => {
+  const items = [{ id: 'a' }, { id: 'wide' }, { id: 'b' }]
+  const spans = { a: 4, wide: 12, b: 4 }
+  const { positions } = packRows(items, spans, { a: 50, wide: 50, b: 50 }, 10, 12)
+  assert.equal(positions.wide.col, 0)
+  assert.ok(positions.wide.top > positions.a.top)
+  assert.ok(positions.b.top > positions.wide.top)
+})
+
+test('rows never places anything past the edge of the canvas', () => {
+  const items = Array.from({ length: 12 }, (_, i) => ({ id: `w${i}`, estimatedHeight: 40 }))
+  const spans = Object.fromEntries(items.map((it, i) => [it.id, (i % 4) + 2]))
+  const { positions } = packRows(items, spans, {}, 12, 12)
+  for (const item of items) {
+    const p = positions[item.id]
+    assert.ok(p.col + p.span <= 12, `${item.id} runs off the canvas`)
+  }
+})
+
+test('the canvas is exactly as tall as what is on it', () => {
+  const items = [{ id: 'a' }, { id: 'b' }]
+  const { containerHeight } = packRows(items, { a: 6, b: 6 }, { a: 100, b: 250 }, 12, 12)
+  assert.equal(containerHeight, 250, 'one row, as tall as its tallest')
+})
+
+test('a width told to fill its columns does exactly that', () => {
+  assert.equal(drawnWidth(260, { left: 0, containerWidth: 1200, spanWidth: 316, stretch: true }), 316)
+  assert.equal(drawnWidth(260, { left: 0, containerWidth: 1200, spanWidth: 316 }), 260, 'and does not, otherwise')
+})
+
+test('stretching an unpinned widget is still just its span', () => {
+  assert.equal(drawnWidth(0, { left: 0, containerWidth: 1200, spanWidth: 316, stretch: true }), 316)
 })
