@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -11,7 +11,10 @@ import {
   ListTree,
   Maximize2,
   Percent,
+  Redo2,
+  RotateCcw,
   TrendingDown,
+  Undo2,
   Minus,
   MoveHorizontal,
   MoveVertical,
@@ -33,6 +36,16 @@ import {
   flowNodeCanDrill,
   flowNodeIsDrilled,
 } from '../../lib/flow.js'
+import {
+  canRedo,
+  canUndo,
+  commitHistory,
+  emptyHistory,
+  historyKeyAction,
+  redoHistory,
+  resetHistory,
+  undoHistory,
+} from '../../lib/history.js'
 import {
   FLOW_VIEW_SORTS,
   SIGNIFICANCE_STEPS,
@@ -77,25 +90,60 @@ export default function FlowWidget({
   const flow = { ...DEFAULT_FLOW, ...(widget.flow || {}) }
   const source = widget.ignoreFilters ? rawRowsByTab : rowsByTab
 
-  const [expanded, setExpanded] = useState(() => new Set())
-  const [collapsed, setCollapsed] = useState(() => new Set())
-  const [autoExpand, setAutoExpand] = useState(undefined)
-  const [focusByTree, setFocusByTree] = useState({})
-  const [levelOverrides, setLevelOverrides] = useState({})
-  // The admin picks which view a page opens on; the reader picks what they
-  // want to look at. Neither answer is right for every flow -- a two-level
-  // breakdown reads better as a list, a five-level process reads better as
-  // a picture.
-  const [view, setView] = useState(flow.view === 'diagram' ? 'diagram' : 'tree')
-  const [orientation, setOrientation] = useState(flow.orientation === 'horizontal' ? 'horizontal' : 'vertical')
+  // Everything the reader has decided, in ONE value.
+  //
+  // It was eight useStates, which was fine until undo: stepping back through
+  // an exploration means restoring the whole of it at once, and eight
+  // separate stacks that could drift out of step with each other is not one
+  // history, it is eight ways to end up somewhere that never existed.
+  //
+  // `view` and `orientation` start where the admin set them; everything else
+  // starts empty. `fullscreen` is deliberately NOT in here -- it is where you
+  // are looking from, not what you are looking at, and undoing your way out
+  // of full screen would be baffling.
+  const initialExplore = useMemo(
+    () => ({
+      expanded: new Set(),
+      collapsed: new Set(),
+      autoExpand: undefined,
+      focusByTree: {},
+      levelOverrides: {},
+      // The admin picks which view a page opens on; the reader picks what
+      // they want to look at. Neither answer is right for every flow -- a
+      // two-level breakdown reads better as a list, a five-level process
+      // reads better as a picture.
+      view: flow.view === 'diagram' ? 'diagram' : 'tree',
+      orientation: flow.orientation === 'horizontal' ? 'horizontal' : 'vertical',
+      // Three questions the admin answered once and the reader keeps
+      // re-asking: in what order, measured against what, and without the
+      // noise. None of these change a single number -- they change which
+      // numbers are in front of you, which is what reading a flow consists
+      // of.
+      sortOrder: 'natural',
+      minShare: 0,
+      percentBase: flow.percentBase === 'root' ? 'root' : 'parent',
+    }),
+    [flow.view, flow.orientation, flow.percentBase]
+  )
+
+  const [history, setHistory] = useState(() => emptyHistory(initialExplore))
+  const explore = history.present
+  const { expanded, collapsed, autoExpand, focusByTree, levelOverrides, view, orientation, sortOrder, minShare, percentBase } =
+    explore
+
+  /** Every change to the exploration goes through here, so all of it is undoable. */
+  const commit = useCallback((patch) => {
+    setHistory((h) => commitHistory(h, { ...h.present, ...(typeof patch === 'function' ? patch(h.present) : patch) }))
+  }, [])
+
+  const undo = useCallback(() => setHistory((h) => undoHistory(h)), [])
+  const redo = useCallback(() => setHistory((h) => redoHistory(h)), [])
+  const resetExplore = useCallback(
+    () => setHistory((h) => resetHistory(h, initialExplore)),
+    [initialExplore]
+  )
+
   const [fullscreen, setFullscreen] = useState(false)
-  // Three questions the admin answered once and the reader keeps re-asking:
-  // in what order, measured against what, and without the noise. None of
-  // these change a single number -- they change which numbers are in front
-  // of you, which is what reading a flow actually consists of.
-  const [sortOrder, setSortOrder] = useState('natural')
-  const [minShare, setMinShare] = useState(0)
-  const [percentBase, setPercentBase] = useState(flow.percentBase === 'root' ? 'root' : 'parent')
 
   const forest = useMemo(() => {
     const built = buildFlowTrees({
@@ -126,35 +174,33 @@ export default function FlowWidget({
     (node) => {
       const key = keyFor(node)
       const open = node.open
-      setExpanded((current) => {
-        const next = new Set(current)
-        if (open) next.delete(key)
-        else next.add(key)
-        return next
-      })
-      setCollapsed((current) => {
-        const next = new Set(current)
-        if (open) next.add(key)
-        else next.delete(key)
-        return next
+      commit((prev) => {
+        const nextExpanded = new Set(prev.expanded)
+        const nextCollapsed = new Set(prev.collapsed)
+        if (open) {
+          nextExpanded.delete(key)
+          nextCollapsed.add(key)
+        } else {
+          nextExpanded.add(key)
+          nextCollapsed.delete(key)
+        }
+        return { expanded: nextExpanded, collapsed: nextCollapsed }
       })
     },
-    [keyFor]
+    [keyFor, commit]
   )
 
-  const focusNode = useCallback((node) => {
-    setFocusByTree((all) => ({ ...all, [node.treeId]: node.path }))
-  }, [])
+  const focusNode = useCallback(
+    (node) => commit((prev) => ({ focusByTree: { ...prev.focusByTree, [node.treeId]: node.path } })),
+    [commit]
+  )
 
   function expandAll() {
-    setCollapsed(new Set())
-    setAutoExpand(forest.depth)
+    commit({ collapsed: new Set(), autoExpand: forest.depth })
   }
 
   function collapseAll() {
-    setExpanded(new Set())
-    setCollapsed(new Set())
-    setAutoExpand(0)
+    commit({ expanded: new Set(), collapsed: new Set(), autoExpand: 0 })
   }
 
   const drill = useCallback(
@@ -169,6 +215,43 @@ export default function FlowWidget({
     (node) => flowNodeIsDrilled(widget, node, crossFilters),
     [widget, crossFilters]
   )
+
+  /**
+   * Ctrl+Z, Ctrl+Y and Escape, while the pointer is over this widget.
+   *
+   * Scoped by hover rather than by focus, because reading a flow is a
+   * pointing activity -- nobody tabs to a diagram first -- and scoped to
+   * SOMETHING because a page can hold two flows and a browser-wide Ctrl+Z
+   * would step back through whichever one it felt like.
+   *
+   * Escape resets the whole exploration, and the reset is itself undoable:
+   * pressing Escape by accident should not be the one action you cannot
+   * take back.
+   */
+  const [engaged, setEngaged] = useState(false)
+  const rootRef = useRef(null)
+
+  useEffect(() => {
+    if (!engaged && !fullscreen) return undefined
+    const onKey = (e) => {
+      // A keystroke aimed at a text box belongs to the text box.
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+
+      const action = historyKeyAction(e)
+      if (action) {
+        e.preventDefault()
+        if (action === 'undo') undo()
+        else redo()
+        return
+      }
+      if (e.key === 'Escape' && !fullscreen) {
+        e.preventDefault()
+        resetExplore()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [engaged, fullscreen, undo, redo, resetExplore])
 
   // Fullscreen is a property of the WIDGET, not of the canvas inside it: the
   // view switch, the breadcrumb and the breakdown pickers are part of
@@ -250,7 +333,12 @@ export default function FlowWidget({
   const viewFlow = useMemo(() => ({ ...flow, percentBase }), [flow, percentBase])
 
   const card = (
-    <div className={`card ${fullscreen ? 'flex h-full flex-col overflow-hidden' : ''}`}>
+    <div
+      ref={rootRef}
+      onPointerEnter={() => setEngaged(true)}
+      onPointerLeave={() => setEngaged(false)}
+      className={`card ${fullscreen ? 'flex h-full flex-col overflow-hidden' : ''}`}
+    >
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="widget-title">🔀 {widget.title}</h2>
@@ -264,7 +352,7 @@ export default function FlowWidget({
         <div className="flex shrink-0 flex-wrap items-center gap-1">
           <div className="flex overflow-hidden rounded-lg border border-slate-200">
             <button
-              onClick={() => setView('tree')}
+              onClick={() => commit({ view: 'tree' })}
               className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium ${
                 view === 'tree' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'
               }`}
@@ -273,7 +361,7 @@ export default function FlowWidget({
               <ListTree size={11} /> Tree
             </button>
             <button
-              onClick={() => setView('diagram')}
+              onClick={() => commit({ view: 'diagram' })}
               className={`flex items-center gap-1 border-l border-slate-200 px-2 py-1 text-[10px] font-medium ${
                 view === 'diagram' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'
               }`}
@@ -285,13 +373,42 @@ export default function FlowWidget({
 
           {view === 'diagram' && (
             <button
-              onClick={() => setOrientation((o) => (o === 'vertical' ? 'horizontal' : 'vertical'))}
+              onClick={() => commit((prev) => ({ orientation: prev.orientation === 'vertical' ? 'horizontal' : 'vertical' }))}
               className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-slate-50"
               title={orientation === 'vertical' ? 'Lay it out left to right' : 'Lay it out top to bottom'}
             >
               {orientation === 'vertical' ? <MoveVertical size={11} /> : <MoveHorizontal size={11} />}
             </button>
           )}
+
+          {/* Undo and redo sit first, where the eye lands when something
+              has just gone wrong. */}
+          <div className="flex overflow-hidden rounded-lg border border-slate-200">
+            <button
+              onClick={undo}
+              disabled={!canUndo(history)}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 size={11} />
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo(history)}
+              className="flex items-center gap-1 border-l border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo2 size={11} />
+            </button>
+            <button
+              onClick={resetExplore}
+              disabled={!canUndo(history)}
+              className="flex items-center gap-1 border-l border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+              title="Back to how this page opened (Esc) — itself undoable"
+            >
+              <RotateCcw size={11} />
+            </button>
+          </div>
 
           <button
             onClick={expandAll}
@@ -356,7 +473,12 @@ export default function FlowWidget({
               <select
                 value={levelOverrides[level.id]?.column ?? level.column}
                 onChange={(e) =>
-                  setLevelOverrides((all) => ({ ...all, [level.id]: { ...all[level.id], column: e.target.value } }))
+                  commit((prev) => ({
+                    levelOverrides: {
+                      ...prev.levelOverrides,
+                      [level.id]: { ...prev.levelOverrides[level.id], column: e.target.value },
+                    },
+                  }))
                 }
                 className="rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-600"
               >
@@ -378,7 +500,7 @@ export default function FlowWidget({
             <ArrowDownWideNarrow size={11} className="text-slate-400" />
             <select
               value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
+              onChange={(e) => commit({ sortOrder: e.target.value })}
               className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600"
               aria-label="Order the branches"
             >
@@ -394,7 +516,7 @@ export default function FlowWidget({
             <EyeOff size={11} className="text-slate-400" />
             <select
               value={String(minShare)}
-              onChange={(e) => setMinShare(Number(e.target.value))}
+              onChange={(e) => commit({ minShare: Number(e.target.value) })}
               className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600"
               aria-label="Hide small branches"
             >
@@ -407,7 +529,7 @@ export default function FlowWidget({
           </label>
 
           <button
-            onClick={() => setPercentBase((b) => (b === 'parent' ? 'root' : 'parent'))}
+            onClick={() => commit((prev) => ({ percentBase: prev.percentBase === 'parent' ? 'root' : 'parent' }))}
             className="flex items-center gap-1 rounded border border-slate-200 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50"
             title="What each percentage is measured against"
           >
@@ -454,7 +576,7 @@ export default function FlowWidget({
           label={forest.multi ? one.tree.label || one.tree.tab : ''}
           focusPath={focusByTree[one.tree.id] || ''}
           onFocus={focusNode}
-          onClear={() => setFocusByTree((all) => ({ ...all, [one.tree.id]: '' }))}
+          onClear={() => commit((prev) => ({ focusByTree: { ...prev.focusByTree, [one.tree.id]: '' } }))}
         />
       ))}
 

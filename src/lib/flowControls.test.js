@@ -21,18 +21,68 @@ import path from 'node:path'
 // pixel moved. It is a wiring check, and it is named like one.
 
 const SRC = path.resolve(import.meta.dirname, '..')
-const read = (p) => fs.readFileSync(path.join(SRC, p), 'utf8').replace(/\s+/g, ' ')
+
+/**
+ * A component's CODE, with its prose removed.
+ *
+ * Comments are stripped first, and that is not tidiness: an assertion that
+ * `data-flow-ui` appears in this file passed happily on the comment
+ * explaining why `data-flow-ui` is there, long after the attribute itself
+ * had been deleted. A test that a comment can satisfy is not a test.
+ */
+const read = (p) =>
+  fs
+    .readFileSync(path.join(SRC, p), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+    .replace(/\s+/g, ' ')
 
 const diagram = read('components/widgets/FlowDiagram.jsx')
 const widget = read('components/widgets/FlowWidget.jsx')
 
-/** `onClick={handler}` somewhere inside the element that carries `marker`. */
-function wiredNear(source, marker, handler) {
+/**
+ * The single JSX element that carries `marker` -- from its own `<` to the
+ * `>` that closes its opening tag.
+ *
+ * Bounded deliberately. A "within 400 characters" window found an
+ * attribute on the NEXT button along and reported the one being tested as
+ * wired when it was not, which is the exact failure this file exists to
+ * catch, committed by the file itself.
+ */
+function elementWith(source, marker) {
   const at = source.indexOf(marker)
-  if (at === -1) return false
-  // Buttons here are small; the handler is always within the same element.
-  const window = source.slice(Math.max(0, at - 400), at + 400)
-  return window.includes(handler)
+  if (at === -1) return ''
+  const open = source.lastIndexOf('<', at)
+  if (open === -1) return ''
+
+  // Walk forward to the `>` that ends the opening tag, skipping the ones
+  // inside braces (`onClick={() => x > 1}`) and strings.
+  let depth = 0
+  for (let i = open; i < source.length; i += 1) {
+    const c = source[i]
+    if (c === '{') depth += 1
+    else if (c === '}') depth -= 1
+    else if (c === '>' && depth === 0) return source.slice(open, i + 1)
+  }
+  return source.slice(open)
+}
+
+/**
+ * A function's body, for the checks that are about code rather than JSX.
+ * Ends at whatever declaration comes next, which is close enough when the
+ * question is "does this handler still call that".
+ */
+function bodyOf(source, declaration) {
+  const at = source.indexOf(declaration)
+  if (at === -1) return ''
+  const rest = source.slice(at + declaration.length)
+  const next = rest.search(/\bfunction \w|\bconst \w+ = (useCallback|useMemo|\()/)
+  return next === -1 ? rest : rest.slice(0, next)
+}
+
+/** Is `attribute` on the very element that carries `marker`? */
+function wiredNear(source, marker, attribute) {
+  return elementWith(source, marker).includes(attribute)
 }
 
 // --- zoom -----------------------------------------------------------------
@@ -150,6 +200,16 @@ test('clicking a row moves the window into that branch, with a way back', () => 
   assert.ok(peek.includes('{trail.length > 1 && ('), 'the back arrow only exists once there is a way back')
 })
 
+test('a click inside the window is not stolen by the canvas', () => {
+  // The bug this exists for. A portal renders into <body> but still sits
+  // inside the canvas's REACT tree, so a pointerdown in the window bubbled
+  // to the pan handler, which captured the pointer to the canvas and
+  // swallowed every click in it.
+  assert.ok(peek.includes('data-flow-ui'), 'the canvas checks for this before starting a pan')
+  assert.ok(peek.includes('onPointerDown={(e) => e.stopPropagation()}'))
+  assert.ok(diagram.includes("e.target.closest('[data-flow-ui]')"))
+})
+
 test('the window is drawn at full size whatever the canvas is zoomed to', () => {
   // Inside the zoom transform it would be scaled with everything else,
   // which is the exact problem it exists to solve.
@@ -159,8 +219,8 @@ test('the window is drawn at full size whatever the canvas is zoomed to', () => 
 })
 
 test('panning or zooming closes it, because its anchor is a screen box', () => {
-  assert.ok(diagram.includes('closePeek()'))
-  assert.ok(wiredNear(diagram, 'function startPan(e) {', 'closePeek()'))
+  assert.ok(bodyOf(diagram, 'function startPan').includes('closePeek()'))
+  assert.ok(bodyOf(diagram, 'const zoomAt = useCallback').includes('closePeek()'))
 })
 
 test('the window can filter the page and open a branch on the canvas', () => {
@@ -190,9 +250,58 @@ test('a drag that starts on a card or a control does not pan the canvas', () => 
 // --- the reader's controls on the widget ---------------------------------
 
 test('the reader can re-order, hide hairlines and change the percentage base', () => {
-  assert.ok(widget.includes('onChange={(e) => setSortOrder(e.target.value)}'))
-  assert.ok(widget.includes('onChange={(e) => setMinShare(Number(e.target.value))}'))
-  assert.ok(widget.includes("setPercentBase((b) => (b === 'parent' ? 'root' : 'parent'))"))
+  assert.ok(widget.includes("onChange={(e) => commit({ sortOrder: e.target.value })}"))
+  assert.ok(widget.includes('onChange={(e) => commit({ minShare: Number(e.target.value) })}'))
+  assert.ok(widget.includes("commit((prev) => ({ percentBase: prev.percentBase === 'parent' ? 'root' : 'parent' }))"))
+})
+
+// --- undo, redo, reset ----------------------------------------------------
+
+test('every change to the exploration goes through one place', () => {
+  // Eight separate useStates was fine until undo: stepping back means
+  // restoring the whole exploration at once, and eight stacks that can
+  // drift apart is not one history, it is eight ways to end up somewhere
+  // that never existed.
+  assert.ok(widget.includes('const [history, setHistory] = useState(() => emptyHistory(initialExplore))'))
+  assert.ok(widget.includes('const explore = history.present'))
+  assert.ok(widget.includes('const commit = useCallback((patch) => {'))
+  for (const gone of ['setSortOrder(', 'setMinShare(', 'setPercentBase(', 'setExpanded(', 'setFocusByTree(']) {
+    assert.ok(!widget.includes(gone), `${gone} still bypasses the history`)
+  }
+})
+
+test('undo, redo and reset all have a button, and it disables when it cannot act', () => {
+  assert.ok(wiredNear(widget, 'title="Undo (Ctrl+Z)"', 'onClick={undo}'))
+  assert.ok(wiredNear(widget, 'title="Undo (Ctrl+Z)"', 'disabled={!canUndo(history)}'))
+  assert.ok(wiredNear(widget, 'title="Redo (Ctrl+Y)"', 'onClick={redo}'))
+  assert.ok(wiredNear(widget, 'title="Redo (Ctrl+Y)"', 'disabled={!canRedo(history)}'))
+  assert.ok(wiredNear(widget, 'Back to how this page opened', 'onClick={resetExplore}'))
+})
+
+test('Ctrl+Z and Ctrl+Y work while the pointer is over the widget', () => {
+  // Scoped to the widget, because a page can hold two flows and a
+  // browser-wide Ctrl+Z would step back through whichever it felt like.
+  assert.ok(widget.includes('const action = historyKeyAction(e)'))
+  assert.ok(widget.includes("if (action === 'undo') undo()"))
+  assert.ok(widget.includes('onPointerEnter={() => setEngaged(true)}'))
+  assert.ok(widget.includes('if (!engaged && !fullscreen) return undefined'))
+})
+
+test('Escape resets the exploration, and the reset is itself undoable', () => {
+  assert.ok(widget.includes("if (e.key === 'Escape' && !fullscreen) {"))
+  assert.ok(widget.includes('resetExplore()'))
+  assert.ok(widget.includes('resetHistory(h, initialExplore)'))
+})
+
+test('a keystroke aimed at a text box belongs to the text box', () => {
+  assert.ok(widget.includes('if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return'))
+})
+
+test('full screen is not part of the history', () => {
+  // It is where you are looking FROM, not what you are looking at, and
+  // undoing your way out of full screen would be baffling.
+  assert.ok(widget.includes('const [fullscreen, setFullscreen] = useState(false)'))
+  assert.ok(!widget.includes('fullscreen: false,'))
 })
 
 test('what was hidden is counted on screen, never silently dropped', () => {
@@ -201,7 +310,8 @@ test('what was hidden is counted on screen, never silently dropped', () => {
 })
 
 test('the worst drop-off is found for the reader and is clickable', () => {
-  assert.ok(wiredNear(widget, 'Worst drop:', 'onClick={() => focusNode(stats.worstDrop)}'))
+  assert.ok(widget.includes('Worst drop:'), 'it is stated')
+  assert.ok(widget.includes('onClick={() => focusNode(stats.worstDrop)}'), 'and clicking it goes there')
 })
 
 test('the breadcrumb out of a zoomed-in branch shows in BOTH views', () => {

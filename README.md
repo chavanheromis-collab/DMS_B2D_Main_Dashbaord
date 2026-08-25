@@ -814,7 +814,8 @@ Everything the canvas can do:
 | **Fit** | Frames everything. It re-frames itself as you open branches, and stops the moment you pan or zoom yourself. |
 | **100%** | The percentage readout is a button back to actual size. It used to be a second Fit button, which meant that once Fit had shrunk a big diagram there was no way back to reading it at full size. |
 | **Edge labels** | The number on each line can be turned off, for when the shape is what you're reading and forty pills are in the way. |
-| **Keyboard** | `+` `−` zoom · `0` fit · `1` actual size · `F` full screen · `/` search · `Esc` clear · arrows pan. Typing in the search box never zooms the canvas. |
+| **Undo / redo** | **Ctrl+Z** and **Ctrl+Y** (or Ctrl+Shift+Z) step back and forward through everything you've done to the flow — what's open, what you zoomed into, the breakdown column, the order, the percentage base, the view. **Esc** returns it to how the page opened, and *that* is undoable too: pressing Escape by accident shouldn't be the one action you can't take back. There are buttons for all three, and they grey out when there's nothing to step to. |
+| **Keyboard** | `+` `−` zoom · `0` fit · `1` actual size · `F` full screen · `/` search · arrows pan. Typing in a text box never steals the keystroke. |
 | **Zoom into a branch** | Double-click it, or use its ⤢ — it becomes the temporary top, with a **breadcrumb back out that now shows in both views** (it used to live only in the tree, so zooming in on the diagram left you with no visible way back). |
 
 #### Reading controls — the three questions a reader keeps re-asking
@@ -1773,6 +1774,7 @@ src/
   lib/flow.js             The drill-down tree: levels, branches, tab hops
   lib/flowLayout.js       Tidy-tree geometry for the flow's diagram view
   lib/flowView.js         Reading a flow: search, lineage, pruning, zoom, minimap, peek
+  lib/history.js          Undo/redo: a past, a present and a future
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties

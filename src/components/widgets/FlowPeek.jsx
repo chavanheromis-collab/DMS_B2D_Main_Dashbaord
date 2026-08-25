@@ -72,6 +72,15 @@ export default function FlowPeek({ node, anchor, onClose, onStay, onLeave, onFoc
     <div
       ref={ref}
       data-flow-peek
+      // `data-flow-ui` is not decoration. A portal renders into <body> but
+      // still sits inside the canvas's REACT tree, so a pointerdown in here
+      // bubbles to the canvas's pan handler -- which captured the pointer to
+      // the canvas and swallowed every click in this window. The canvas
+      // checks for this attribute before it starts a pan.
+      data-flow-ui
+      // And belt-and-braces: nothing in here is ever a canvas gesture,
+      // wherever this ends up being mounted.
+      onPointerDown={(e) => e.stopPropagation()}
       // Pointer events stay live, and moving into the window counts as
       // staying on the branch: it is meant to be scrolled and clicked, which
       // is what separates it from a tooltip.
