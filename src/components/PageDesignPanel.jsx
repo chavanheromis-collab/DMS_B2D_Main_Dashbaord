@@ -3,6 +3,7 @@ import { Columns3, Layout, Palette, RotateCcw, Type, X } from 'lucide-react'
 import {
   COLUMN_CHOICES,
   DEFAULT_DESIGN,
+  LAYOUT_MODES,
   PACKING_MODES,
   GAP_MAX,
   GAP_MIN,
@@ -11,6 +12,7 @@ import {
   clampDesign,
   isDefaultDesign,
 } from '../lib/pageDesign'
+import { SNAP_STEPS } from '../lib/freeLayout'
 import { WIDGET_THEMES } from '../lib/widgetStyle'
 
 /**
@@ -40,7 +42,18 @@ const SWATCHES = [
   { label: 'Slate', value: '#EEF2F7' },
 ]
 
-export default function PageDesignPanel({ design, theme, onChange, onThemeChange, onSave, onClose, saving, dirty }) {
+export default function PageDesignPanel({
+  design,
+  theme,
+  onChange,
+  onThemeChange,
+  onSave,
+  onClose,
+  onSeedFrames,
+  onTidy,
+  saving,
+  dirty,
+}) {
   const d = clampDesign(design)
   const [tab, setTab] = useState('layout')
   const set = (patch) => onChange({ ...d, ...patch })
@@ -77,8 +90,69 @@ export default function PageDesignPanel({ design, theme, onChange, onThemeChange
       <div className="max-h-[54vh] space-y-2.5 overflow-y-auto p-2.5">
         {tab === 'layout' && (
           <>
-            {/* First, because it is the one that decides whether the page
-                reads in the order it was built in. */}
+            {/* First, because everything below it depends on the answer. */}
+            <Row label="Layout">
+              <div className="flex gap-1">
+                {LAYOUT_MODES.map((m) => (
+                  <button
+                    key={m.value}
+                    onClick={() => {
+                      // Seeded from what is on screen BEFORE the switch, so
+                      // turning the free canvas on moves nothing.
+                      if (m.value === 'free' && d.layout !== 'free') onSeedFrames?.()
+                      set({ layout: m.value })
+                    }}
+                    title={m.hint}
+                    className={`flex-1 rounded border px-1.5 py-1 text-[11px] ${
+                      d.layout === m.value
+                        ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
+                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-0.5 text-[10px] text-slate-400">
+                {LAYOUT_MODES.find((m) => m.value === d.layout)?.hint}
+              </p>
+            </Row>
+
+            {d.layout === 'free' ? (
+              <>
+                <Row
+                  label="Snap while dragging"
+                  hint="Widgets also line up with each other's edges as you drag, whatever this says."
+                >
+                  <select
+                    value={String(d.snap)}
+                    onChange={(e) => set({ snap: Number(e.target.value) })}
+                    className="w-full rounded border border-slate-200 px-1.5 py-1 text-[11px] text-slate-600"
+                  >
+                    {SNAP_STEPS.map((step) => (
+                      <option key={step.value} value={step.value}>
+                        {step.label}
+                      </option>
+                    ))}
+                  </select>
+                </Row>
+
+                <button
+                  onClick={onTidy}
+                  className="w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
+                  title="Nudge every edge onto the nearest one already in use. Undoable like anything else."
+                >
+                  Tidy up the edges
+                </button>
+
+                <p className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] leading-relaxed text-slate-500">
+                  Turn on <strong>Arrange</strong> in the page header to drag widgets and pull their handles.
+                  Nothing is rounded to a column here — a widget is exactly where and exactly the size you put
+                  it, and its width is kept as a share of the page so the design holds on any screen.
+                </p>
+              </>
+            ) : (
+              <>
             <Row label="How widgets pack">
               <div className="flex gap-1">
                 {PACKING_MODES.map((m) => (
@@ -153,6 +227,9 @@ export default function PageDesignPanel({ design, theme, onChange, onThemeChange
                 ))}
               </div>
             </Row>
+
+              </>
+            )}
 
             <Slider
               label="Canvas width"

@@ -291,6 +291,63 @@ value, so anything that isn't plainly an image location is dropped rather than
 escaped. A rejected URL falls back to the app default rather than painting a
 blank slab.
 
+### Free canvas — a layout with no columns
+
+Every layout problem on this project has had the same root. The canvas is
+divided into columns; a widget has to claim whole ones; a widget pinned to
+260px where the columns are 316px therefore claims 316 and leaves 56px that
+nothing can ever fill. Three of those in a row is a strip of nothing, and a
+four-column widget can't fit in the three-column gap the row left behind — so
+that hole is permanent.
+
+Scaling the presets, making the column count a setting, snapping widths up,
+packing in rows: all of those help and **none of them removes the cause**. So
+there's now a layout mode with no columns at all.
+
+**Design → Layout → Free canvas.** Every widget has a **frame** — where it
+starts and how big it is — and that is exactly what's drawn. Nothing is
+rounded to anything, because there's nothing to round to.
+
+- **Drag the ⣿ handle** to move it anywhere.
+- **Eight resize handles** — corners and edges. A layout you can only resize
+  from the bottom-right is one you reposition twice for every size you change.
+- **It lines up with its neighbours as you drag.** Come within a few pixels of
+  another widget's edge, or its centre, or the canvas's edge or centre, and it
+  snaps there — with the line drawn across the canvas so you can see what it
+  snapped to. This is what stops a free canvas looking untidy: *nearly*
+  aligned is invisible at a glance and glaring in a screenshot.
+- **Snap while dragging** is a separate, optional grid: off (anywhere), 4, 8,
+  16 or 24px. **Off is a supported way to work**, not a broken one.
+- **Tidy up the edges** pulls everything that's nearly level onto the nearest
+  edge already in use. A tidy, not a re-layout — nothing moves far.
+
+#### The part that keeps it working on other screens
+
+A free canvas in pixels is a layout for the monitor it was made on. So a frame
+is stored in **mixed units**, which is the whole trick:
+
+| | |
+|---|---|
+| **x and width** | a **fraction** of the canvas (0–1) |
+| **y and height** | **pixels** |
+
+Horizontal space is shared out — a widget half the page wide is half the page
+wide on any screen — while vertical space is absolute, because a chart 300px
+tall is 300px tall whatever the width of the window. A design made on a laptop
+still reads on a 4K monitor with nobody re-doing it, and no widget ever needs
+a column again.
+
+#### Switching to it moves nothing
+
+Turning the free canvas on seeds every frame from **what's on screen at that
+moment**. An admin who opens it to nudge one widget finds everything exactly
+where it was a second ago — otherwise the feature's first act would be to
+destroy the layout it was opened to adjust. The column settings aren't deleted
+either, so switching back finds the page as it was.
+
+Only an admin in **Arrange** mode sees a handle at all; for everyone else
+there is nothing to drag and nothing to nudge by accident.
+
 ### Designing a page, from the page
 
 The admin panel is where a page is **built** — which tabs, which widgets,
@@ -1832,6 +1889,7 @@ src/
   lib/flowView.js         Reading a flow: search, lineage, pruning, zoom, minimap, peek
   lib/history.js          Undo/redo: a past, a present and a future
   lib/pageDesign.js       A page's own look: gaps, columns, scale, and moving widgets
+  lib/freeLayout.js       The columnless canvas: frames, snapping, guides, resizing
   lib/tdz.js              Finds a const used before the line that declares it
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)

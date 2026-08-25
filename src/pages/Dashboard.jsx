@@ -18,6 +18,7 @@ import { normalizeKey } from '../lib/dataUtils'
 import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
 import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
 import { DEFAULT_DESIGN, clampDesign, designVars, dropIndex, moveItem } from '../lib/pageDesign'
+import { framesFromBoxes, tidyFrames } from '../lib/freeLayout'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
 import { fixedValues, initialValues, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
@@ -31,6 +32,7 @@ import CrossFilterChips from '../components/CrossFilterChips.jsx'
 import MasonryGrid from '../components/MasonryGrid.jsx'
 import ArrangeBar from '../components/ArrangeBar.jsx'
 import PageDesignPanel from '../components/PageDesignPanel.jsx'
+import FreeCanvas from '../components/FreeCanvas.jsx'
 import KpiWidget from '../components/widgets/KpiWidget.jsx'
 import PipelineWidget from '../components/widgets/PipelineWidget.jsx'
 import FlowWidget from '../components/widgets/FlowWidget.jsx'
@@ -121,7 +123,20 @@ export default function Dashboard() {
       ) {
         return prev
       }
-      return { ...prev, [id]: { width, height, span: layout?.span, spanWidth: layout?.spanWidth } }
+      // The box as well as the size: switching to a free canvas has to
+      // reproduce exactly what is on screen, and it cannot do that without
+      // knowing where everything currently sits.
+      return {
+        ...prev,
+        [id]: {
+          width,
+          height,
+          span: layout?.span,
+          spanWidth: layout?.spanWidth,
+          left: layout?.box?.left,
+          top: layout?.box?.top,
+        },
+      }
     })
   }, [])
   // Per-widget control values, keyed by widget id then control id. Held here
@@ -152,6 +167,15 @@ export default function Dashboard() {
   )
   const pageTheme = themeDraft ?? page?.theme ?? ''
   const designDirty = designDraft !== null || themeDraft !== null
+
+  // Where each widget sits on a free canvas. Stored on the widget, like its
+  // size and its look, because it is a property of the page rather than of
+  // whoever happens to be reading it.
+  const frames = useMemo(() => {
+    const out = {}
+    for (const widget of page?.widgets || []) if (widget.frame) out[widget.id] = widget.frame
+    return out
+  }, [page?.widgets])
 
   /**
    * The rows this person is allowed to see on this page at all.
@@ -694,6 +718,64 @@ export default function Dashboard() {
     }
   }
 
+  /** Where one widget sits, after a drag or a resize. */
+  async function saveWidgetFrame(widgetId, frame) {
+    if (!isAdmin || !page?.id) return
+    const widgets = (page.widgets || []).map((w) => (w.id === widgetId ? { ...w, frame } : w))
+    setSavingLayout(true)
+    try {
+      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets }), { merge: true })
+    } finally {
+      setSavingLayout(false)
+    }
+  }
+
+  async function saveFrames(next) {
+    if (!isAdmin || !page?.id) return
+    const widgets = (page.widgets || []).map((w) => (next[w.id] ? { ...w, frame: next[w.id] } : w))
+    setSavingLayout(true)
+    try {
+      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets }), { merge: true })
+    } finally {
+      setSavingLayout(false)
+    }
+  }
+
+  /** The width of the canvas, as the widgets on it currently report it. */
+  function measuredCanvasWidth() {
+    let width = 0
+    for (const box of Object.values(sizes)) {
+      if (box?.left === undefined) continue
+      width = Math.max(width, box.left + box.width)
+    }
+    return width
+  }
+
+  /**
+   * Frames that reproduce what is on screen at this moment.
+   *
+   * Turning the free canvas on must not rearrange anything. An admin who
+   * opens it to nudge one widget should find every widget exactly where it
+   * was a second ago -- otherwise the feature's first act is to destroy the
+   * layout it was opened to adjust.
+   */
+  function seedFrames() {
+    const measured = {}
+    for (const [id, box] of Object.entries(sizes)) {
+      if (!box || box.left === undefined) continue
+      measured[id] = { left: box.left, top: box.top, width: box.width, height: box.height }
+    }
+    const canvas = measuredCanvasWidth()
+    if (canvas <= 0 || Object.keys(measured).length === 0) return
+    saveFrames(framesFromBoxes(measured, canvas))
+  }
+
+  /** Every edge nudged onto the nearest one already in use. */
+  function tidyCanvas() {
+    const canvas = measuredCanvasWidth() || 1200
+    saveFrames(tidyFrames(frames, canvas))
+  }
+
   async function saveWidgetSize(widgetId, patch) {
     if (!isAdmin || !page?.id) return
 
@@ -857,201 +939,10 @@ export default function Dashboard() {
   // surface and are deliberately unaffected.
   const lightText = usesLightText(page?.background)
 
-  return (
-    <>
-      {/* This page's own backdrop, on its own fixed layers BEHIND everything.
-          Painting it here rather than as a background on the content
-          container is what lets opacity and blur apply to the backdrop
-          alone -- on the container they would fade and smear the widgets
-          sitting inside it. */}
-      {bgLayers && (
-        <>
-          <div
-            aria-hidden
-            className="pointer-events-none fixed inset-0"
-            style={{ ...bgLayers.base, zIndex: 0 }}
-          />
-          {bgLayers.overlay && (
-            <div
-              aria-hidden
-              className="pointer-events-none fixed inset-0"
-              style={{ ...bgLayers.overlay, zIndex: 0 }}
-            />
-          )}
-        </>
-      )}
-
-      <AppShell pages={visiblePages} activePageId={pageId} title={page?.name || 'Dashboard'} actions={headerActions}>
-      {/* Sits above the backdrop layers. The sidebar is z-30 and stays above
-          both. */}
-      <div
-        className={`page-canvas relative z-[1] min-h-screen space-y-3 p-3 md:p-4 ${lightText ? 'page-invert' : ''}`}
-        // The whole design, as custom properties. `.card` already reads
-        // `--card-*` (see index.css), so a page-wide surface is one
-        // declaration on this element and no widget learns anything new.
-        style={{
-          ...designVars(design),
-          ...(design.maxWidth > 0 ? { maxWidth: design.maxWidth, marginInline: 'auto' } : null),
-        }}
-      >
-        {/* --- Page header (desktop; mobile gets AppShell's top bar) ----- */}
-        <div className="page-chrome hidden flex-wrap items-center justify-between gap-3 lg:flex">
-          <div className="min-w-0">
-            <h1 className="flex items-center gap-2 truncate text-xl font-semibold text-ink">
-              <PageIcon page={page} size={22} />
-              {page?.name || 'Dashboard'}
-            </h1>
-            <p className="truncate text-xs text-slate-400">
-              {page?.description ||
-                (sourceNames.length ? `${sourceNames.length} source${sourceNames.length > 1 ? 's' : ''} · ${sourceNames.join(' · ')}` : 'No data sources connected')}
-              {lastLoaded && ` · updated ${lastLoaded.toLocaleTimeString()}`}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">{headerActions}</div>
-        </div>
-
-        {/* --- Canvas tabs: this page's sub-canvases ---------------------- */}
-        {canvas && (
-          <div className="page-chrome page-chrome-surface flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white/80 p-1 backdrop-blur">
-            {canvas.tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => navigate(`/d/${tab.id}`)}
-                title={tab.name}
-                className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
-                  tab.id === pageId
-                    ? 'bg-gradient-to-r from-indigo-500 to-sky-400 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <PageIcon page={tab} size={15} />
-                {/* Which name a tab shows is the page's own choice -- a tab
-                    strip has more room than a sidebar entry, so it may opt
-                    into the full page title. */}
-                {canvasLabelFor(tab)}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* --- Arrange mode banner ---------------------------------------- */}
-        {arranging && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-800">
-            <ArrowUpDown size={13} />
-            <span>
-              <strong>Drag the ⣿ handle</strong> to move a widget — that reorders the page for everyone. Every
-              widget also wears a pill showing its position and real size; click it to edit, or use its 🖌 to
-              change how that one widget looks. <strong>#</strong> is the position: lower first, blank leaves it
-              where it is, and it is yours alone. <strong>W</strong> and <strong>H</strong> are pixels and belong to
-              the page — or set a width in <em>columns</em> instead and no pixels are involved at all. They save
-              when you leave the box, press Enter, or pause; Escape puts back what was saved. An amber{' '}
-              <strong>+n</strong> means that widget claims n pixels of the canvas it doesn’t use, and the ⤢ inside
-              widens it to close the gap. The <strong>palette</strong> button in the page header opens spacing,
-              columns, text size and the card surface.
-            </span>
-            {savingLayout && <span className="text-[10px] font-medium text-indigo-500">saving…</span>}
-            <div className="ml-auto flex gap-2">
-              <button
-                onClick={clearOrder}
-                className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] hover:bg-indigo-50"
-              >
-                <RotateCcw size={11} /> Reset to default
-              </button>
-              <button
-                onClick={() => setArranging(false)}
-                className="rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-indigo-700"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        )}
-
-        {wsLoading && <div className="card py-10 text-center text-slate-400">Loading workspace…</div>}
-
-        {!wsLoading && pages.length === 0 && (
-          <div className="card py-10 text-center text-slate-400">
-            🧭 No dashboard pages exist yet.
-            {isAdmin ? ' Create one in the admin panel.' : ' Ask an admin to build one.'}
-          </div>
-        )}
-
-        {!wsLoading && page && !canView && (
-          <div className="card py-10 text-center text-slate-400">
-            🔒 You don’t have access to <strong>{page.name}</strong> yet. Ask an admin to grant it.
-          </div>
-        )}
-
-        {canView && page && (page.sourceIds || []).length === 0 && (
-          <div className="card py-10 text-center text-slate-400">
-            🔌 No spreadsheet is connected to <strong>{page.name}</strong> yet.
-            {isAdmin && ' Connect one in the admin panel.'}
-          </div>
-        )}
-
-        {canView && page && allowedWidgets.length === 0 && (page.sourceIds || []).length > 0 && (
-          <div className="card py-10 text-center text-slate-400">
-            🧱 This page has no widgets you can see.
-            {isAdmin ? ' Add tables, KPIs and charts in the admin panel.' : ''}
-          </div>
-        )}
-
-        {canView && error && (
-          <div className="card space-y-3 py-8 text-center">
-            <p className="text-sm text-rose-500">{error.message}</p>
-            {error instanceof SheetsAuthError ? (
-              <p className="text-xs text-slate-400">Try signing out and back in.</p>
-            ) : (
-              <button onClick={reload} className="rounded-lg bg-ink px-4 py-2 text-sm text-white">
-                Retry
-              </button>
-            )}
-          </div>
-        )}
-
-        {canView && !error && allowedWidgets.length > 0 && (
-          <>
-            <ControlBar
-              controls={view.controls}
-              values={filterValues}
-              onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
-              activeButtonIds={activeButtonIds}
-              onToggleButton={toggleButton}
-              onClearButtons={() => setActiveButtonIds([])}
-              onReset={resetFilters}
-              search={search}
-              onSearch={setSearch}
-              showSearch={!page?.hideSearch}
-              views={views}
-              onApplyView={applyView}
-              tabsData={dataByLabel}
-              optionRows={optionRowsByControl}
-              totalLabel={totalLabel}
-              dateOrder={dateOrder}
-            />
-
-            <CrossFilterChips
-              crossFilters={crossFilters}
-              onRemove={(id) => setCrossFilters((c) => c.filter((x) => x.id !== id))}
-              onClear={() => setCrossFilters([])}
-            />
-
-            {editError && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">
-                {editError}
-              </div>
-            )}
-
-            <MasonryGrid
-              gap={design.gapX}
-              gapY={design.gapY}
-              columns={design.columns}
-              packing={design.packing}
-              stretch={design.snapWidths}
-              draggable={isAdmin && arranging}
-              onMove={moveWidgetTo}
-              onMeasure={noteSize}
-              items={view.widgets.map((widget, index) => {
+  // The widgets themselves, built once and handed to whichever layout
+  // is drawing them -- so switching between the two cannot possibly
+  // change what is on the page, only where it sits.
+  const widgetItems = view.widgets.map((widget, index) => {
                 const blended = blendedByWidget[widget.id]
                 const tabData = dataByLabel[widget.tab]
                 const headers = blended ? blended.headers : tabData?.headers || []
@@ -1288,8 +1179,217 @@ export default function Dashboard() {
                     </div>
                   ),
                 }
-              })}
+              })
+
+  return (
+    <>
+      {/* This page's own backdrop, on its own fixed layers BEHIND everything.
+          Painting it here rather than as a background on the content
+          container is what lets opacity and blur apply to the backdrop
+          alone -- on the container they would fade and smear the widgets
+          sitting inside it. */}
+      {bgLayers && (
+        <>
+          <div
+            aria-hidden
+            className="pointer-events-none fixed inset-0"
+            style={{ ...bgLayers.base, zIndex: 0 }}
+          />
+          {bgLayers.overlay && (
+            <div
+              aria-hidden
+              className="pointer-events-none fixed inset-0"
+              style={{ ...bgLayers.overlay, zIndex: 0 }}
             />
+          )}
+        </>
+      )}
+
+      <AppShell pages={visiblePages} activePageId={pageId} title={page?.name || 'Dashboard'} actions={headerActions}>
+      {/* Sits above the backdrop layers. The sidebar is z-30 and stays above
+          both. */}
+      <div
+        className={`page-canvas relative z-[1] min-h-screen space-y-3 p-3 md:p-4 ${lightText ? 'page-invert' : ''}`}
+        // The whole design, as custom properties. `.card` already reads
+        // `--card-*` (see index.css), so a page-wide surface is one
+        // declaration on this element and no widget learns anything new.
+        style={{
+          ...designVars(design),
+          ...(design.maxWidth > 0 ? { maxWidth: design.maxWidth, marginInline: 'auto' } : null),
+        }}
+      >
+        {/* --- Page header (desktop; mobile gets AppShell's top bar) ----- */}
+        <div className="page-chrome hidden flex-wrap items-center justify-between gap-3 lg:flex">
+          <div className="min-w-0">
+            <h1 className="flex items-center gap-2 truncate text-xl font-semibold text-ink">
+              <PageIcon page={page} size={22} />
+              {page?.name || 'Dashboard'}
+            </h1>
+            <p className="truncate text-xs text-slate-400">
+              {page?.description ||
+                (sourceNames.length ? `${sourceNames.length} source${sourceNames.length > 1 ? 's' : ''} · ${sourceNames.join(' · ')}` : 'No data sources connected')}
+              {lastLoaded && ` · updated ${lastLoaded.toLocaleTimeString()}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">{headerActions}</div>
+        </div>
+
+        {/* --- Canvas tabs: this page's sub-canvases ---------------------- */}
+        {canvas && (
+          <div className="page-chrome page-chrome-surface flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white/80 p-1 backdrop-blur">
+            {canvas.tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => navigate(`/d/${tab.id}`)}
+                title={tab.name}
+                className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
+                  tab.id === pageId
+                    ? 'bg-gradient-to-r from-indigo-500 to-sky-400 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <PageIcon page={tab} size={15} />
+                {/* Which name a tab shows is the page's own choice -- a tab
+                    strip has more room than a sidebar entry, so it may opt
+                    into the full page title. */}
+                {canvasLabelFor(tab)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* --- Arrange mode banner ---------------------------------------- */}
+        {arranging && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-800">
+            <ArrowUpDown size={13} />
+            <span>
+              <strong>Drag the ⣿ handle</strong> to move a widget — that reorders the page for everyone. Every
+              widget also wears a pill showing its position and real size; click it to edit, or use its 🖌 to
+              change how that one widget looks. <strong>#</strong> is the position: lower first, blank leaves it
+              where it is, and it is yours alone. <strong>W</strong> and <strong>H</strong> are pixels and belong to
+              the page — or set a width in <em>columns</em> instead and no pixels are involved at all. They save
+              when you leave the box, press Enter, or pause; Escape puts back what was saved. An amber{' '}
+              <strong>+n</strong> means that widget claims n pixels of the canvas it doesn’t use, and the ⤢ inside
+              widens it to close the gap. The <strong>palette</strong> button in the page header opens spacing,
+              columns, text size and the card surface.
+            </span>
+            {savingLayout && <span className="text-[10px] font-medium text-indigo-500">saving…</span>}
+            <div className="ml-auto flex gap-2">
+              <button
+                onClick={clearOrder}
+                className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] hover:bg-indigo-50"
+              >
+                <RotateCcw size={11} /> Reset to default
+              </button>
+              <button
+                onClick={() => setArranging(false)}
+                className="rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-indigo-700"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+
+        {wsLoading && <div className="card py-10 text-center text-slate-400">Loading workspace…</div>}
+
+        {!wsLoading && pages.length === 0 && (
+          <div className="card py-10 text-center text-slate-400">
+            🧭 No dashboard pages exist yet.
+            {isAdmin ? ' Create one in the admin panel.' : ' Ask an admin to build one.'}
+          </div>
+        )}
+
+        {!wsLoading && page && !canView && (
+          <div className="card py-10 text-center text-slate-400">
+            🔒 You don’t have access to <strong>{page.name}</strong> yet. Ask an admin to grant it.
+          </div>
+        )}
+
+        {canView && page && (page.sourceIds || []).length === 0 && (
+          <div className="card py-10 text-center text-slate-400">
+            🔌 No spreadsheet is connected to <strong>{page.name}</strong> yet.
+            {isAdmin && ' Connect one in the admin panel.'}
+          </div>
+        )}
+
+        {canView && page && allowedWidgets.length === 0 && (page.sourceIds || []).length > 0 && (
+          <div className="card py-10 text-center text-slate-400">
+            🧱 This page has no widgets you can see.
+            {isAdmin ? ' Add tables, KPIs and charts in the admin panel.' : ''}
+          </div>
+        )}
+
+        {canView && error && (
+          <div className="card space-y-3 py-8 text-center">
+            <p className="text-sm text-rose-500">{error.message}</p>
+            {error instanceof SheetsAuthError ? (
+              <p className="text-xs text-slate-400">Try signing out and back in.</p>
+            ) : (
+              <button onClick={reload} className="rounded-lg bg-ink px-4 py-2 text-sm text-white">
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+
+        {canView && !error && allowedWidgets.length > 0 && (
+          <>
+            <ControlBar
+              controls={view.controls}
+              values={filterValues}
+              onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
+              activeButtonIds={activeButtonIds}
+              onToggleButton={toggleButton}
+              onClearButtons={() => setActiveButtonIds([])}
+              onReset={resetFilters}
+              search={search}
+              onSearch={setSearch}
+              showSearch={!page?.hideSearch}
+              views={views}
+              onApplyView={applyView}
+              tabsData={dataByLabel}
+              optionRows={optionRowsByControl}
+              totalLabel={totalLabel}
+              dateOrder={dateOrder}
+            />
+
+            <CrossFilterChips
+              crossFilters={crossFilters}
+              onRemove={(id) => setCrossFilters((c) => c.filter((x) => x.id !== id))}
+              onClear={() => setCrossFilters([])}
+            />
+
+            {editError && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">
+                {editError}
+              </div>
+            )}
+
+            {/* Two ways of PLACING the same widgets. The free canvas has
+                no columns at all, so nothing is ever rounded up and no gap
+                is left behind; the automatic one packs them for you. */}
+            {design.layout === 'free' ? (
+              <FreeCanvas
+                items={widgetItems}
+                frames={frames}
+                editable={isAdmin && arranging}
+                snap={design.snap}
+                onChange={saveWidgetFrame}
+              />
+            ) : (
+              <MasonryGrid
+                items={widgetItems}
+                gap={design.gapX}
+                gapY={design.gapY}
+                columns={design.columns}
+                packing={design.packing}
+                stretch={design.snapWidths}
+                draggable={isAdmin && arranging}
+                onMove={moveWidgetTo}
+                onMeasure={noteSize}
+              />
+            )}
 
             {loading && view.widgets.length === 0 && (
               <div className="card py-10 text-center text-slate-400">Loading…</div>
@@ -1307,6 +1407,8 @@ export default function Dashboard() {
           onChange={setDesignDraft}
           onThemeChange={setThemeDraft}
           onSave={savePageDesign}
+          onSeedFrames={seedFrames}
+          onTidy={tidyCanvas}
           onClose={() => {
             setDesigning(false)
             // An unsaved design is discarded on close rather than left

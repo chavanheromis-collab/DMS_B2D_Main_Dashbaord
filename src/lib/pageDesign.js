@@ -49,6 +49,15 @@ export const DEFAULT_DESIGN = {
   // How wide the canvas is allowed to get on a very large screen. 0 means
   // "all of it".
   maxWidth: 0,
+  // 'auto' is the twelve-column packer below; 'free' is a canvas with no
+  // columns at all, where a widget is exactly where and exactly the size the
+  // admin put it (see lib/freeLayout.js). The column settings below apply
+  // only to 'auto', and are left alone rather than deleted so that switching
+  // back finds the page as it was.
+  layout: 'auto',
+  // How far a free canvas rounds a drag. 0 is "anywhere", and that is a
+  // supported way to work rather than a broken one.
+  snap: 8,
   // 'masonry' fills gaps; 'rows' keeps the admin's order strictly, left to
   // right, wrapping at the edge. Neither is right for every page, which is
   // why it is a setting and not a decision baked into the packer.
@@ -58,6 +67,19 @@ export const DEFAULT_DESIGN = {
   // space beside it; on, the row closes up.
   snapWidths: false,
 }
+
+export const LAYOUT_MODES = [
+  {
+    value: 'auto',
+    label: 'Automatic',
+    hint: 'Widgets are packed into columns for you. Simple, and it re-flows on every screen by itself.',
+  },
+  {
+    value: 'free',
+    label: 'Free canvas',
+    hint: 'Drag and resize anything anywhere. No columns, so nothing is ever rounded up and no gap is left behind.',
+  },
+]
 
 export const PACKING_MODES = [
   { value: 'masonry', label: 'Fill gaps', hint: 'Shorter widgets are tucked under each other. Best for cards of very different heights.' },
@@ -82,6 +104,8 @@ export function clampDesign(design) {
   const columns = COLUMN_CHOICES.includes(Number(d.columns)) ? Number(d.columns) : DEFAULT_DESIGN.columns
   return {
     ...d,
+    layout: d.layout === 'free' ? 'free' : 'auto',
+    snap: Math.round(clamp(d.snap, 0, 64, 8)),
     packing: d.packing === 'rows' ? 'rows' : 'masonry',
     snapWidths: d.snapWidths === true,
     gapX: Math.round(clamp(d.gapX, GAP_MIN, GAP_MAX, DEFAULT_DESIGN.gapX)),

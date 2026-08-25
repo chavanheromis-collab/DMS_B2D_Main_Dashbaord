@@ -157,3 +157,63 @@ test('both are controls on the panel, not settings only code can reach', () => {
   assert.ok(panel.includes('onChange={(e) => set({ snapWidths: e.target.checked })}'))
   assert.ok(panel.includes('PACKING_MODES.map'))
 })
+
+// --- a canvas with no columns --------------------------------------------
+
+const free = read('components/FreeCanvas.jsx')
+
+test('the page chooses which layout draws it, and both draw the same widgets', () => {
+  // Switching between the two cannot change what is on the page, only where
+  // it sits: the widget list is built once and handed to whichever is used.
+  assert.ok(dashboard.includes('const widgetItems = view.widgets.map('))
+  assert.ok(dashboard.includes("design.layout === 'free' ? ("))
+  assert.ok(dashboard.includes('<FreeCanvas items={widgetItems}'))
+  assert.ok(dashboard.includes('<MasonryGrid items={widgetItems}'))
+})
+
+test('a frame is stored on the widget and saved for everyone', () => {
+  assert.ok(dashboard.includes('async function saveWidgetFrame(widgetId, frame)'))
+  assert.ok(dashboard.includes('onChange={saveWidgetFrame}'))
+  assert.ok(dashboard.includes('if (widget.frame) out[widget.id] = widget.frame'))
+})
+
+test('turning the free canvas on seeds from what is on screen', () => {
+  // Its first act must not be to destroy the layout it was opened to adjust.
+  assert.ok(dashboard.includes('function seedFrames()'))
+  assert.ok(dashboard.includes('framesFromBoxes(measured, canvas)'))
+  assert.ok(panel.includes("if (m.value === 'free' && d.layout !== 'free') onSeedFrames?.()"))
+  assert.ok(dashboard.includes('onSeedFrames={seedFrames}'))
+})
+
+test('the grid reports where a widget is, not only how big it is', () => {
+  assert.ok(dashboard.includes('left: layout?.box?.left'))
+  assert.ok(grid.includes('box: { left, top: p.top, width'))
+})
+
+test('a widget can be moved and resized from eight handles', () => {
+  assert.ok(free.includes("begin(item.id, 'move', e)"))
+  assert.ok(free.includes('HANDLES.map((handle) => ('))
+  assert.ok(free.includes('begin(item.id, handle, e)'))
+  assert.ok(free.includes('resizeBox(d.box, d.handle, dx, dy)'))
+})
+
+test('dragging snaps to the step and to the neighbours, and shows the lines', () => {
+  assert.ok(free.includes('snapBox(next, snap)'))
+  assert.ok(free.includes('alignBox(next, others, { canvasWidth: width })'))
+  assert.ok(free.includes('drag?.guides.map('))
+})
+
+test('a press that never moved does not write a frame', () => {
+  assert.ok(free.includes('if (current && d?.moved && width > 0) onChange?.(d.id, pxToFrame(current.box, width))'))
+})
+
+test('only an admin arranging sees a handle at all', () => {
+  assert.ok(free.includes('{editable && ('))
+  assert.ok(dashboard.includes('editable={isAdmin && arranging}'))
+})
+
+test('the snap step and the tidy action are controls, not constants', () => {
+  assert.ok(panel.includes('onChange={(e) => set({ snap: Number(e.target.value) })}'))
+  assert.ok(panel.includes('onClick={onTidy}'))
+  assert.ok(dashboard.includes('onTidy={tidyCanvas}'))
+})
