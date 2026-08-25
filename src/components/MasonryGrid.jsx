@@ -253,16 +253,20 @@ export default function MasonryGrid({
         }
         const left = p.col * (colWidth + gap)
         const spanWidth = p.span * colWidth + (p.span - 1) * gap
+        // A pixel-sized widget draws at exactly its number, but never past
+        // the right edge -- measured from where it actually sits, not from
+        // the canvas origin, or a widget in column 7 spills off the page.
+        const width = drawnWidth(item.widthPx, { left, containerWidth, spanWidth })
+
+        // Recorded AFTER the width exists, not before: a drop is aimed at
+        // these boxes, and a box cannot know how wide it is before its
+        // width has been worked out.
         layoutRef.current[item.id] = {
           span: p.span,
           spanWidth: Math.round(spanWidth),
           columns,
           box: { left, top: p.top, width, height: heights[item.id] ?? item.estimatedHeight ?? FALLBACK_HEIGHT },
         }
-        // A pixel-sized widget draws at exactly its number, but never past
-        // the right edge -- measured from where it actually sits, not from
-        // the canvas origin, or a widget in column 7 spills off the page.
-        const width = drawnWidth(item.widthPx, { left, containerWidth, spanWidth })
         const dragging = drag?.id === item.id
         const marked = drag && drag.over?.id === item.id
         return (

@@ -1830,6 +1830,7 @@ src/
   lib/flowView.js         Reading a flow: search, lineage, pruning, zoom, minimap, peek
   lib/history.js          Undo/redo: a past, a present and a future
   lib/pageDesign.js       A page's own look: gaps, columns, scale, and moving widgets
+  lib/tdz.js              Finds a const used before the line that declares it
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties
