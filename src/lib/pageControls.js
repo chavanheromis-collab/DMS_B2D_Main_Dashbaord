@@ -82,8 +82,20 @@ export const isButton = (control) => control?.kind === 'button'
  */
 export function controlColumns(control) {
   const many = (control?.columns || []).filter(Boolean)
-  if (many.length) return many
-  return control?.column ? [control.column] : []
+  const single = control?.column ? [control.column] : []
+  if (!many.length) return single
+
+  // Joining is a decision somebody makes, not one inferred from the fact
+  // that a list has two things in it. `concat` is that decision -- so an
+  // admin can pick the columns, look at the result, and turn it off again
+  // without losing what they picked.
+  //
+  // A page saved before the switch existed said "join" by having a list at
+  // all, so an absent flag means exactly what it used to -- including the
+  // odd shapes, like a one-entry list naming a different column from
+  // `column`. Only an explicit `false` collapses back to the single one.
+  const on = control?.concat === undefined ? many.length > 0 : control.concat === true
+  return on ? many : single
 }
 
 export const DEFAULT_JOIN = ' · '

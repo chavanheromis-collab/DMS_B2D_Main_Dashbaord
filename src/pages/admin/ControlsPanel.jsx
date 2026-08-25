@@ -41,8 +41,11 @@ const KIND_OPTIONS = CONTROL_GROUPS.flatMap((group) =>
  * order.
  */
 function JoinColumns({ control, cols, set }) {
+  const saved = (control.columns || []).filter(Boolean)
+  const on = control.concat === undefined ? saved.length > 1 : control.concat === true
+  // (the editor only ever writes a list when there is something to join)
   const chosen = controlColumns(control)
-  const extra = chosen.slice(1)
+  const extra = (on ? chosen : saved).slice(1)
 
   function toggle(column) {
     const next = extra.includes(column) ? extra.filter((c) => c !== column) : [...extra, column]
@@ -55,10 +58,32 @@ function JoinColumns({ control, cols, set }) {
 
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+      {/* The switch first. Ticking a column used to BE the decision, which
+          meant there was no way to look at a joined control, decide against
+          it, and get back -- except by un-picking every column one at a
+          time. The columns are remembered while it is off. */}
+      <label className="mb-1 flex items-start gap-1.5">
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) => set({ concat: e.target.checked })}
+          className="mt-0.5 h-3 w-3"
+        />
+        <span>
+          <span className="text-[11px] font-medium text-slate-600">Join other columns into the value</span>
+          <span className="block text-[10px] text-slate-400">
+            “Ravi” is ambiguous when two branches have one. “West · Ravi” is not — and it is one control rather
+            than two the reader has to set in the right order.
+          </span>
+        </span>
+      </label>
+
+      {!on ? null : (
+      <>
       <p className="mb-1 text-[11px] font-medium text-slate-500">
         Also show{' '}
         <span className="font-normal text-slate-400">
-          (joined onto <strong>{control.column}</strong> — optional)
+          (joined onto <strong>{control.column}</strong>)
         </span>
       </p>
 
@@ -84,15 +109,17 @@ function JoinColumns({ control, cols, set }) {
       <p className="mt-1 text-[10px] text-slate-400">
         {extra.length > 0 ? (
           <>
-            Values read <strong>{chosen.join(control.join ?? DEFAULT_JOIN)}</strong>. Only the combinations that
-            actually occur are listed — three regions and forty names is a hundred and twenty options, and most of
-            them do not exist. A blank part shows as “(blank)” rather than collapsing, so two different rows never
-            merge into one option. <strong>Bucket by</strong> applies to a single column only.
+            Values read <strong>{[control.column, ...extra].join(control.join ?? DEFAULT_JOIN)}</strong>. Only the
+            combinations that actually occur are listed — three regions and forty names is a hundred and twenty
+            options, and most of them do not exist. A blank part shows as “(blank)” rather than collapsing, so two
+            different rows never merge into one option. <strong>Bucket by</strong> applies to a single column only.
           </>
         ) : (
-          <>One column. Add another where a value is ambiguous on its own — two branches with a Ravi in each.</>
+          <>Pick the columns to join on. Nothing is joined until at least one is chosen.</>
         )}
       </p>
+      </>
+      )}
     </div>
   )
 }
@@ -363,7 +390,9 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         />
                       </div>
                     )}
-                    {['select', 'multi', 'chips'].includes(control.kind) && (control.columns || []).length > 1 && (
+                    {/* The separator only matters once joining is actually on. */}
+                    {['select', 'multi', 'chips'].includes(control.kind) &&
+                      controlColumns(control).length > 1 && (
                       <Field label="Joined with" className="w-28" hint="Between the parts.">
                         <TextInput
                           value={control.join ?? DEFAULT_JOIN}

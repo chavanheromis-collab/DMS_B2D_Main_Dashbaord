@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
+import { controlColumns } from './pageControls.js'
 import {
   applyWidgetControls,
   controlIsActive,
@@ -201,4 +202,38 @@ test('a page falls back to its emoji when no image is set or usable', () => {
     type: 'image',
     url: 'https://e.com/l.png',
   })
+})
+
+// --- joining columns is a switch -----------------------------------------
+
+test('joining is on only when it has been switched on', () => {
+  // Ticking a column used to BE the decision, so there was no way to look at
+  // a joined control, decide against it, and get back except by un-picking
+  // every column one at a time.
+  const control = { column: 'Rep', columns: ['Rep', 'Branch'] }
+  assert.deepEqual(controlColumns({ ...control, concat: true }), ['Rep', 'Branch'])
+  assert.deepEqual(controlColumns({ ...control, concat: false }), ['Rep'], 'off means the first column only')
+})
+
+test('the columns are remembered while the switch is off', () => {
+  const control = { column: 'Rep', columns: ['Rep', 'Branch'], concat: false }
+  assert.deepEqual(controlColumns({ ...control, concat: true }), ['Rep', 'Branch'], 'and come back when it is on')
+})
+
+test('a control saved before the switch existed keeps working', () => {
+  // Absence means exactly what it used to: a list at all is a join. That
+  // includes the odd shapes -- a one-entry list naming a different column
+  // from `column` -- because somewhere there is a page relying on one.
+  assert.deepEqual(controlColumns({ column: 'Rep', columns: ['Rep', 'Branch'] }), ['Rep', 'Branch'])
+  assert.deepEqual(controlColumns({ column: 'Region', columns: ['Rep'] }), ['Rep'])
+  assert.deepEqual(controlColumns({ column: 'Rep' }), ['Rep'])
+})
+
+test('switching it on with nothing picked joins nothing', () => {
+  assert.deepEqual(controlColumns({ column: 'Rep', columns: [], concat: true }), ['Rep'])
+})
+
+test('a control with no column at all has no columns', () => {
+  assert.deepEqual(controlColumns({}), [])
+  assert.deepEqual(controlColumns(null), [])
 })

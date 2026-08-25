@@ -17,6 +17,7 @@ import { FLOW_ORIENTATIONS } from '../../lib/flowLayout'
 import BlendEditor from './BlendEditor.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, optValue, useWorkspaceCtx } from './ui.jsx'
+import { BucketPicker } from './WidgetEditors.jsx'
 
 /**
  * Authoring a flow.
@@ -803,6 +804,9 @@ function SplitLevel({ level, cols, setLevel }) {
           placeholder="— column —"
         />
       </Field>
+      {/* The same bucketing every other place that groups by a column has:
+          four hundred dates read as four years. */}
+      <BucketPicker widget={level} set={setLevel} label="Bucket the branches" />
       <Field label="Order" className="w-36">
         <Select value={level.sort || 'value_desc'} onChange={(v) => setLevel({ sort: v })} options={FLOW_SORTS} />
       </Field>

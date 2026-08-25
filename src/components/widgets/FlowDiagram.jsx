@@ -345,6 +345,15 @@ export default function FlowDiagram({
     if (!lens) return
     const el = viewportRef.current
     if (!el) return
+
+    // Not over the controls. The glass is drawn above them, so magnifying
+    // there covers the very button being reached for -- and a magnified
+    // toolbar is not a thing anybody wants to look at.
+    if (e.target.closest?.('[data-flow-ui]')) {
+      setLensAt(null)
+      return
+    }
+
     const rect = el.getBoundingClientRect()
     setLensAt({ x: e.clientX - rect.left, y: e.clientY - rect.top })
   }

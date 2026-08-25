@@ -362,6 +362,11 @@ export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
           <div>
             <p className="text-sm font-semibold text-slate-800">Optional pivot table</p>
             <p className="text-[11px] text-slate-500">Show a pivot table for this stage in the popup.</p>
+            <PivotBuckets
+              columns={[pivotConfig.rowColumn, pivotConfig.colColumn]}
+              widget={pivotConfig}
+              set={(patch) => setStage({ pivot: { ...pivotConfig, ...patch } })}
+            />
           </div>
         </div>
 
@@ -1120,7 +1125,7 @@ export function PivotEditor({ widget, cols, set }) {
  * A "Region / Sold" axis wants the region as it is and the date by month --
  * one setting for the pair would force the wrong answer on one of them.
  */
-function PivotBuckets({ columns, widget, set }) {
+export function PivotBuckets({ columns, widget, set }) {
   const buckets = widget.buckets || {}
   const used = columns.filter(Boolean)
   if (used.length === 0) return null

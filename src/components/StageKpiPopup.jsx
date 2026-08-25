@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Filter } from 'lucide-react'
-import { aggregate, formatNumber, pivot } from '../lib/dataUtils'
+import { aggregate, bucketConditions, formatNumber, pivot } from '../lib/dataUtils'
 import { matchesConditions } from '../lib/filterEngine'
 
 const MARGIN = 10 // keep the popup this far from the viewport edge
@@ -109,10 +109,25 @@ export default function StageKpiPopup({
    * it drills as "this column is empty" rather than as the literal text,
    * which would match nothing and look like a broken click.
    */
-  const valueCondition = (column, label) =>
-    String(label) === '(blank)'
-      ? { column, operator: 'is_empty', value: '' }
+  const valueCondition = (column, label) => {
+    if (String(label) === '(blank)') return { column, operator: 'is_empty', value: '' }
+    // A bucketed axis needs the conditions that DEFINE the bucket. "May
+    // 2024" is not a value in the date column, so an equals on the label
+    // would filter to nothing at all.
+    const spec = stage?.pivot?.buckets?.[column]
+    const fromBucket = spec?.bucket ? bucketConditions(column, label, spec, dateOrder) : null
+    return fromBucket && fromBucket.length === 1
+      ? fromBucket[0]
       : { column, operator: 'equals', value: String(label) }
+  }
+
+  /** The same, for a label that may need more than one condition. */
+  const valueConditions = (column, label) => {
+    if (String(label) === '(blank)') return [{ column, operator: 'is_empty', value: '' }]
+    const spec = stage?.pivot?.buckets?.[column]
+    const fromBucket = spec?.bucket ? bucketConditions(column, label, spec, dateOrder) : null
+    return fromBucket || [{ column, operator: 'equals', value: String(label) }]
+  }
 
   const drillValue = (key, label, conditions) =>
     onDrillValue && onDrillValue(stage, { key, label, conditions })
@@ -152,8 +167,10 @@ export default function StageKpiPopup({
       colColumn: stage.pivot.colColumn,
       valueColumn: stage.pivot.column,
       aggregation: stage.pivot.aggregation || 'count',
+      buckets: stage.pivot.buckets,
+      dateOrder,
     })
-  }, [stage, baseRows])
+  }, [stage, baseRows, dateOrder])
 
   const leaderboardData = useMemo(() => {
     if (!stage?.leaderboard?.groupBy) return null
@@ -315,7 +332,7 @@ export default function StageKpiPopup({
                         </div>
                         {pivotData.rowLabels.map((rowLabel, ri) => {
                           const key = `row:${rowLabel}`
-                          const props = cellProps(key, rowLabel, [valueCondition(stage.pivot.rowColumn, rowLabel)])
+                          const props = cellProps(key, rowLabel, valueConditions(stage.pivot.rowColumn, rowLabel))
                           return (
                             <div
                               key={rowLabel}
@@ -337,7 +354,7 @@ export default function StageKpiPopup({
                         </div>
                         {pivotData.colLabels.map((colLabel, ci) => {
                           const key = `col:${colLabel}`
-                          const props = cellProps(key, colLabel, [valueCondition(stage.pivot.colColumn, colLabel)])
+                          const props = cellProps(key, colLabel, valueConditions(stage.pivot.colColumn, colLabel))
                           return (
                             <div
                               key={colLabel}
@@ -384,8 +401,8 @@ export default function StageKpiPopup({
                                 const key = `cell:${rowLabel}|${colLabel}`
                                 const props = value > 0
                                   ? cellProps(key, `${rowLabel} \u00d7 ${colLabel}`, [
-                                      valueCondition(stage.pivot.rowColumn, rowLabel),
-                                      valueCondition(stage.pivot.colColumn, colLabel),
+                                      ...valueConditions(stage.pivot.rowColumn, rowLabel),
+                                      ...valueConditions(stage.pivot.colColumn, colLabel),
                                     ])
                                   : {}
                                 return (
@@ -401,7 +418,7 @@ export default function StageKpiPopup({
                               })}
                               {(() => {
                                 const key = `row:${rowLabel}`
-                                const props = cellProps(key, rowLabel, [valueCondition(stage.pivot.rowColumn, rowLabel)])
+                                const props = cellProps(key, rowLabel, valueConditions(stage.pivot.rowColumn, rowLabel))
                                 return (
                                   <td
                                     {...props}

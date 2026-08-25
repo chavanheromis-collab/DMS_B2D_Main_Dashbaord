@@ -374,3 +374,11 @@ test('the glass and the peek window do not fight for the same space', () => {
 test('leaving the canvas puts the glass away', () => {
   assert.ok(diagram.includes('setLensAt(null)'))
 })
+
+test('the magnifier gets out of the way of the controls', () => {
+  // The glass is drawn above the toolbar, so magnifying there covers the
+  // very button being reached for -- and a magnified toolbar is not a thing
+  // anybody wants to look at.
+  assert.ok(diagram.includes("if (e.target.closest?.('[data-flow-ui]')) {"))
+  assert.ok(bodyOf(diagram, 'function trackLens').includes('setLensAt(null)'))
+})

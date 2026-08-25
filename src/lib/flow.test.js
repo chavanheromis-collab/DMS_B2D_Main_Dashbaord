@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  DEFAULT_FLOW,
   buildFlow,
   describeFlow,
   findFlowNode,
@@ -338,4 +339,56 @@ test('viewers can repoint a split without touching the saved page', () => {
 test('the path is summarised without opening anything', () => {
   const summary = describeFlow(widgetWith({ levels: [splitBy('Model'), HOP, splitBy('Job')] }))
   assert.equal(summary, 'STOCK → Model → 🔗 SERVICE → Job')
+})
+
+test('a split level can bucket, and the branch drills to what the bucket means', () => {
+  // The README has promised this for a while and it was not true. "May
+  // 2024" is not a value in a date column, so a bucketed branch has to
+  // drill by the range it stands for or the click filters to nothing.
+  const rows = [
+    { _row: 2, Sold: '03/05/2024' },
+    { _row: 3, Sold: '19/05/2024' },
+    { _row: 4, Sold: '07/06/2024' },
+  ]
+  const widget = {
+    id: 'w1',
+    tab: 'T',
+    flow: {
+      ...DEFAULT_FLOW,
+      levels: [{ id: 'l1', kind: 'split', column: 'Sold', bucket: 'month', sort: 'name_asc', top: 12 }],
+      autoExpand: 1,
+    },
+  }
+
+  const built = buildFlow({ widget, rowsByTab: { T: rows }, headersByTab: {}, dateOrder: 'DMY', autoExpand: 1 })
+  const labels = built.root.children.map((c) => c.label)
+  assert.equal(labels.length, 2, 'two months, not three dates')
+
+  const may = built.root.children.find((c) => c.count === 2)
+  assert.ok(may, 'the month with two rows in it')
+
+  // And the drill selects exactly those two rows.
+  const cf = flowCrossFilter(widget, may)
+  const drilled = applyFilters(rows, {
+    tab: 'T',
+    crossFilters: [{ ...cf, conditions: cf.conditions.map((c) => ({ ...c, tab: 'T' })) }],
+  })
+  assert.deepEqual(drilled.map((r) => r._row), [2, 3])
+})
+
+test('a value the bucket cannot read is blank, not a bucket called null', () => {
+  const rows = [{ _row: 2, Sold: 'not a date' }, { _row: 3, Sold: '01/05/2024' }]
+  const widget = {
+    id: 'w1',
+    tab: 'T',
+    flow: {
+      ...DEFAULT_FLOW,
+      levels: [{ id: 'l1', kind: 'split', column: 'Sold', bucket: 'month', top: 12 }],
+      autoExpand: 1,
+    },
+  }
+  const built = buildFlow({ widget, rowsByTab: { T: rows }, headersByTab: {}, dateOrder: 'DMY', autoExpand: 1 })
+  for (const child of built.root.children) {
+    assert.ok(child.label && child.label !== 'null', `a branch called ${child.label}`)
+  }
 })

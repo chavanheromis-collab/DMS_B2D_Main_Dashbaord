@@ -1,4 +1,4 @@
-import { aggregate, isBlank, normalizeKey } from './dataUtils.js'
+import { aggregate, bucketConditions, groupKey, isBlank, normalizeKey } from './dataUtils.js'
 import { matchesConditions } from './filterEngine.js'
 import { DEFAULT_BLEND, blendIsReady, blendRows, blendedHeaders } from './blend.js'
 
@@ -397,10 +397,29 @@ function sortItems(items, sort) {
   return out
 }
 
+/**
+ * The conditions that select one branch of a split.
+ *
+ * A plain value is an equals. A BUCKET is whatever the bucket stands for --
+ * a band is a pair of bounds, a month is a date range -- which is the only
+ * form the filter engine can act on, since the label itself appears in no
+ * row anywhere.
+ */
+function splitConditions(tab, column, label, spec, dateOrder) {
+  const fromBucket = spec ? bucketConditions(column, label, spec, dateOrder) : null
+  return (fromBucket || [{ column, operator: 'equals', value: label }]).map((c) => ({ ...c, tab }))
+}
+
 function splitChildren(parent, level, ctx) {
   const column = level.column
   if (!column) return []
   const measure = levelMeasure(level, parent.measure)
+
+  // A level can bucket, exactly as every other place that groups by a
+  // column does: four hundred dates read as four years, and a break down by
+  // Amount reads as bands rather than four hundred distinct numbers.
+  const spec = level.bucket ? level : null
+  const dateOrder = ctx?.dateOrder || 'DMY'
 
   const buckets = new Map()
   const blanks = []
@@ -410,7 +429,13 @@ function splitChildren(parent, level, ctx) {
       blanks.push(row)
       continue
     }
-    const key = String(raw).trim()
+    const key = spec ? groupKey(row, column, spec, dateOrder) : String(raw).trim()
+    // A value the bucket cannot read -- a date that is not one -- is blank
+    // for this purpose rather than a bucket of its own called "null".
+    if (key === null || key === undefined || key === '') {
+      blanks.push(row)
+      continue
+    }
     const bucket = buckets.get(key)
     if (bucket) bucket.push(row)
     else buckets.set(key, [row])
@@ -438,7 +463,10 @@ function splitChildren(parent, level, ctx) {
       rows: item.rows,
       parent,
       ctx,
-      conditions: [...parent.conditions, { tab: parent.tab, column, operator: 'equals', value: item.label }],
+      // "May 2024" is not a value in the date column, so a bucketed branch
+      // drills by the conditions that DEFINE its bucket. Without this the
+      // click would filter to nothing and the branch would look broken.
+      conditions: [...parent.conditions, ...splitConditions(parent.tab, column, item.label, spec, dateOrder)],
       mergeable: parent.mergeable,
       measure,
     })
@@ -463,7 +491,10 @@ function splitChildren(parent, level, ctx) {
           ...parent.conditions,
           { tab: parent.tab, column, operator: 'none_of', value: kept.map((i) => i.label).join(', ') },
         ],
-        mergeable: parent.mergeable,
+        // "None of these" is a statement about VALUES, and a bucket label is
+        // not one. A bucketed Other therefore drills by its own rows rather
+        // than by a condition that would match everything.
+        mergeable: spec ? false : parent.mergeable,
         measure,
       })
     )

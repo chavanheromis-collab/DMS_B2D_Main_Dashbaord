@@ -15,7 +15,7 @@ import {
   YAxis,
   ZAxis,
 } from 'recharts'
-import { formatNumber, groupSeries, groupStacked, pivot, scatterPoints } from '../../lib/dataUtils'
+import { bucketConditions, formatNumber, groupSeries, groupStacked, pivot, scatterPoints } from '../../lib/dataUtils'
 import { HEAT_SCALES, PALETTE } from '../../lib/config'
 import { seriesColor } from '../../lib/seriesData.js'
 import { chartExtent, legendStyle } from '../../lib/chartScroll.js'
@@ -413,8 +413,12 @@ export function HeatmapWidget({ widget, rows, unfilteredRows, tabError, onCrossF
         aggregation: widget.aggregation || 'count',
         maxRows: widget.maxRows || 15,
         maxCols: widget.maxCols || 12,
+        // A heat map of dates against branches is unreadable one day at a
+        // time and obvious by month. Same per-axis bucketing the pivot has.
+        buckets: widget.buckets,
+        dateOrder,
       }),
-    [widget, rows, unfilteredRows]
+    [widget, rows, unfilteredRows, dateOrder]
   )
 
   const scale = HEAT_SCALES.find((s) => s.value === (widget.scale || 'indigo')) || HEAT_SCALES[0]
@@ -425,9 +429,20 @@ export function HeatmapWidget({ widget, rows, unfilteredRows, tabError, onCrossF
     // Passing only one of the two drills that whole row or column -- "all of
     // March" and "everything for West" are the questions a heat map invites
     // most, and neither should need a trip to the filter bar.
-    const conditions = []
-    if (rowLabel) conditions.push({ tab: widget.tab, column: widget.rowColumn, operator: 'equals', value: rowLabel })
-    if (colLabel) conditions.push({ tab: widget.tab, column: widget.colColumn, operator: 'equals', value: colLabel })
+    //
+    // A bucketed axis needs the conditions that DEFINE the bucket, not an
+    // equals on its label: "May 2024" is not a value in the date column, and
+    // filtering by that string would match nothing at all. bucketConditions
+    // turns a label back into the range it stands for, so the cell and the
+    // rows the click produces always agree.
+    const axis = (column, label) => {
+      if (!label || !column) return []
+      const spec = widget.buckets?.[column]
+      const fromBucket = spec?.bucket ? bucketConditions(column, label, spec, dateOrder) : null
+      return (fromBucket || [{ column, operator: 'equals', value: label }]).map((c) => ({ ...c, tab: widget.tab }))
+    }
+
+    const conditions = [...axis(widget.rowColumn, rowLabel), ...axis(widget.colColumn, colLabel)]
     if (conditions.length === 0) return
 
     onCrossFilter({

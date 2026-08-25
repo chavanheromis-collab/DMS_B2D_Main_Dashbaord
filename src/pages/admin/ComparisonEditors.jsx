@@ -1,6 +1,6 @@
 import { AGGREGATIONS, HEAT_SCALES, NUMBER_FORMATS, PALETTE, aggNeedsColumn } from '../../lib/config'
 import { SERIES_PALETTES } from '../../lib/seriesData'
-import { BucketPicker, ScrollEditor, SeriesColorEditor } from './WidgetEditors.jsx'
+import { BucketPicker, PivotBuckets, ScrollEditor, SeriesColorEditor } from './WidgetEditors.jsx'
 import { Field, Select, TextInput, Toggle } from './ui.jsx'
 
 const SORTS = [
@@ -240,6 +240,7 @@ export function HeatmapEditor({ widget, cols, set }) {
 
   return (
     <div className="space-y-2">
+      <PivotBuckets columns={[widget.rowColumn, widget.colColumn]} widget={widget} set={set} />
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <Field label="Rows">
           <Select value={widget.rowColumn || ''} onChange={(v) => set({ rowColumn: v })} options={cols} placeholder="— column —" />
