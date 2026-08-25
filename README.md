@@ -313,6 +313,30 @@ the order you arrange is the order that is read; and the row breaks wherever
 the screen happens to end, so the same page reflows on a monitor, a laptop
 and a phone with nobody configuring breakpoints.
 
+#### Rows are a thing you can put a widget in
+
+The **R** box on a widget's pill says which row it belongs to. In **Arrange**
+mode the rows are outlined and labelled — *Row 1*, *Row 2* — so you can see
+what you're assigning to.
+
+The rule is the one anybody would guess:
+
+- Rows are filled in order, left to right.
+- A widget goes in the row it asked for **if there is room left in it**.
+- If there isn't, it goes to the **next** row — ahead of whatever was already
+  assigned there, because it came first in the sort.
+
+So a widget pinned to row 2 stays on row 2 whatever happens above it, and a
+row that runs out of width spills downward instead of squashing anything.
+A row is as tall as its tallest widget, so rows line up.
+
+**Blank means row 1**, and that isn't a special case: everything starts in
+row 1, row 1 spills into row 2, row 2 into row 3. A page where nobody has set
+a row behaves exactly as it did before rows existed — which is why turning
+this on changed nothing about any existing page. An empty row isn't drawn
+either: putting one widget in row 5 of a two-row page doesn't leave three
+bands of white space above it.
+
 | | |
 |---|---|
 | **Gap across / gap down** | Two separate numbers, 0–64px. The eye reads a row and a column differently, and a dashboard that needs air between its columns very often wants its rows tighter than that, not looser. |

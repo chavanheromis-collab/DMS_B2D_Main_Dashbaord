@@ -76,9 +76,18 @@ test('the page draws its widgets on the columnless canvas', () => {
   assert.ok(!dashboard.includes('MasonryGrid'), 'and the column packer is gone')
 })
 
-test('the canvas packs by the space each widget asked for', () => {
-  assert.ok(canvas.includes('packFlow(items, { canvasWidth: width, gapX, gapY, heights })'))
+test('the canvas packs into rows by the space each widget asked for', () => {
+  assert.ok(canvas.includes('packRowGroups(items, { canvasWidth: width, gapX, gapY, heights })'))
   assert.ok(canvas.includes('rowSlack(layout.rows, layout.positions, width, gapX)'))
+})
+
+test('a widget can be put in a row, and the rows are shown while arranging', () => {
+  assert.ok(bar.includes('onCommit={(raw) => onRow(raw)}'))
+  assert.ok(dashboard.includes("onRow={(v) => saveWidgetSize(widget.id, { row: v })}"))
+  assert.ok(dashboard.includes("if (key === 'row') {"), 'a row takes no pixel floor')
+  assert.ok(dashboard.includes('showRows={isAdmin && arranging}'))
+  assert.ok(canvas.includes('layout.rows.map((r) => ('))
+  assert.ok(canvas.includes('Row {r.row}'))
 })
 
 test('nothing on the canvas is draggable', () => {

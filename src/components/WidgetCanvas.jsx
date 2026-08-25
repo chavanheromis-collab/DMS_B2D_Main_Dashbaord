@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { packFlow, rowSlack } from '../lib/flowPack'
+import { packRowGroups, rowSlack } from '../lib/flowPack'
 
 /**
  * The page's widgets, laid out by the space each one needs.
@@ -18,7 +18,7 @@ import { packFlow, rowSlack } from '../lib/flowPack'
  * show what a widget IS rather than an empty box, and say how much room is
  * going spare on its row.
  */
-export default function WidgetCanvas({ items, gapX = 12, gapY = 12, className = '', onMeasure }) {
+export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = false, className = '', onMeasure }) {
   const hostRef = useRef(null)
   const itemRefs = useRef(new Map())
   const [width, setWidth] = useState(0)
@@ -40,7 +40,7 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, className = 
   }, [])
 
   const layout = useMemo(
-    () => packFlow(items, { canvasWidth: width, gapX, gapY, heights }),
+    () => packRowGroups(items, { canvasWidth: width, gapX, gapY, heights }),
     [items, width, gapX, gapY, heights]
   )
 
@@ -51,7 +51,7 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, className = 
 
   // One observer per widget, so a table that grows a row pushes what is
   // below it down without anything else being recomputed.
-  const key = items.map((i) => `${i.id}:${i.widthPx ?? ''}:${i.width ?? ''}`).join('|')
+  const key = items.map((i) => `${i.id}:${i.widthPx ?? ''}:${i.width ?? ''}:${i.row ?? ''}`).join('|')
   useEffect(() => {
     const observers = []
     itemRefs.current.forEach((node, id) => {
@@ -78,6 +78,7 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, className = 
       measure.current(id, box.width, Math.round(heights[id] ?? box.height), {
         left: box.left,
         top: box.top,
+        row: box.row,
         spare: slack[id] ?? 0,
         canvasWidth: Math.round(width),
       })
@@ -90,6 +91,24 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, className = 
       className={`relative ${className}`}
       style={{ height: width > 0 ? layout.containerHeight : undefined }}
     >
+      {/* Where each row begins and ends. Only while arranging: a reader
+          does not need to be told that a dashboard has rows, and an admin
+          deciding which row to put something in does. */}
+      {showRows &&
+        width > 0 &&
+        layout.rows.map((r) => (
+          <div
+            key={r.row}
+            aria-hidden
+            className="pointer-events-none absolute -left-1 -right-1 rounded-lg border border-dashed border-indigo-200"
+            style={{ top: r.top - 4, height: r.height + 8 }}
+          >
+            <span className="absolute -top-2 left-1 rounded bg-indigo-50 px-1 text-[9px] font-semibold text-indigo-500">
+              Row {r.row}
+            </span>
+          </div>
+        ))}
+
       {items.map((item) => {
         const box = layout.positions[item.id]
         // Before the canvas has been measured, a plain stacked flow rather

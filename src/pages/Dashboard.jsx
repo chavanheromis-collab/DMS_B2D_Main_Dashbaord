@@ -689,6 +689,12 @@ export default function Dashboard() {
     const clean = {}
     for (const [key, value] of Object.entries(patch)) {
       const n = Number(value)
+      // A row is a position, not a measurement: it takes no pixel floor,
+      // and blank means the first row rather than "no row".
+      if (key === 'row') {
+        clean.row = Number.isFinite(n) && n >= 1 ? Math.round(n) : null
+        continue
+      }
       clean[key] =
         value === '' || value === null || !Number.isFinite(n) || n <= 0
           ? null
@@ -883,6 +889,7 @@ export default function Dashboard() {
                   widthUnits: widget.widthUnits,
                   // ...unless the admin chose pixels, which overrides both.
                   widthPx: widgetUsesPx(widget) ? widgetWidthPx(widget) : null,
+                  row: widget.row,
                   // A pinned height is a better guess than the type's, and
                   // using it here means the column packing is right on the
                   // first frame rather than after the widget measures.
@@ -909,6 +916,8 @@ export default function Dashboard() {
                           index={index + 1}
                           order={widgetOrder[widget.id] ?? ''}
                           onOrder={(v) => setWidgetOrder(widget.id, v)}
+                          row={widget.row ?? ''}
+                          onRow={(v) => saveWidgetSize(widget.id, { row: v })}
                           widthPx={widget.widthPx ?? ''}
                           heightPx={widget.heightPx ?? ''}
                           style={widget.style}
@@ -1265,6 +1274,7 @@ export default function Dashboard() {
               items={widgetItems}
               gapX={design.gapX}
               gapY={design.gapY}
+              showRows={isAdmin && arranging}
               onMeasure={noteSize}
             />
 

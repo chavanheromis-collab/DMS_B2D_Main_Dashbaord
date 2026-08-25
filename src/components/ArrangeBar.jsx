@@ -130,6 +130,8 @@ export default function ArrangeBar({
   onOrder,
   widthPx,
   heightPx,
+  row,
+  onRow,
   style,
   measured,
   onSize,
@@ -190,6 +192,9 @@ export default function ArrangeBar({
         title={`Position, width and height of ${title}`}
       >
         <span className="font-bold">{order || index}</span>
+        <span className="rounded bg-slate-100 px-1 text-[9px] font-semibold text-slate-500">
+          R{measured?.row ?? row ?? 1}
+        </span>
         {w && h ? (
           <span className="opacity-70">
             {Math.round(w)}×{Math.round(h)}
@@ -211,6 +216,17 @@ export default function ArrangeBar({
         autoFocus
         className="w-11 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
         aria-label={`Position of ${title}`}
+      />
+      <NumberBox
+        label="R"
+        value={row ?? ''}
+        // Which row this widget belongs in. Blank is the first one, and a
+        // widget that will not fit in the row it asked for goes to the next
+        // -- so a number here is a preference, never a promise the layout
+        // has to break something else to keep.
+        placeholder={measured?.row ?? 1}
+        onCommit={(raw) => onRow(raw)}
+        title={`Which row ${title} sits in`}
       />
       <NumberBox
         label="W"
