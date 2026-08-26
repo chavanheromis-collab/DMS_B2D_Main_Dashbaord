@@ -28,6 +28,7 @@ import {
   useWorkspaceCtx,
 } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
+import { conditionCount, emptyRowCondition } from '../../lib/rowConditions'
 
 const KIND_OPTIONS = CONTROL_GROUPS.flatMap((group) =>
   group.kinds.map((kind) => ({ value: kind.value, label: `${group.label} · ${kind.label}` }))
@@ -789,6 +790,54 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         </div>
                       )}
                   </div>
+
+                  {/* --- Its own rule ------------------------------------ */}
+                  {/* A button already says what it wants in conditions, and
+                      offers no values, so it has nothing to narrow here. */}
+                  {!isButton(control) && (
+                    <div className="rounded-lg border border-indigo-100 bg-indigo-50/30 p-2">
+                      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                        <p className="text-[11px] font-medium text-indigo-700">
+                          Only offer values from rows where{' '}
+                          <span className="font-normal text-slate-400">— optional</span>
+                        </p>
+                        {conditionCount(control) > 0 && (
+                          <Select
+                            value={control.rowMatch === 'any' ? 'any' : 'all'}
+                            onChange={(v) => set({ rowMatch: v })}
+                            options={[
+                              { value: 'all', label: 'ALL of these (AND)' },
+                              { value: 'any', label: 'ANY of these (OR)' },
+                            ]}
+                            className="w-44"
+                          />
+                        )}
+                      </div>
+
+                      <ConditionBuilder
+                        conditions={control.rowConditions || []}
+                        match={control.rowMatch === 'any' ? 'any' : 'all'}
+                        tabs={[control.tab]}
+                        tabHeaders={tabHeaders}
+                        onChange={(rowConditions) => set({ rowConditions })}
+                        compact
+                      />
+
+                      <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+                        Narrows what this control <strong>offers</strong>, not what it filters — a control that
+                        changed the page while nothing was selected in it is one nobody could account for. A
+                        “DSE” dropdown can list only the ones still employed without hiding anybody’s old rows.
+                      </p>
+                      {(control.rowConditions || []).length === 0 && (
+                        <button
+                          onClick={() => set({ rowConditions: [emptyRowCondition(control.tab)] })}
+                          className="mt-1.5 text-[11px] text-indigo-600 underline"
+                        >
+                          + add a condition
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* --- Placement --------------------------------------- */}
                   <div className="flex flex-wrap items-end gap-4 border-t border-slate-100 pt-2">

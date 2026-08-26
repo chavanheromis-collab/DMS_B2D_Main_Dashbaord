@@ -378,7 +378,12 @@ test('the page builds a buttonâ€™s key bridge the same way it builds a controlâ€
 test('the reach editor is no longer for filters only', () => {
   const panel = read('pages/admin/ControlsPanel.jsx')
   // The block used to be hidden from buttons entirely.
-  assert.ok(!panel.includes('{!isButton(control) && ( <div'))
+  // The reach block itself is no longer behind an isButton gate. Checked by
+  // looking at what comes immediately BEFORE it rather than at the file as a
+  // whole -- other blocks are legitimately for filters only.
+  const at = panel.indexOf('<Field label="How far this reaches"')
+  assert.ok(at > 0)
+  assert.ok(!panel.slice(Math.max(0, at - 300), at).includes('isButton'))
   assert.ok(panel.includes("'Only the tabs its conditions name'"), 'and it reads as a button would say it')
   assert.ok(panel.includes('function conditionColumns(control)'))
   assert.ok(

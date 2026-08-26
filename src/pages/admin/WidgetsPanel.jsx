@@ -37,6 +37,7 @@ import {
   useWorkspaceCtx,
 } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
+import { conditionCount, emptyRowCondition } from '../../lib/rowConditions'
 import BlendEditor from './BlendEditor.jsx'
 import FlowEditor from './FlowEditor.jsx'
 import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from '../../lib/flow'
@@ -577,6 +578,12 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
                     badge: (widget.controls || []).length,
                     hint: 'Filters attached to this widget alone',
                   },
+                  {
+                    key: 'conditions',
+                    label: 'Conditions',
+                    badge: conditionCount(widget),
+                    hint: 'Only the rows that match — a rule, not a filter',
+                  },
                   BLENDABLE.has(widget.type) && {
                     key: 'blend',
                     label: 'Blend',
@@ -634,6 +641,47 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
                   have its own slider exactly as a table can. */}
               {here === 'controls' && (
                 <WidgetControlsEditor widget={widget} cols={cols} tabHeaders={tabHeaders} set={set} />
+              )}
+
+              {here === 'conditions' && (
+                <div className="rounded-lg border border-indigo-100 bg-indigo-50/30 p-2">
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <p className="text-[11px] font-medium text-indigo-700">
+                      Only the rows where <span className="font-normal text-slate-400">— optional</span>
+                    </p>
+                    <Select
+                      value={widget.rowMatch === 'any' ? 'any' : 'all'}
+                      onChange={(v) => set({ rowMatch: v })}
+                      options={[
+                        { value: 'all', label: 'ALL of these (AND)' },
+                        { value: 'any', label: 'ANY of these (OR)' },
+                      ]}
+                      className="w-44"
+                    />
+                  </div>
+
+                  <ConditionBuilder
+                    conditions={widget.rowConditions || []}
+                    match={widget.rowMatch === 'any' ? 'any' : 'all'}
+                    tabs={[widget.tab]}
+                    tabHeaders={tabHeaders}
+                    onChange={(rowConditions) => set({ rowConditions })}
+                  />
+
+                  <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+                    A <strong>rule</strong>, not a filter: it is part of what this widget is, it applies before its
+                    own controls, and nobody looking at the page can switch it off. Page filters and drill-downs
+                    narrow what is left. Blank means every row, so this costs nothing until it is used.
+                  </p>
+                  {(widget.rowConditions || []).length === 0 && (
+                    <button
+                      onClick={() => set({ rowConditions: [emptyRowCondition(widget.tab)] })}
+                      className="mt-1.5 text-[11px] text-indigo-600 underline"
+                    >
+                      + add a condition
+                    </button>
+                  )}
+                </div>
               )}
 
               {here === 'blend' && BLENDABLE.has(widget.type) && <BlendEditor widget={widget} set={set} />}

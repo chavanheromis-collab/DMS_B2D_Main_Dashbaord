@@ -9,6 +9,7 @@ import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, orderWidgets } from '../hooks/useUserPrefs'
 import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
 import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from '../lib/filterEngine'
+import { applyRowConditions } from '../lib/rowConditions'
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
 import { MAX_ROW_SPAN } from '../lib/flowPack'
@@ -470,7 +471,10 @@ export default function Dashboard() {
 
     for (const control of listing) {
       out[control.id] = optionRows(control, {
-        rows: dataByLabel[control.tab]?.rows || [],
+        // A control's own rule narrows what it OFFERS. Narrowing what it
+        // filters instead would mean a control that changes the page while
+        // nothing is selected in it, which nobody could account for.
+        rows: applyRowConditions(dataByLabel[control.tab]?.rows || [], control, control.tab, dateOrder),
         tab: control.tab,
         filters: viewFilters,
         values: effectiveValues,
@@ -935,13 +939,28 @@ export default function Dashboard() {
                 // The widget's own controls run LAST, on top of the page
                 // filters and any blend -- so "top 10" means the top 10 of
                 // what the page is currently showing.
-                const preControl = blended ? blended.rows : rowsByLabel[widget.tab] || []
+                // The widget's own rule, applied here rather than inside
+                // fifteen components -- which is what makes it available to
+                // all of them without any of them learning anything. Before
+                // its own controls, because a rule is what the widget IS and
+                // a control is somebody narrowing it.
+                const preControl = applyRowConditions(
+                  blended ? blended.rows : rowsByLabel[widget.tab] || [],
+                  widget,
+                  widget.tab,
+                  dateOrder
+                )
                 const myControls = widget.controls || []
                 const myValues = controlValues[widget.id]
                 const rows = myControls.length
                   ? applyWidgetControls(preControl, myControls, myValues, dateOrder)
                   : preControl
-                const unfilteredBase = blended ? blended.unfiltered : rawRowsByLabel[widget.tab] || []
+                const unfilteredBase = applyRowConditions(
+                  blended ? blended.unfiltered : rawRowsByLabel[widget.tab] || [],
+                  widget,
+                  widget.tab,
+                  dateOrder
+                )
                 const unfiltered = myControls.length
                   ? applyWidgetControls(unfilteredBase, myControls, myValues, dateOrder)
                   : unfilteredBase

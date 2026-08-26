@@ -1340,6 +1340,51 @@ day counts), and the page bar and the per-widget bar share one set of slider
 components — two implementations would drift apart the first time one got a
 fix.
 
+### Every widget and every control has its own rule
+
+A few widgets could already be told to count only some rows — a KPI, a gauge,
+a leaderboard, a pipeline stage. Each applied its own conditions in its own
+component, in its own field, at its own point in the chain, so the same
+sentence meant four slightly different things and the other eleven widgets
+couldn't say it at all.
+
+Now every widget has a **Conditions** button, and every control has *Only
+offer values from rows where*. Both use the same condition builder as
+everything else, and both are marked with how many they hold, so you can see
+which widgets carry a rule without opening any of them.
+
+**On a widget it's a rule, not a filter.** It's part of what the widget *is*:
+it runs before the widget's own controls, page filters and drill-downs narrow
+what's left, and nobody looking at the page can switch it off. *"This table is
+the overdue ones"* is a different widget from *"this table, filtered to
+overdue"* — the first still says what it is when the page is reset.
+
+**On a control it narrows what the control OFFERS**, not what it filters. A
+control that changed the page while nothing was selected in it is one nobody
+could account for. A `DSE` dropdown can list only the ones still employed
+without hiding anybody's old rows from the page.
+
+Four details:
+
+- It runs in **one place** — where the page assembles a widget's rows — rather
+  than inside fifteen components. That's what makes it available to all of
+  them without any of them learning anything. Both the filtered and the
+  unfiltered rows go through it, so a widget set to ignore page filters still
+  obeys its own rule.
+- It's a **separate field** from the `conditions` a KPI already had. Reusing
+  that name would apply the old rule twice on the widgets that have it, and a
+  filter that silently runs twice is only harmless while every operator is
+  idempotent.
+- A **half-written condition is ignored**, not failed. Somebody is mid-edit;
+  emptying their widget while they pick a column is a fright, not feedback.
+- **ALL or ANY**, your choice, in both places.
+
+A widget's rule can only ask about its own tab — rows of one tab can't answer
+a question about another, and treating an unanswerable question as *no* would
+empty the widget. Buttons are the one thing without this: a button already
+says what it wants in conditions and offers no values, so it has nothing to
+narrow.
+
 ### Fixed filters — a page's own rules
 
 Some filtering isn't a choice anyone should be making. *This page is the Pune
@@ -2345,6 +2390,7 @@ src/
   lib/adminPanel.test.js  Guards the admin panel's header, folds and grouping
   lib/sectionTabs.js      A long admin form as a row of marked buttons
   lib/pivotMeasures.js    Several value columns down one grouped list
+  lib/rowConditions.js    "Only the rows where...", every widget and control
   lib/valueColors.js      One colour per value, everywhere, filtered or not
   lib/typography.js       Text colour, typeface and size, admin-chosen
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
