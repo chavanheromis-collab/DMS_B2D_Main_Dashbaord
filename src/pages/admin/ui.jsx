@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import { activeSection, sectionMark, visibleSections } from '../../lib/sectionTabs.js'
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 
 // ---------------------------------------------------------------------
@@ -161,4 +162,57 @@ export function listOps(list, setList) {
       setList(next)
     },
   }
+}
+
+/**
+ * A row of buttons that pick which part of a long form is on screen.
+ *
+ * A widget has a setup, its own controls, a blend, a look and a couple of
+ * behaviours. Stacked as five open sections that is a form nobody can see
+ * the end of, and finding the one you came for means scrolling past four
+ * you did not. As five buttons it is one line, and the section you want is
+ * one click rather than one hunt.
+ *
+ * The catch with hiding things behind buttons is that a setting nobody can
+ * see is a setting nobody remembers making -- so a section holding
+ * something carries a MARK: a count where a count means something, a dot
+ * where it does not. The row therefore says what is configured as well as
+ * what exists, which the stack of open sections never did.
+ */
+export function SectionTabs({ sections, active, onPick, className = '' }) {
+  const shown = visibleSections(sections)
+  if (shown.length === 0) return null
+  const here = activeSection(sections, active)
+
+  return (
+    <div className={`flex flex-wrap items-center gap-1 ${className}`}>
+      {shown.map((s) => {
+        const on = s.key === here
+        const mark = sectionMark(s.badge)
+        return (
+          <button
+            key={s.key}
+            onClick={() => onPick(s.key)}
+            title={s.hint || s.label}
+            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              on
+                ? 'bg-ink text-white'
+                : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            {s.label}
+            {mark && (
+              <span
+                className={`rounded-full px-1 text-[9px] font-semibold leading-4 ${
+                  on ? 'bg-white/25 text-white' : 'bg-indigo-50 text-indigo-600'
+                }`}
+              >
+                {mark}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
 }

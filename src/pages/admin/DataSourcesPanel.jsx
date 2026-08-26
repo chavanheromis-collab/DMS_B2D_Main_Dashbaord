@@ -4,7 +4,7 @@ import { extractSheetId } from '../../lib/config'
 import { fetchSpreadsheetTabs, syncSource } from '../../lib/sheetsApi'
 import { emptySource } from '../../lib/workspace'
 import { useAuth } from '../../context/AuthContext.jsx'
-import { Btn, Field, Select, TextInput, stableEqual } from './ui.jsx'
+import { Btn, Field, SectionTabs, Select, TextInput, stableEqual } from './ui.jsx'
 import ComputedColumns from './ComputedColumns.jsx'
 
 /**
@@ -141,6 +141,14 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
   // which is the "rendered fewer hooks than expected" crash.
   const [open, setOpen] = useState(false)
 
+  // Which part of the card is on screen. A connected source is nearly
+  // always opened to change its tabs or its calculated columns, not to
+  // re-paste a link nobody has touched since the day it was set up -- so
+  // the section that opens is the one there is a reason to open.
+  //
+  // Same rule as `open` above: a hook, so it lives with the other hooks.
+  const [part, setPart] = useState(() => ((source.tabs || []).length > 0 ? 'tabs' : 'connect'))
+
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
   const sheetId = extractSheetId(draft.sheetId)
   const dirty = !stableEqual({ ...draft, sheetId }, source)
@@ -251,6 +259,34 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
         <ChevronDown size={14} /> {source.name || 'Untitled spreadsheet'}
       </button>
 
+      {/* Three sections as three buttons rather than three open forms.
+          A source with forty tabs and a dozen calculated columns is a card
+          taller than the screen, and everything below the fold may as well
+          not exist. The marks say what each holds, so folding them away
+          does not hide what is configured. */}
+      <SectionTabs
+        className="mb-2"
+        active={part}
+        onPick={setPart}
+        sections={[
+          { key: 'connect', label: 'Connection', hint: 'The name, the spreadsheet and the date format' },
+          {
+            key: 'tabs',
+            label: 'Tabs',
+            badge: selected.length,
+            hint: 'Which sheets in it this workspace may read',
+          },
+          {
+            key: 'computed',
+            label: 'Calculated',
+            badge: computedCount,
+            hint: 'Columns worked out from the others',
+          },
+        ]}
+      />
+
+      {part === 'connect' && (
+      <>
       <div className="mb-3 flex flex-wrap items-end gap-2">
         <Field label="Name shown in pickers" className="w-56">
           <TextInput value={draft.name} onChange={(v) => set({ name: v })} placeholder="Premia Sales" />
@@ -291,10 +327,32 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
           <Check size={12} /> Connected to “{title}” · {available.length} tabs found
         </p>
       )}
+
+      <Field
+        label="Date format in this spreadsheet"
+        className="w-64"
+        hint="Only matters for ambiguous dates like 05/06/2024."
+      >
+        <Select
+          value={draft.dateOrder || 'DMY'}
+          onChange={(v) => set({ dateOrder: v })}
+          options={[
+            { value: 'DMY', label: 'Day / Month / Year (25/06/2024)' },
+            { value: 'MDY', label: 'Month / Day / Year (06/25/2024)' },
+          ]}
+        />
+      </Field>
+      </>
+      )}
+
+      {/* Whatever went wrong stays on screen whichever section you are in:
+          a message about a load that failed is not part of a section. */}
       {message && (
         <p className={`mb-2 text-xs ${message.type === 'error' ? 'text-rose-500' : 'text-slate-500'}`}>{message.text}</p>
       )}
 
+      {part === 'tabs' && (
+      <div>
       <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
         <Database size={11} /> Tabs this workspace may read
         {selected.length > 0 && <span className="text-slate-400">({selected.length} selected)</span>}
@@ -334,9 +392,17 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
           </button>
         </div>
       )}
+      </div>
+      )}
 
-      {selected.length > 0 && (
-        <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/30 p-3">
+      {part === 'computed' && selected.length === 0 && (
+        <p className="rounded-lg border border-dashed border-slate-200 py-6 text-center text-xs text-slate-400">
+          Pick some tabs first — a calculated column is worked out from the columns in one of them.
+        </p>
+      )}
+
+      {part === 'computed' && selected.length > 0 && (
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-3">
           <ComputedColumns
             tabs={selected}
             tabHeaders={source.tabHeaders || {}}
@@ -348,22 +414,10 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <Field
-          label="Date format in this spreadsheet"
-          className="w-64"
-          hint="Only matters for ambiguous dates like 05/06/2024."
-        >
-          <Select
-            value={draft.dateOrder || 'DMY'}
-            onChange={(v) => set({ dateOrder: v })}
-            options={[
-              { value: 'DMY', label: 'Day / Month / Year (25/06/2024)' },
-              { value: 'MDY', label: 'Month / Day / Year (06/25/2024)' },
-            ]}
-          />
-        </Field>
-
+      {/* Save and Sync are not a section -- they act on the whole card, and
+          an admin who has just changed a tab must not have to find their
+          way back to a particular tab strip to save it. */}
+      <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
         <div className="flex items-center gap-2 pb-1">
           <Btn
             variant="primary"

@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, ChevronUp, Copy, CornerDownRight, Plus, Trash2 } from 'lucide-react'
 import { uid } from '../../lib/config'
 import { PAGE_ICONS, emptyPage, navLabelFor } from '../../lib/workspace'
-import { Btn, Field, Select, TextInput, Toggle, stableEqual } from './ui.jsx'
+import { Btn, Field, SectionTabs, Select, TextInput, Toggle, stableEqual } from './ui.jsx'
 import BackgroundEditor from './BackgroundEditor.jsx'
+import { backgroundIsSet } from '../../lib/pageBackground'
 import { WIDGET_THEMES } from '../../lib/widgetStyle'
 import { PageIcon } from '../../components/PageIcon.jsx'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
@@ -202,6 +203,10 @@ export default function PagesPanel({ pages, sources, onSave, onDelete, onOpen })
 
 function PageSettings({ page, pages, sources, onSave }) {
   const [draft, setDraft] = useState(page)
+  // Four sections as four buttons. Stacked open they are a form nobody can
+  // see the end of, and the Save button that belongs to all four is off the
+  // bottom of it.
+  const [part, setPart] = useState('basics')
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
   const dirty = !stableEqual(draft, page)
   const chosen = draft.sourceIds || []
@@ -226,6 +231,34 @@ function PageSettings({ page, pages, sources, onSave }) {
 
   return (
     <div className="space-y-3 border-t border-slate-100 p-3">
+      <SectionTabs
+        active={part}
+        onPick={setPart}
+        sections={[
+          { key: 'basics', label: 'Basics', hint: 'Title, icon and description' },
+          {
+            key: 'placement',
+            label: 'Placement',
+            badge: Boolean(draft.parentId) || Boolean(String(draft.group || '').trim()),
+            hint: 'Where in the sidebar this page appears',
+          },
+          { key: 'look', label: 'Look', badge: Boolean(draft.theme), hint: 'The widget theme for this page' },
+          {
+            key: 'background',
+            label: 'Background',
+            badge: backgroundIsSet(draft.background),
+            hint: 'The canvas behind the widgets',
+          },
+          {
+            key: 'sources',
+            label: 'Spreadsheets',
+            badge: chosen.length,
+            hint: 'Which sheets this page may read',
+          },
+        ]}
+      />
+
+      {part === 'basics' && (
       <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
         <Field label="Page title" hint="The heading shown above the widgets.">
           <TextInput value={draft.name} onChange={(v) => set({ name: v })} placeholder="Sales Performance — FY25" />
@@ -294,8 +327,10 @@ function PageSettings({ page, pages, sources, onSave }) {
           />
         </Field>
       </div>
+      )}
 
       {/* --- Where this page appears ---------------------------------- */}
+      {part === 'placement' && (
       <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
         <p className="mb-1.5 text-[11px] font-medium text-slate-500">Where this page appears</p>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -359,8 +394,10 @@ function PageSettings({ page, pages, sources, onSave }) {
           </p>
         )}
       </div>
+      )}
 
       {/* --- The page's look --------------------------------------------- */}
+      {part === 'look' && (
       <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Widget theme" className="w-52" hint="Applies to every widget on the page.">
@@ -378,10 +415,14 @@ function PageSettings({ page, pages, sources, onSave }) {
           </p>
         </div>
       </div>
+      )}
 
       {/* --- Canvas background ----------------------------------------- */}
-      <BackgroundEditor background={draft.background} onChange={(background) => set({ background })} />
+      {part === 'background' && (
+        <BackgroundEditor background={draft.background} onChange={(background) => set({ background })} />
+      )}
 
+      {part === 'sources' && (
       <div>
         <p className="mb-1.5 text-[11px] font-medium text-slate-500">
           Spreadsheets this page may use{' '}
@@ -414,7 +455,11 @@ function PageSettings({ page, pages, sources, onSave }) {
           </div>
         )}
       </div>
+      )}
 
+      {/* A warning about widgets pointing at a sheet that is no longer
+          selected belongs to no section: it is a thing that is WRONG, and
+          hiding it behind a button is how it stays wrong. */}
       {orphaned.length > 0 && (
         <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
           ⚠️ {orphaned.length} widget{orphaned.length === 1 ? '' : 's'} on this page read a spreadsheet that is no
@@ -423,7 +468,8 @@ function PageSettings({ page, pages, sources, onSave }) {
         </p>
       )}
 
-      <div className="flex items-center gap-2">
+      {/* Save belongs to every section, so it is not in any of them. */}
+      <div className="flex items-center gap-2 border-t border-slate-100 pt-2">
         <Btn variant="primary" disabled={!dirty} onClick={() => onSave(draft)}>
           Save page settings
         </Btn>

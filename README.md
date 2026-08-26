@@ -620,6 +620,47 @@ Lower numbers come first; blank means "leave it where it is", so numbering one
 table moves just that table and doesn't reshuffle everything else. A user's
 own order is stored per user, per page, so it follows them between devices.
 
+### A long form is a row of buttons
+
+A widget has a setup, its own controls, a blend, a look and a couple of
+behaviours. Stacked open, that is a form nobody can see the end of, and
+finding the one you came for means scrolling past four you didn't.
+
+So they're buttons: **Setup · Controls · Blend · Look · Behaviour**, one line,
+one panel at a time. The same treatment in two more places that had the same
+problem:
+
+| Where | Buttons |
+|---|---|
+| **A widget** | Setup · Controls · Blend · Look · Behaviour |
+| **A data source** | Connection · Tabs · Calculated |
+| **A page's settings** | Basics · Placement · Look · Background · Spreadsheets |
+
+The catch with hiding things behind buttons is that a setting nobody can see
+is a setting nobody remembers making. So **a section holding something
+carries a mark** — a count where a count means something (`Controls 3`,
+`Tabs 12`), a dot where it doesn't (a blend is on or off; a look is custom or
+stock). The row therefore says what is *configured* as well as what exists,
+which the stack of open sections never did.
+
+A count of **zero is not a mark**: zero is a real answer and it is "none", and
+a mark that is always there tells you nothing.
+
+Three things are deliberately *not* in any section, because they belong to all
+of them:
+
+- **Save** — an admin who has just changed a tab must not have to find their
+  way back to a particular strip to save it.
+- **A failed load's message**, and
+- **the warning that widgets are pointing at a spreadsheet nobody selects any
+  more**. Those are things that are *wrong*, and hiding a wrong thing behind a
+  button is how it stays wrong.
+
+Two small conveniences: a **data source opens at the section there's a reason
+to open** — Tabs if it is connected, Connection if it isn't, because nobody
+opens a working source to re-paste a link they set up months ago. And a
+**blend button only appears on widgets that can blend**.
+
 ### Widget appearance
 
 Every widget has an **Appearance** section: a named theme (plain, soft,
@@ -2196,6 +2237,7 @@ src/
   lib/tdz.js              Finds a const used before the line that declares it
   lib/staleRef.js         Finds a ref read from inside a state updater
   lib/adminPanel.test.js  Guards the admin panel's header, folds and grouping
+  lib/sectionTabs.js      A long admin form as a row of marked buttons
   lib/valueColors.js      One colour per value, everywhere, filtered or not
   lib/typography.js       Text colour, typeface and size, admin-chosen
   lib/workspace.js        Sources, pages, canvases, access, legacy migration

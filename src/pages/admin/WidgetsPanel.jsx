@@ -24,7 +24,18 @@ import { COLOR_MODES, DEFAULT_REFERENCE, REFERENCE_KINDS, chartCaps, unsupported
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
 import { SERIES_PALETTES } from '../../lib/valueColors'
 import AppImage from '../../components/PageIcon.jsx'
-import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, optValue, useWorkspaceCtx } from './ui.jsx'
+import {
+  Btn,
+  Field,
+  RowControls,
+  SectionTabs,
+  Select,
+  TextInput,
+  Toggle,
+  listOps,
+  optValue,
+  useWorkspaceCtx,
+} from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import BlendEditor from './BlendEditor.jsx'
 import FlowEditor from './FlowEditor.jsx'
@@ -60,6 +71,13 @@ const BLENDABLE = new Set([
  * together on the one canvas.
  */
 export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pageControls = [] }) {
+  // Which part of each widget's form is on screen. Keyed by widget id
+  // rather than held in a row component, because the row is a body inside
+  // a map and turning it into a component to store one string would be a
+  // large diff for a small fact.
+  const [section, setSection] = useState({})
+  const sectionOf = (id) => section[id] || 'setup'
+  const pickSection = (id, key) => setSection((now) => ({ ...now, [id]: key }))
   const { labelFor } = useWorkspaceCtx()
   const ops = listOps(widgets, setWidgets)
   const [addType, setAddType] = useState('table')
@@ -434,6 +452,7 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
           // reorder the wrong things.
           const index = widgets.indexOf(widget)
           const open = openId === widget.id
+          const here = sectionOf(widget.id)
           // A blended widget's editors must offer the BLENDED column list --
           // the point of a blend is to chart, sort and total the columns it
           // brings across, which is only possible if they're pickable here.
@@ -541,13 +560,48 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
 
               {open && (
                 <>
-              {cols.length === 0 && (
+              {/* Five sections as five buttons rather than five open forms:
+                  one line instead of a page nobody can see the end of, and
+                  the one you came for is a click rather than a hunt. A
+                  section holding something is marked, so hiding them does
+                  not hide what has been configured. */}
+              <SectionTabs
+                className="mb-2"
+                active={here}
+                onPick={(key) => pickSection(widget.id, key)}
+                sections={[
+                  { key: 'setup', label: 'Setup', hint: 'What this widget reads and shows' },
+                  {
+                    key: 'controls',
+                    label: 'Controls',
+                    badge: (widget.controls || []).length,
+                    hint: 'Filters attached to this widget alone',
+                  },
+                  BLENDABLE.has(widget.type) && {
+                    key: 'blend',
+                    label: 'Blend',
+                    badge: blendIsReady(widget.blend),
+                    hint: 'Join a second tab into this one',
+                  },
+                  { key: 'look', label: 'Look', badge: hasCustomStyle(widget.style), hint: 'Colours, text, spacing' },
+                  {
+                    key: 'behaviour',
+                    label: 'Behaviour',
+                    badge: Boolean(widget.ignoreFilters) || widget.allowExport === false,
+                    hint: 'Page filters and downloads',
+                  },
+                ]}
+              />
+
+              {here === 'setup' && cols.length === 0 && (
                 <p className="mb-2 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
                   No columns known for “{labelFor(widget.tab)}” yet — open <strong>Data Sources</strong> and hit
                   “Sync data” on that spreadsheet.
                 </p>
               )}
 
+              {here === 'setup' && (
+                <>
               {widget.type === 'kpi' && (
                 <KpiEditor widget={widget} cols={cols} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
@@ -572,15 +626,20 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
               {widget.type === 'stacked' && <StackedEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'combo' && <ComboEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'scatter' && <ScatterEditor widget={widget} cols={cols} set={set} />}
+                </>
+              )}
 
               {/* Controls now serve every widget type, not just tables --
                   the rendering lives in the canvas wrapper, so a chart can
                   have its own slider exactly as a table can. */}
-              <WidgetControlsEditor widget={widget} cols={cols} tabHeaders={tabHeaders} set={set} />
+              {here === 'controls' && (
+                <WidgetControlsEditor widget={widget} cols={cols} tabHeaders={tabHeaders} set={set} />
+              )}
 
-              {BLENDABLE.has(widget.type) && <BlendEditor widget={widget} set={set} />}
-              <StyleEditor widget={widget} set={set} />
+              {here === 'blend' && BLENDABLE.has(widget.type) && <BlendEditor widget={widget} set={set} />}
+              {here === 'look' && <StyleEditor widget={widget} set={set} />}
 
+              {here === 'behaviour' && (
               <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
                 <Toggle
                   checked={widget.ignoreFilters}
@@ -593,6 +652,7 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
                   label="Let viewers download this as CSV (admins always can)"
                 />
               </div>
+              )}
                 </>
               )}
             </div>
