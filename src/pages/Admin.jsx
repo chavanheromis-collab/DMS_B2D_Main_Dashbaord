@@ -167,45 +167,53 @@ export default function Admin() {
           <ArrowLeft size={16} />
         </Link>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="h-9 w-9 shrink-0" />
-          <h1 className="text-xl font-semibold text-ink">⚙️ Admin Panel</h1>
-          <p className="text-xs text-slate-400">
-            {sources.length} spreadsheet{sources.length === 1 ? '' : 's'} · {pages.length} page
-            {pages.length === 1 ? '' : 's'}
-          </p>
+        {/* The header follows you down.
+            The admin panel is a long scroll -- a source with forty tabs, a
+            page with twenty widgets -- and the thing anybody wants next is
+            nearly always a different SECTION. Having to scroll back up to
+            the top to reach one is the panel's oldest small annoyance.
+            `-mx-4` so the bar spans the padding it is sitting inside. */}
+        <div className="sticky top-0 z-30 -mx-4 border-b border-slate-200 bg-white/95 px-4 py-2 shadow-sm backdrop-blur md:-mx-6 md:px-6">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="h-9 w-9 shrink-0" />
+            <h1 className="text-lg font-semibold text-ink">⚙️ Admin</h1>
+            <p className="hidden text-xs text-slate-400 sm:block">
+              {sources.length} spreadsheet{sources.length === 1 ? '' : 's'} · {pages.length} page
+              {pages.length === 1 ? '' : 's'}
+            </p>
 
-          {needsPage && pages.length > 0 && (
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-xs text-slate-500">Editing</span>
-              <Select
-                value={pageId}
-                onChange={setPageId}
-                options={pages.map((p) => ({ value: p.id, label: `${p.icon || '📊'} ${p.name}` }))}
-                className="w-56"
-              />
+            <div className="flex flex-wrap gap-1.5">
+              {SECTIONS.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => setSection(s.key)}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
+                    section === s.key
+                      ? 'bg-ink text-white'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
 
-        <div className="flex flex-wrap gap-1.5">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.key}
-              onClick={() => setSection(s.key)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-                section === s.key
-                  ? 'bg-ink text-white'
-                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
+            {needsPage && pages.length > 0 && (
+              <div className="ml-auto flex items-center gap-2">
+                <span className="hidden text-xs text-slate-500 sm:inline">Editing</span>
+                <Select
+                  value={pageId}
+                  onChange={setPageId}
+                  options={pages.map((p) => ({ value: p.id, label: `${p.icon || '📊'} ${p.name}` }))}
+                  className="w-44"
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         {needsPage && page && (
-          <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur">
+          <div className="sticky top-[3.25rem] z-20 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur">
             <span className="text-xs text-slate-500">
               Editing <strong className="text-ink">{page.name}</strong>
             </span>

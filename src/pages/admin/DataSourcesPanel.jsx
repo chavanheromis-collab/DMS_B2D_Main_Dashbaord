@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Database, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Database, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { extractSheetId } from '../../lib/config'
 import { fetchSpreadsheetTabs, syncSource } from '../../lib/sheetsApi'
 import { emptySource } from '../../lib/workspace'
@@ -131,6 +131,15 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
   // only: this is for showing an admin what a formula produces, and rows
   // have no business being written into the workspace document.
   const [samples, setSamples] = useState({})
+  // A source card is tall: a sheet id, forty tab checkboxes, the calculated
+  // columns and a sync report. Three of them and the one you want is off the
+  // bottom of the screen. Folded by default, and the closed row says enough
+  // to pick the right one without opening any of them.
+  //
+  // Up here with the other hooks, not beside the early return it controls:
+  // a hook below that return would be skipped whenever the card is folded,
+  // which is the "rendered fewer hooks than expected" crash.
+  const [open, setOpen] = useState(false)
 
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
   const sheetId = extractSheetId(draft.sheetId)
@@ -190,6 +199,10 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
 
   const shownTabs = available.length ? available : draft.tabs || []
   const selected = draft.tabs || []
+  const computedCount = Object.values(source.computed || {}).reduce(
+    (sum, list) => sum + (list || []).filter((c) => c?.name && c?.formula).length,
+    0
+  )
   const lastSynced = agoText(source.lastSyncedAt)
   const knownColumns = Object.keys(source.tabHeaders || {}).length
   const needsSync = selected.length > 0 && knownColumns < selected.length
@@ -198,8 +211,46 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
     set({ tabs: selected.includes(name) ? selected.filter((t) => t !== name) : [...selected, name] })
   }
 
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 text-left hover:border-slate-300 hover:bg-slate-50/60"
+      >
+        <ChevronRight size={14} className="shrink-0 text-slate-400" />
+        <Database size={14} className="shrink-0 text-slate-400" />
+        <span className="truncate font-medium text-ink">{source.name || 'Untitled spreadsheet'}</span>
+
+        <span className="truncate text-[11px] text-slate-400">
+          {selected.length} tab{selected.length === 1 ? '' : 's'}
+          {computedCount > 0 && ` · ${computedCount} calculated`}
+          {lastSynced ? ` · synced ${lastSynced}` : ' · never synced'}
+        </span>
+
+        {/* The two things that decide whether this card needs opening. */}
+        {dirty && (
+          <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">unsaved</span>
+        )}
+        {needsSync && !dirty && (
+          <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">needs a sync</span>
+        )}
+
+        <span className="ml-auto shrink-0 text-[11px] text-slate-400">
+          {usedBy.length === 0 ? 'unused' : `used by ${usedBy.length} page${usedBy.length === 1 ? '' : 's'}`}
+        </span>
+      </button>
+    )
+  }
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <button
+        onClick={() => setOpen(false)}
+        className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-700"
+      >
+        <ChevronDown size={14} /> {source.name || 'Untitled spreadsheet'}
+      </button>
+
       <div className="mb-3 flex flex-wrap items-end gap-2">
         <Field label="Name shown in pickers" className="w-56">
           <TextInput value={draft.name} onChange={(v) => set({ name: v })} placeholder="Premia Sales" />

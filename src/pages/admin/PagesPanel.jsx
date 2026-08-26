@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ChevronDown, ChevronUp, Copy, Plus, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronDown, ChevronRight, ChevronUp, Copy, CornerDownRight, Plus, Trash2 } from 'lucide-react'
 import { uid } from '../../lib/config'
 import { PAGE_ICONS, emptyPage, navLabelFor } from '../../lib/workspace'
 import { Btn, Field, Select, TextInput, Toggle, stableEqual } from './ui.jsx'
@@ -16,8 +16,58 @@ import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
  * button pickers -- and what the API checks before reading anything, so a
  * page can never read a spreadsheet it wasn't given.
  */
+/**
+ * The page list, arranged the way the SIDEBAR arranges it.
+ *
+ * A flat list of thirty pages in save order is a list you search rather than
+ * read. The sidebar already groups them under a heading and nests sub-pages
+ * as tabs of their parent, and the panel that builds that arrangement should
+ * show it -- otherwise an admin is holding two different mental models of
+ * one thing.
+ *
+ * Order inside a group is left exactly as it is: it is the order the arrows
+ * move things in, and quietly sorting it would make those arrows lie.
+ */
+function groupPages(pages) {
+  const children = new Map()
+  for (const page of pages) {
+    if (!page.parentId) continue
+    if (!children.has(page.parentId)) children.set(page.parentId, [])
+    children.get(page.parentId).push(page)
+  }
+
+  const groups = []
+  const byName = new Map()
+  for (const page of pages) {
+    // A sub-page belongs to its parent, not to a heading of its own.
+    if (page.parentId && pages.some((p) => p.id === page.parentId)) continue
+
+    const name = (page.group || '').trim()
+    if (!byName.has(name)) {
+      const group = { name, pages: [] }
+      byName.set(name, group)
+      groups.push(group)
+    }
+    byName.get(name).pages.push(page)
+  }
+
+  return { groups, children }
+}
+
 export default function PagesPanel({ pages, sources, onSave, onDelete, onOpen }) {
   const [expanded, setExpanded] = useState(null)
+  // Which groups and which parents are folded away. Collapsed by NAME rather
+  // than by index, so adding a page does not silently open something.
+  const [shut, setShut] = useState(() => new Set())
+  const toggleShut = (key) =>
+    setShut((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  const { groups, children } = useMemo(() => groupPages(pages), [pages])
 
   function addPage() {
     onSave(emptyPage(`Page ${pages.length + 1}`, pages.length))
@@ -68,87 +118,80 @@ export default function PagesPanel({ pages, sources, onSave, onDelete, onOpen })
         </p>
       )}
 
-      <div className="space-y-2">
-        {pages.map((page, index) => {
-          const open = expanded === page.id
-          const usedSources = (page.sourceIds || []).length
-
+      <div className="space-y-3">
+        {groups.map((group) => {
+          const groupKey = `group:${group.name}`
+          const groupShut = shut.has(groupKey)
           return (
-            <div key={page.id} className="rounded-xl border border-slate-200 bg-white">
-              <div className="flex flex-wrap items-center gap-2 p-3">
-                <PageIcon page={page} size={20} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-ink">
-                    {page.name}
-                    {/* Only shown when the two actually differ, so the list
-                        stays quiet for pages that use one name for both. */}
-                    {navLabelFor(page) !== page.name && (
-                      <span className="ml-1.5 font-normal text-slate-400">
-                        (sidebar: {navLabelFor(page)})
-                      </span>
-                    )}
-                  </p>
-                  <p className="truncate text-[11px] text-slate-400">
-                    {page.group ? `${page.group} · ` : ''}
-                    {(page.widgets || []).length} widgets · {usedSources} source{usedSources === 1 ? '' : 's'}
-                    {page.parentId && (
-                      <span className="text-indigo-500">
-                        {' '}
-                        · tab of {pages.find((p) => p.id === page.parentId)?.name || '—'}
-                      </span>
-                    )}
-                    {page.showInSidebar === false && <span className="text-amber-600"> · hidden from sidebar</span>}
-                  </p>
-                </div>
-
-                <Btn onClick={() => onOpen(page.id)}>Build</Btn>
+            <div key={groupKey}>
+              {/* A heading only where there IS one. A workspace where nobody
+                  has used groups should not grow an "Ungrouped" bar. */}
+              {group.name && (
                 <button
-                  onClick={() => setExpanded(open ? null : page.id)}
-                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+                  onClick={() => toggleShut(groupKey)}
+                  className="mb-1 flex w-full items-center gap-1.5 rounded-lg px-1 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-50"
                 >
-                  {open ? 'Close' : 'Settings'}
+                  {groupShut ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  {group.name}
+                  <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-medium normal-case text-slate-500">
+                    {group.pages.length}
+                  </span>
                 </button>
+              )}
 
-                <div className="flex items-center gap-0.5">
-                  <button
-                    onClick={() => duplicate(page)}
-                    className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
-                    title="Duplicate page"
-                  >
-                    <Copy size={14} />
-                  </button>
-                  <button
-                    onClick={() => move(index, -1)}
-                    disabled={index === 0}
-                    className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-25"
-                    title="Move up"
-                  >
-                    <ChevronUp size={14} />
-                  </button>
-                  <button
-                    onClick={() => move(index, 1)}
-                    disabled={index === pages.length - 1}
-                    className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-25"
-                    title="Move down"
-                  >
-                    <ChevronDown size={14} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      // eslint-disable-next-line no-alert
-                      if (window.confirm(`Delete the page "${page.name}"? Its widgets and filters are deleted with it. Your spreadsheets are untouched.`)) {
-                        onDelete(page.id)
-                      }
-                    }}
-                    className="rounded p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-500"
-                    title="Delete page"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+              {!groupShut && (
+                <div className="space-y-2">
+                  {group.pages.map((page) => {
+                    const kids = children.get(page.id) || []
+                    const kidsShut = shut.has(page.id)
+                    return (
+                      <div key={page.id}>
+                        <PageRow
+                          page={page}
+                          pages={pages}
+                          index={pages.indexOf(page)}
+                          expanded={expanded}
+                          setExpanded={setExpanded}
+                          sources={sources}
+                          onSave={onSave}
+                          onDelete={onDelete}
+                          onOpen={onOpen}
+                          duplicate={duplicate}
+                          move={move}
+                          childCount={kids.length}
+                          childrenShut={kidsShut}
+                          onToggleChildren={() => toggleShut(page.id)}
+                        />
+
+                        {/* Sub-pages fold under the page they are tabs of --
+                            which is where they are on the dashboard, and so
+                            the only place anybody looks for them. */}
+                        {kids.length > 0 && !kidsShut && (
+                          <div className="mt-2 space-y-2 border-l-2 border-slate-100 pl-4">
+                            {kids.map((kid) => (
+                              <PageRow
+                                key={kid.id}
+                                page={kid}
+                                pages={pages}
+                                index={pages.indexOf(kid)}
+                                expanded={expanded}
+                                setExpanded={setExpanded}
+                                sources={sources}
+                                onSave={onSave}
+                                onDelete={onDelete}
+                                onOpen={onOpen}
+                                duplicate={duplicate}
+                                move={move}
+                                nested
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-              </div>
-
-              {open && <PageSettings page={page} pages={pages} sources={sources} onSave={onSave} />}
+              )}
             </div>
           )
         })}
@@ -387,5 +430,130 @@ function PageSettings({ page, pages, sources, onSave }) {
         {dirty && <span className="text-xs text-amber-600">Unsaved changes</span>}
       </div>
     </div>
+  )
+}
+
+/**
+ * One page in the list.
+ *
+ * The same row whether it is a top-level page or a tab of one, because they
+ * are the same thing and an admin should not have to learn two layouts to
+ * find the Delete button.
+ */
+function PageRow({
+  page,
+  pages,
+  index,
+  expanded,
+  setExpanded,
+  sources,
+  onSave,
+  onDelete,
+  onOpen,
+  duplicate,
+  move,
+  childCount = 0,
+  childrenShut = false,
+  onToggleChildren,
+  nested = false,
+}) {
+  const open = expanded === page.id
+  const usedSources = (page.sourceIds || []).length
+
+  return (
+            <div key={page.id} className="rounded-xl border border-slate-200 bg-white">
+              <div className="flex flex-wrap items-center gap-2 p-3">
+                {/* The fold, where a page has tabs under it. */}
+                {childCount > 0 ? (
+                  <button
+                    onClick={onToggleChildren}
+                    className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    title={childrenShut ? `Show its ${childCount} sub-pages` : 'Fold its sub-pages away'}
+                  >
+                    {childrenShut ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                ) : (
+                  nested && <CornerDownRight size={13} className="shrink-0 text-slate-300" />
+                )}
+                <PageIcon page={page} size={20} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-ink">
+                    {page.name}
+                    {/* Only shown when the two actually differ, so the list
+                        stays quiet for pages that use one name for both. */}
+                    {navLabelFor(page) !== page.name && (
+                      <span className="ml-1.5 font-normal text-slate-400">
+                        (sidebar: {navLabelFor(page)})
+                      </span>
+                    )}
+                  </p>
+                  <p className="truncate text-[11px] text-slate-400">
+                    {page.group ? `${page.group} · ` : ''}
+                    {(page.widgets || []).length} widgets · {usedSources} source{usedSources === 1 ? '' : 's'}
+                    {page.parentId && (
+                      <span className="text-indigo-500">
+                        {' '}
+                        · tab of {pages.find((p) => p.id === page.parentId)?.name || '—'}
+                      </span>
+                    )}
+                    {childCount > 0 && (
+                      <span className="text-indigo-500">
+                        {' '}
+                        · {childCount} sub-page{childCount === 1 ? '' : 's'}
+                      </span>
+                    )}
+                    {page.showInSidebar === false && <span className="text-amber-600"> · hidden from sidebar</span>}
+                  </p>
+                </div>
+
+                <Btn onClick={() => onOpen(page.id)}>Build</Btn>
+                <button
+                  onClick={() => setExpanded(open ? null : page.id)}
+                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+                >
+                  {open ? 'Close' : 'Settings'}
+                </button>
+
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => duplicate(page)}
+                    className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                    title="Duplicate page"
+                  >
+                    <Copy size={14} />
+                  </button>
+                  <button
+                    onClick={() => move(index, -1)}
+                    disabled={index === 0}
+                    className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-25"
+                    title="Move up"
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                  <button
+                    onClick={() => move(index, 1)}
+                    disabled={index === pages.length - 1}
+                    className="rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-25"
+                    title="Move down"
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      // eslint-disable-next-line no-alert
+                      if (window.confirm(`Delete the page "${page.name}"? Its widgets and filters are deleted with it. Your spreadsheets are untouched.`)) {
+                        onDelete(page.id)
+                      }
+                    }}
+                    className="rounded p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-500"
+                    title="Delete page"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {open && <PageSettings page={page} pages={pages} sources={sources} onSave={onSave} />}
+            </div>
   )
 }
