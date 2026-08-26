@@ -29,7 +29,7 @@ export default function WidgetControls({ controls, values, onChange, onReset, ro
   const active = anyControlActive(controls, values)
 
   return (
-    <div className="mb-1.5 flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200/70 bg-white/70 px-2 py-1.5 backdrop-blur">
+    <div className="widget-controls mb-1.5 flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200/70 bg-white/70 px-2 py-1.5 backdrop-blur">
       {controls.map((control) => {
         // Same pixel convention as the page control bar -- see
         // lib/pageControls.js. `flex: 0 0 auto` keeps the bar's own layout

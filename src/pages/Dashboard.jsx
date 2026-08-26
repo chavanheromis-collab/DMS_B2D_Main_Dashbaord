@@ -18,7 +18,7 @@ import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/b
 import { normalizeKey } from '../lib/dataUtils'
 import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
 import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
-import { DEFAULT_DESIGN, clampDesign, designVars, moveItem } from '../lib/pageDesign'
+import { DEFAULT_DESIGN, clampDesign, designClass, designVars, moveItem } from '../lib/pageDesign'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
 import { fixedValues, initialValues, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
@@ -965,6 +965,9 @@ export default function Dashboard() {
                   // How many rows it covers. See lib/flowPack.js -- it holds
                   // its width in each of them, and is as tall as they are.
                   rowSpan: widget.rowSpan,
+                  // A typed height, which a span honours exactly rather than
+                  // stretching over the top of.
+                  heightPx: widget.heightPx,
                   // A pinned height is a better guess than the type's, and
                   // using it here means the column packing is right on the
                   // first frame rather than after the widget measures.
@@ -1193,7 +1196,9 @@ export default function Dashboard() {
       {/* Sits above the backdrop layers. The sidebar is z-30 and stays above
           both. */}
       <div
-        className={`page-canvas relative z-[1] min-h-screen space-y-3 p-3 md:p-4 ${lightText ? 'page-invert' : ''}`}
+        className={`page-canvas relative z-[1] min-h-screen space-y-3 p-3 md:p-4 ${
+          lightText ? 'page-invert' : ''
+        } ${designClass(design)}`}
         // The whole design, as custom properties. `.card` already reads
         // `--card-*` (see index.css), so a page-wide surface is one
         // declaration on this element and no widget learns anything new.

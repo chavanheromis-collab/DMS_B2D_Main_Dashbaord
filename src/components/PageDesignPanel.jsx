@@ -10,6 +10,7 @@ import {
   isDefaultDesign,
 } from '../lib/pageDesign'
 import { WIDGET_THEMES } from '../lib/widgetStyle'
+import TypographyFields from './TypographyFields.jsx'
 
 /**
  * A page's whole appearance, edited on the page.
@@ -194,16 +195,30 @@ export default function PageDesignPanel({ design, theme, onChange, onThemeChange
         )}
 
         {tab === 'text' && (
-          <Slider
-            label="Text size"
-            hint="Everything scales together — the same design, bigger."
-            value={Math.round(d.fontScale * 100)}
-            min={Math.round(SCALE_MIN * 100)}
-            max={Math.round(SCALE_MAX * 100)}
-            step={5}
-            onChange={(v) => set({ fontScale: v / 100 })}
-            unit="%"
-          />
+          <>
+            <Slider
+              label="Text size"
+              hint="Everything scales together — the same design, bigger."
+              value={Math.round(d.fontScale * 100)}
+              min={Math.round(SCALE_MIN * 100)}
+              max={Math.round(SCALE_MAX * 100)}
+              step={5}
+              onChange={(v) => set({ fontScale: v / 100 })}
+              unit="%"
+            />
+
+            {/* The page's own typography: the widgets AND the controls,
+                since both sit inside the canvas this is set on. A widget
+                that sets its own still wins -- this is a default, not an
+                override, the same way the card surface is. */}
+            <div className="border-t border-slate-100 pt-2">
+              <TypographyFields value={d} onChange={set} showSize={false} title="Text on this page" />
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                Applies to every widget and every control on the page. A widget you styled by hand keeps its own.
+                Only the neutral greys are re-coloured — an error stays red and a KPI keeps its accent.
+              </p>
+            </div>
+          </>
         )}
       </div>
 

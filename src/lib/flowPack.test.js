@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   MAX_ROW_SPAN,
+  MIN_HEIGHT,
   MIN_WIDTH,
   NAMED_FRACTIONS,
   packRowGroups,
@@ -11,6 +12,7 @@ import {
   rowOf,
   rowSlack,
   rowSpanOf,
+  pinnedHeight,
 } from './flowPack.js'
 
 const item = (id, widthPx, estimatedHeight = 100) => ({ id, widthPx, estimatedHeight })
@@ -569,4 +571,49 @@ test('every position says how many rows it covers', () => {
   })
   assert.equal(positions.tall.rowSpan, 2)
   assert.equal(positions.b.rowSpan, 1)
+})
+
+test('a typed height is honoured exactly on a widget that spans', () => {
+  // The box did nothing before: a span is DRAWN at the height of its band,
+  // so measuring it read that height straight back and the number the admin
+  // typed was outvoted by the consequence of itself.
+  const { positions } = packRowGroups(
+    [
+      { id: 'tall', row: 1, widthPx: 400, rowSpan: 3, heightPx: 260, estimatedHeight: 260 },
+      at('k1', 1, 300, 200),
+      at('k2', 2, 300, 200),
+      at('k3', 3, 300, 200),
+    ],
+    { canvasWidth: 1000, gapX: 12, gapY: 12, heights: { tall: 624 } }
+  )
+  assert.equal(positions.tall.height, 260, 'not the 624 it was last drawn at')
+  assert.equal(positions.tall.bandHeight, 200 * 3 + 12 * 2, 'and it still knows what the band is')
+})
+
+test('a typed height taller than the band grows the band to hold it', () => {
+  // So it is still bordered by its rows rather than hanging out of them.
+  const { positions, rows } = packRowGroups(
+    [{ id: 'tall', row: 1, widthPx: 400, rowSpan: 2, heightPx: 500 }, at('k1', 1, 300, 90), at('k2', 2, 300, 90)],
+    { canvasWidth: 1000, gapX: 12, gapY: 12 }
+  )
+  assert.equal(positions.tall.height, 500)
+  assert.equal(rows[0].height + 12 + rows[1].height, 500)
+})
+
+
+test('a typed height on a widget that does NOT span is left as it was', () => {
+  // Its own card already keeps that promise, and the measurement is the
+  // truer number on a phone, where a fixed height is capped at 80vh.
+  const { positions } = packRowGroups([{ id: 'a', widthPx: 300, heightPx: 400 }], {
+    canvasWidth: 1000,
+    heights: { a: 180 },
+  })
+  assert.equal(positions.a.height, 180)
+})
+
+test('a height too small to be a decision is raised to the floor', () => {
+  assert.equal(pinnedHeight({ heightPx: 4 }), MIN_HEIGHT)
+  assert.equal(pinnedHeight({ heightPx: 0 }), null)
+  assert.equal(pinnedHeight({}), null)
+  assert.equal(pinnedHeight({ heightPx: 'tall' }), null)
 })

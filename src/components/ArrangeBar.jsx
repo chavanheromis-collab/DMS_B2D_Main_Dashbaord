@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Copy, Maximize2, Paintbrush, Pencil, Trash2, X } from 'lucide-react'
+import TypographyFields from './TypographyFields.jsx'
 import { DEFAULT_WIDGET_STYLE, SHADOW_LEVELS, WIDGET_THEMES } from '../lib/widgetStyle'
 
 /**
@@ -262,7 +263,11 @@ export default function ArrangeBar({
         value={heightPx ?? ''}
         placeholder={measured?.height ?? 'auto'}
         onCommit={(raw) => onSize({ heightPx: raw })}
-        title={`Height of ${title} in pixels`}
+        title={
+          measured?.band
+            ? `Height of ${title} in pixels — the rows it covers come to ${measured.band}px, and a bigger number grows them`
+            : `Height of ${title} in pixels`
+        }
       />
       {roomy && (
         <button
@@ -378,7 +383,15 @@ function WidgetPaint({ title, style, onStyle, onClose }) {
         <Colour label="Surface" value={s.bg} fallback="#ffffff" onChange={(v) => set({ bg: v })} />
         <Colour label="Accent" value={s.accent} fallback="#4f46e5" onChange={(v) => set({ accent: v })} />
         <Colour label="Border" value={s.borderColor} fallback="#e2e8f0" onChange={(v) => set({ borderColor: v })} />
-        <Colour label="Text" value={s.text} fallback="#0f172a" onChange={(v) => set({ text: v })} />
+      </div>
+
+      {/* Text is not one colour picker. It is the colour of the headings,
+          the colour of the captions, the typeface, the weight, the letter
+          spacing, the alignment and the size -- and this widget's own
+          controls take all of it too, because a control bar in a different
+          typeface from the widget under it is an oversight, not a design. */}
+      <div className="mb-1.5 border-t border-slate-100 pt-1.5">
+        <TypographyFields value={s} onChange={set} />
       </div>
 
       <Number_ label="Radius" value={s.radius} max={40} onChange={(v) => set({ radius: v })} />

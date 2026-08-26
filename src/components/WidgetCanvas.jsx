@@ -87,6 +87,9 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
         left: box.left,
         top: box.top,
         row: box.row,
+        // How tall the rows a span covers are, so the height box can say
+        // what the number it is offering to replace actually is.
+        band: box.bandHeight,
         spare: slack[id] ?? 0,
         canvasWidth: Math.round(width),
       })

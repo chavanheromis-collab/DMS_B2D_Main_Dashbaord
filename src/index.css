@@ -391,6 +391,51 @@ aside.fixed.right-0 {
   overflow: auto;
 }
 
+/* ------------------------------------------------------------------ */
+/* Typography an admin chose                                           */
+/* ------------------------------------------------------------------ */
+/* Widgets hard-code Tailwind greys -- `text-slate-500` for a caption,
+   `text-ink` for a heading -- so a chosen text colour has to be remapped
+   onto those classes the way `.card-invert` already remaps them for a dark
+   card. Only the NEUTRAL greys are listed: an error stays rose and a KPI
+   keeps its accent, because choosing a text colour is not a request for
+   your errors to become invisible.
+
+   A class per decision, so a heading colour does not drag the captions
+   along with it and flatten the hierarchy the greys exist to create.
+
+   `:where()` contributes no specificity, so each of these wins on the
+   strength of its own single class -- and Tailwind's utilities are emitted
+   above, so an equal-specificity tie falls this way. */
+.card-ink :where(.text-ink, .text-slate-900, .text-slate-800, .text-slate-700, .text-slate-600) {
+  color: var(--card-text);
+}
+.card-muted :where(.text-slate-500, .text-slate-400, .text-slate-300) {
+  color: var(--card-text-muted);
+}
+.card-weight :where(.font-semibold, .font-medium, .font-bold) {
+  font-weight: var(--card-weight);
+}
+
+/* The ones that simply inherit. On the WRAPPER rather than on `.card`, so a
+   widget's own controls -- which sit above the card, outside it -- are part
+   of the same decision. */
+.card-typo {
+  font-family: var(--card-font, inherit);
+  letter-spacing: var(--card-tracking, inherit);
+  text-align: var(--card-align, inherit);
+  font-weight: var(--card-weight, inherit);
+}
+
+/* Text size is a zoom, for the same reason the page's own scale is: it
+   takes the spacing and the borders with it, which is what "the same design,
+   bigger" means. Never on the element the canvas MEASURES, though -- the
+   packer would then be reading a height in a different coordinate space
+   from the one it is placing. */
+.page-canvas .card-typo :where(.card, .widget-controls) {
+  zoom: calc(var(--font-scale, 1) * var(--card-zoom, 1));
+}
+
 /* A widget covering several rows is given their combined height, and has
    to actually fill it -- the same arrangement `.widget-sized` uses, one
    level further in, because here the height comes from the canvas rather

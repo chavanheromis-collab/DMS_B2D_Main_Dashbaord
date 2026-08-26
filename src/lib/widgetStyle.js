@@ -16,6 +16,8 @@
 // A widget nobody has restyled emits no custom properties whatsoever, so the
 // stock look is quite literally unchanged -- not re-specified, just absent.
 
+import { DEFAULT_TYPOGRAPHY, typographyClass, typographyVars } from './typography.js'
+
 /** Named starting points, so nobody has to pick six colours from scratch. */
 export const WIDGET_THEMES = [
   { value: '', label: 'System default', preset: null },
@@ -113,6 +115,7 @@ export const SHADOW_LEVELS = [
 ]
 
 export const DEFAULT_WIDGET_STYLE = {
+  ...DEFAULT_TYPOGRAPHY,
   theme: '',
   bg: null,
   borderColor: null,
@@ -165,7 +168,9 @@ export function styleVars(style) {
   const s = resolveStyle(style)
   if (!s) return undefined
 
-  const vars = {}
+  // The text decisions come from one place, so a widget and a page agree
+  // about what "muted" means -- see lib/typography.js.
+  const vars = { ...(typographyVars(s) || {}) }
   if (s.bg) vars['--card-bg'] = s.bg
   if (s.borderColor) vars['--card-border-color'] = s.borderColor
   if (s.borderWidth !== undefined && s.borderWidth !== null) vars['--card-border-width'] = `${s.borderWidth}px`
@@ -183,7 +188,12 @@ export function hasCustomStyle(style) {
   return resolveStyle(style) !== null
 }
 
-/** Wrapper class for a widget -- carries the dark-card text inversion. */
+/**
+ * Wrapper classes for a widget -- the dark-card text inversion, plus
+ * whichever typography rules this widget has switched on.
+ */
 export function styleClass(style) {
-  return resolveStyle(style)?.invert ? 'card-invert' : ''
+  const s = resolveStyle(style)
+  if (!s) return ''
+  return [s.invert ? 'card-invert' : '', typographyClass(s)].filter(Boolean).join(' ')
 }

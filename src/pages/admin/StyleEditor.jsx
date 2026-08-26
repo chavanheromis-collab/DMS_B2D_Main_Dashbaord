@@ -4,8 +4,11 @@ import {
   SHADOW_LEVELS,
   WIDGET_THEMES,
   resolveStyle,
+  styleClass,
+  styleVars,
 } from '../../lib/widgetStyle'
 import { Field, Select, TextInput } from './ui.jsx'
+import TypographyFields from '../../components/TypographyFields.jsx'
 
 /**
  * Per-widget appearance.
@@ -97,28 +100,21 @@ export default function StyleEditor({ widget, set }) {
         {colorField('Accent', 'accent', '#4F46E5')}
       </div>
 
+      {/* Text is not one field. It is the colour of the headings, the
+          colour of the captions, the typeface, the weight, the letter
+          spacing, the alignment and the size -- and the widget's own
+          controls take all of it too. */}
+      <div className="mt-2 max-w-sm rounded-lg border border-violet-100 bg-white/60 p-2">
+        <TypographyFields value={style} onChange={(patch) => setStyle(patch)} />
+      </div>
+
       {/* A live sample, because reading six numbers back as a card in your
-          head is exactly the thing a preview should do for you. */}
+          head is exactly the thing a preview should do for you. It is drawn
+          from the same two functions the page uses, so the preview cannot
+          drift from the thing it is previewing. */}
       <div className="mt-2 flex items-center gap-3">
         <span className="text-[10px] text-slate-400">Preview</span>
-        <div
-          className={`flex-1 ${resolved?.invert ? 'card-invert' : ''}`}
-          style={{
-            ...(style.bg || resolved?.bg ? { '--card-bg': style.bg || resolved?.bg } : null),
-            ...(style.borderColor || resolved?.borderColor
-              ? { '--card-border-color': style.borderColor || resolved?.borderColor }
-              : null),
-            ...(style.borderWidth ?? resolved?.borderWidth
-              ? { '--card-border-width': `${style.borderWidth ?? resolved?.borderWidth}px` }
-              : null),
-            ...(style.radius ?? resolved?.radius
-              ? { '--card-radius': `${style.radius ?? resolved?.radius}px` }
-              : null),
-            ...(resolved?.shadow
-              ? { '--card-shadow': SHADOW_LEVELS.find((l) => l.value === resolved.shadow)?.css }
-              : null),
-          }}
-        >
+        <div className={`flex-1 ${styleClass(style)}`} style={styleVars(style)}>
           <div className="card !py-2">
             <p className="text-xs font-semibold text-slate-800">{widget.title || 'Widget title'}</p>
             <p className="text-[10px] text-slate-400">This is how the card will look</p>

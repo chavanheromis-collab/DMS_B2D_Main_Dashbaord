@@ -78,6 +78,19 @@ export function rowOf(item) {
   return Number.isFinite(n) && n >= 1 ? Math.round(n) : 1
 }
 
+/**
+ * The height somebody typed for this widget, if they typed one.
+ *
+ * Worth asking separately from the measurement because a widget that spans
+ * is DRAWN at the height of the rows it covers -- so once it has been drawn
+ * once, measuring it just reads that height back, and the number the admin
+ * typed would be quietly outvoted by the consequence of itself.
+ */
+export function pinnedHeight(item) {
+  const n = Number(item?.heightPx)
+  return Number.isFinite(n) && n > 0 ? Math.max(MIN_HEIGHT, Math.round(n)) : null
+}
+
 /** A widget cannot span more rows than a page plausibly has. */
 export const MAX_ROW_SPAN = 12
 
@@ -174,8 +187,15 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
     for (let i = 0; i < waiting.length; i += 1) {
       const item = waiting[i]
       const width = requiredWidth(item, canvas)
-      const h = Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback))
       const span = rowSpanOf(item)
+      const pin = pinnedHeight(item)
+      // A spanning widget is drawn at the height of its band, so measuring
+      // it reads that height straight back. A typed height has to be taken
+      // as read or it could never change anything.
+      const h =
+        span > 1 && pin
+          ? pin
+          : Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback))
 
       let left = clear(x, width)
       let atTop = 0
@@ -220,6 +240,7 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
           left,
           width,
           height: h,
+          pinned: Boolean(pin),
           startRow: rowNumber,
           lastRow: rowNumber + span - 1,
         })
@@ -273,7 +294,13 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
     const box = positions[sp.id]
     if (!box || band.length === 0) continue
     const last = band[band.length - 1]
-    box.height = Math.max(box.height, Math.round(last.top + last.height - box.top))
+    const bandHeight = Math.round(last.top + last.height - box.top)
+    // A typed height is exact -- it is the one number on this widget the
+    // admin chose rather than inherited, and stretching past it would make
+    // the box do nothing on precisely the widgets it matters most on. The
+    // band grew to hold it above, so it still sits inside its rows.
+    box.height = sp.pinned ? sp.height : Math.max(box.height, bandHeight)
+    box.bandHeight = bandHeight
     box.spanned = true
   }
 

@@ -384,6 +384,14 @@ While arranging, the stretch of a row a span is standing in is shaded, no
 dotted "what fits here" box is ever drawn across it, and the `N free` figure
 on that row counts it as taken. Room that is already occupied is not room.
 
+**The H box works on a span**, and is exact. A span is *drawn* at the height
+of its band, so measuring it just read that height straight back and the
+number you typed was outvoted by the consequence of itself — the box did
+nothing. Now a typed height is taken as read: type a smaller one and the
+widget sits at it inside its rows; type a bigger one and the band grows to
+hold it, so it is still bordered by the rows it covers. The box's tooltip
+tells you what the band currently comes to.
+
 **Blank means one row**, so this is invisible until it's used, and a page
 that has never heard of spans lays out to the same pixel it always did.
 
@@ -1516,6 +1524,48 @@ All of it is adjustable: how many slices to draw, the smallest slice worth
 its own wedge, the label threshold, **what each label says** (name, value, %,
 or any pair of them), and which of the two answers to a long tail you want.
 
+### The admin decides what the text looks like
+
+Seven decisions, on **every widget and every control**: heading colour, muted
+colour, typeface, weight, letter spacing, alignment and size.
+
+Set them in three places, in order of precedence:
+
+- **On the widget** — the paintbrush on its Arrange pill, or *Appearance* in
+  the admin panel. The widget's own controls take the same treatment, because
+  a control bar in a different typeface from the widget under it is an
+  oversight, not a design.
+- **On the page** — the **Text** tab of *Design this page*. This covers every
+  widget and every control on the page, including the page filter bar. It's a
+  default, not an override: a widget you styled by hand keeps its own, the
+  same way the card surface works.
+- **Nothing at all**, which is the default and stays the default.
+
+**Heading colour and muted colour are two separate fields**, deliberately.
+The greys exist to create a hierarchy — a heading in `slate-800`, its caption
+in `slate-400` — and one field for both would mean that *using* the feature at
+all flattened it.
+
+**Only the neutral greys are re-coloured.** An error stays rose, a KPI keeps
+its accent, a positive delta stays green. Choosing a text colour is not a
+request for your errors to become invisible. It's the same mechanism the dark
+card themes have always used, pointed at a colour you picked instead of at a
+built-in one.
+
+**No font here is downloaded.** All seven typefaces are stacks of what's
+already on the machine. A dashboard that waits on a webfont shows a page of
+invisible text first, and picking a typeface from a dropdown is not agreement
+to that on behalf of forty readers.
+
+Size is a zoom, like the page's own text size, so spacing and borders come
+with it — that's what *"the same design, bigger"* means. It's applied to the
+card rather than to the wrapper the canvas measures, so the packer never ends
+up reading a height in one coordinate space and placing it in another.
+
+> The **Text** picker on the paint panel used to save its value and do
+> nothing — nothing ever turned it into a property anything read. That's
+> fixed, and there's a test named after it.
+
 ### A colour belongs to a value, not to a position
 
 A colour is a label. Once a reader has learned that red means **Cancelled**,
@@ -2061,6 +2111,7 @@ src/
   lib/staleRef.js         Finds a ref read from inside a state updater
   lib/adminPanel.test.js  Guards the admin panel's header, folds and grouping
   lib/valueColors.js      One colour per value, everywhere, filtered or not
+  lib/typography.js       Text colour, typeface and size, admin-chosen
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties

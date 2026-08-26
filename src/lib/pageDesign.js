@@ -20,12 +20,19 @@
 // Pure: numbers and objects in, numbers and objects out, so all of it can be
 // tested without a browser.
 
+import { DEFAULT_TYPOGRAPHY, typographyClass, typographyVars } from './typography.js'
+
 export const GAP_MIN = 0
 export const GAP_MAX = 64
 export const SCALE_MIN = 0.75
 export const SCALE_MAX = 1.4
 
 export const DEFAULT_DESIGN = {
+  // Text colour, font, tracking and alignment for the whole page -- the
+  // widgets AND the controls, because a control bar in a different typeface
+  // from the widgets under it is not a design, it is an oversight. A widget
+  // that sets its own still wins, the same way it does for the surface.
+  ...DEFAULT_TYPOGRAPHY,
   // Two numbers, not one: the eye reads a row and a column differently, and
   // a dashboard that needs air between columns very often wants its rows
   // tighter than that, not looser.
@@ -92,7 +99,18 @@ export function designVars(design) {
   if (d.cardPadding !== null) vars['--card-padding'] = `${d.cardPadding}px`
   if (d.cardBg) vars['--card-bg'] = d.cardBg
   if (d.cardBorder) vars['--card-border-color'] = d.cardBorder
-  return vars
+  return { ...vars, ...(typographyVars(d) || {}) }
+}
+
+/**
+ * The classes the page's typography needs switched on.
+ *
+ * Separate from the properties because the remapping rules have to be
+ * ENABLED, not just supplied with a colour -- otherwise every card on every
+ * page would start overriding its own greys with an empty variable.
+ */
+export function designClass(design) {
+  return typographyClass(clampDesign(design))
 }
 
 /** Is this page still on the stock design? */
