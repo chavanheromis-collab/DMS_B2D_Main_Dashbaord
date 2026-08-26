@@ -78,6 +78,24 @@ export function rowOf(item) {
   return Number.isFinite(n) && n >= 1 ? Math.round(n) : 1
 }
 
+/** A widget cannot span more rows than a page plausibly has. */
+export const MAX_ROW_SPAN = 12
+
+/**
+ * How many rows a widget was told to cover.
+ *
+ * One is the answer for everything nobody has spanned, so a page that has
+ * never heard of this behaves exactly as it did. A number greater than one
+ * says "hold this width all the way down through those rows, and be as tall
+ * as they are together" -- which is the tall chart beside three stacked
+ * KPIs, the layout a single row could never express.
+ */
+export function rowSpanOf(item) {
+  const n = Number(item?.rowSpan)
+  if (!Number.isFinite(n) || n < 1) return 1
+  return Math.min(MAX_ROW_SPAN, Math.round(n))
+}
+
 /**
  * Every widget placed into its row, spilling into the next when it will not
  * fit.
@@ -111,20 +129,44 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
 
   const positions = {}
   const rows = []
-  let top = 0
   let overflow = []
   let rowNumber = 1
   const highest = Math.max(1, ...list.map(rowOf))
 
-  while (rowNumber <= highest || overflow.length > 0) {
+  // Widgets still holding their width in the rows BELOW the one they start
+  // in. A span is a vertical reservation: rows keep filling left to right
+  // around it, and it is as tall as the rows it covers are together.
+  const spans = []
+  const heldIn = (row) => spans.filter((sp) => sp.startRow < row && sp.lastRow >= row)
+  const lastHeld = () => spans.reduce((m, sp) => Math.max(m, sp.lastRow), 0)
+
+  while (rowNumber <= highest || overflow.length > 0 || lastHeld() >= rowNumber) {
     // Whatever spilled from above comes first: it was earlier in the sort.
     const waiting = [...overflow, ...(queued.get(rowNumber) || [])]
     overflow = []
 
+    // The stretches of this row somebody upstairs is still standing in.
+    const blocked = heldIn(rowNumber)
+      .map((sp) => ({ left: sp.left, right: sp.left + sp.width }))
+      .sort((a, b) => a.left - b.left)
+
+    // The first x at or after `from` where `width` clears every one of them.
+    // Sorted ascending and only ever moving right, so one pass is enough.
+    const clear = (from, width) => {
+      let x = from
+      for (const b of blocked) {
+        if (x < b.right && x + width > b.left) x = b.right + gapX
+      }
+      return x
+    }
+
     let x = 0
     let height = 0
     const placed = []
-    // What sits at each x position on this row, and how far down it reaches.
+    // What sits at each x position on this row, and how far down it reaches
+    // -- measured from the top of the row, because how far down the PAGE the
+    // row starts is not known until every row's height is settled.
+    //
     // A widget shorter than its neighbours leaves room underneath it, and
     // that room is somewhere a later widget can go.
     const shelves = []
@@ -133,21 +175,25 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
       const item = waiting[i]
       const width = requiredWidth(item, canvas)
       const h = Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback))
+      const span = rowSpanOf(item)
 
-      let left = x
-      let atTop = top
+      let left = clear(x, width)
+      let atTop = 0
 
-      if (placed.length > 0 && x + width > canvas + 0.5) {
+      if (left + width > canvas + 0.5) {
         // No room along the row. Before giving up on it, look UNDER what is
         // already here: a widget half the height of the one beside it has
         // left a rectangle, and a rectangle that fits is not a rectangle
         // anybody wants left empty.
         //
         // Only tried when the row is full, so the reading order still runs
-        // left to right -- nothing jumps into a hole ahead of its turn.
-        const shelf = shelves.find(
-          (sh) => sh.width >= width - 0.5 && top + height - sh.bottom - gapY >= h - 0.5
-        )
+        // left to right -- nothing jumps into a hole ahead of its turn. And
+        // never for a widget that spans: it would be stacking something
+        // under one row that is meant to reach down through several.
+        const shelf =
+          span > 1
+            ? null
+            : shelves.find((sh) => sh.width >= width - 0.5 && height - sh.bottom - gapY >= h - 0.5)
         if (!shelf) {
           overflow = waiting.slice(i)
           break
@@ -155,26 +201,83 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
         left = shelf.left
         atTop = shelf.bottom + gapY
         shelf.bottom = atTop + h
-        positions[item.id] = { left, top: atTop, width, height: h, row: rowNumber, stacked: true }
+        positions[item.id] = { left, top: atTop, width, height: h, row: rowNumber, rowSpan: 1, stacked: true }
         placed.push(item.id)
         continue
       }
 
-      positions[item.id] = { left, top: atTop, width, height: h, row: rowNumber }
+      positions[item.id] = { left, top: atTop, width, height: h, row: rowNumber, rowSpan: span }
       placed.push(item.id)
+      x = left + width + gapX
+
+      if (span > 1) {
+        // Deliberately not a shelf and not part of this row's height: a
+        // spanning widget is measured against the rows it covers, and
+        // letting it set the height of the first one would make every row
+        // below it as tall as the whole span.
+        spans.push({
+          id: item.id,
+          left,
+          width,
+          height: h,
+          startRow: rowNumber,
+          lastRow: rowNumber + span - 1,
+        })
+        continue
+      }
+
       shelves.push({ left, width, bottom: atTop + h })
       height = Math.max(height, h)
-      x += width + gapX
     }
 
-    if (placed.length > 0) {
-      rows.push({ row: rowNumber, top, height, ids: placed, shelves })
-      top += height + gapY
+    // A row nothing was placed in is still a real row while a span is
+    // reaching through it -- that is the room the span is being given.
+    if (placed.length > 0 || blocked.length > 0) {
+      rows.push({ row: rowNumber, top: 0, height, ids: placed, shelves, blocked })
     }
     rowNumber += 1
   }
 
-  return { positions, rows, containerHeight: Math.max(0, top - gapY) }
+  // --- how tall the rows a span covers have to be ------------------------
+  //
+  // The rows it passes through are sized by everything ELSE in them, and
+  // only if that leaves the span short is the last of them grown to make up
+  // the difference. So three KPIs beside a chart set the height, the chart
+  // fills it, and a chart taller than all three pushes only the bottom row
+  // down rather than spreading slack through rows that did not need it.
+  const covered = (sp) => rows.filter((r) => r.row >= sp.startRow && r.row <= sp.lastRow)
+  for (const sp of [...spans].sort((a, b) => a.lastRow - b.lastRow || a.startRow - b.startRow)) {
+    const band = covered(sp)
+    if (band.length === 0) continue
+    const available = band.reduce((sum, r) => sum + r.height, 0) + gapY * (band.length - 1)
+    if (sp.height > available + 0.5) band[band.length - 1].height += sp.height - available
+  }
+
+  // --- and now, finally, where each row starts ---------------------------
+  let top = 0
+  for (const row of rows) {
+    row.top = top
+    for (const shelf of row.shelves) shelf.bottom += top
+    top += row.height + gapY
+  }
+
+  const rowAt = new Map(rows.map((r) => [r.row, r]))
+  for (const box of Object.values(positions)) {
+    box.top += rowAt.get(box.row)?.top || 0
+  }
+
+  // A span is as tall as its band, so it is bordered by the rows it covers
+  // rather than floating in the middle of them.
+  for (const sp of spans) {
+    const band = covered(sp)
+    const box = positions[sp.id]
+    if (!box || band.length === 0) continue
+    const last = band[band.length - 1]
+    box.height = Math.max(box.height, Math.round(last.top + last.height - box.top))
+    box.spanned = true
+  }
+
+  return { positions, rows, spans, containerHeight: Math.max(0, top - gapY) }
 }
 
 /**
@@ -199,9 +302,15 @@ export function rowGaps(rows, positions, canvasWidth, gapX = 12, minimum = MIN_W
       if (box) edge = Math.max(edge, box.left + box.width)
     }
 
-    // The space at the END of the row.
+    // The space at the END of the row -- which ends early if a widget
+    // from a row above is still standing in it. A dotted box drawn across
+    // something already there would be an invitation to a collision.
     const left = edge + gapX
-    const width = Math.round(canvasWidth - left)
+    let limit = canvasWidth
+    for (const b of row.blocked || []) {
+      if (b.left >= left) limit = Math.min(limit, b.left - gapX)
+    }
+    const width = Math.round(limit - left)
     if (width >= minimum) out.push({ row: row.row, left, top: row.top, width, height: row.height })
 
     // And the space UNDER anything shorter than the row it is on. This is
@@ -234,7 +343,13 @@ export function rowGaps(rows, positions, canvasWidth, gapX = 12, minimum = MIN_W
 export function rowSlack(rows, positions, canvasWidth, gapX = 12) {
   const out = {}
   for (const row of rows || []) {
-    const used = row.ids.reduce((sum, id) => sum + (positions[id]?.width || 0), 0) + gapX * (row.ids.length - 1)
+    // Space a widget from a row above is holding is not space going spare,
+    // however empty it looks from down here.
+    const held = (row.blocked || []).reduce((sum, b) => sum + (b.right - b.left) + gapX, 0)
+    const used =
+      row.ids.reduce((sum, id) => sum + (positions[id]?.width || 0), 0) +
+      gapX * Math.max(0, row.ids.length - 1) +
+      held
     const spare = Math.max(0, Math.round(canvasWidth - used))
     for (const id of row.ids) out[id] = spare
   }

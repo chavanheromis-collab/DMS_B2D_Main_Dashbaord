@@ -391,6 +391,27 @@ aside.fixed.right-0 {
   overflow: auto;
 }
 
+/* A widget covering several rows is given their combined height, and has
+   to actually fill it -- the same arrangement `.widget-sized` uses, one
+   level further in, because here the height comes from the canvas rather
+   than from a number somebody typed. */
+.widget-span,
+.widget-span > * {
+  display: flex;
+  flex-direction: column;
+}
+.widget-span > * {
+  flex: 1 1 auto;
+  /* Without this a flex child refuses to shrink below its content. */
+  min-height: 0;
+}
+.widget-span > * > .card {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  overflow: auto;
+}
+
 /* ------------------------------------------------------------------ */
 /* Flow diagram canvas                                                 */
 /* ------------------------------------------------------------------ */

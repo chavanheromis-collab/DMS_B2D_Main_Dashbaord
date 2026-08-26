@@ -57,7 +57,9 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
 
   // One observer per widget, so a table that grows a row pushes what is
   // below it down without anything else being recomputed.
-  const key = items.map((i) => `${i.id}:${i.widthPx ?? ''}:${i.width ?? ''}:${i.row ?? ''}`).join('|')
+  const key = items
+    .map((i) => `${i.id}:${i.widthPx ?? ''}:${i.width ?? ''}:${i.row ?? ''}:${i.rowSpan ?? ''}`)
+    .join('|')
   useEffect(() => {
     const observers = []
     itemRefs.current.forEach((node, id) => {
@@ -112,6 +114,16 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
             <span className="absolute -top-2 left-1 rounded bg-indigo-50 px-1 text-[9px] font-semibold text-indigo-500">
               Row {r.row}
             </span>
+            {/* Space a widget from a row above is standing in. Without this
+                the row looks like it has room going spare, and the number
+                in the arrange bar looks like a lie. */}
+            {(r.blocked || []).map((b) => (
+              <span
+                key={`held-${b.left}`}
+                className="absolute top-0 bottom-0 rounded bg-indigo-50/40"
+                style={{ left: b.left + 4, width: b.right - b.left }}
+              />
+            ))}
           </div>
         ))}
 
@@ -146,8 +158,19 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
           <div
             key={item.id}
             ref={(node) => itemRefs.current.set(item.id, node)}
-            className="absolute transition-[top,left,width] duration-300 ease-out"
-            style={{ top: box.top, left: box.left, width: box.width }}
+            // A widget told to cover several rows is as tall as they are
+            // together -- otherwise "spans rows 2 to 4" would mean nothing
+            // more than "starts at row 2", and the room it reserved below
+            // itself would sit visibly empty underneath it.
+            className={`absolute transition-[top,left,width] duration-300 ease-out ${
+              box.spanned ? 'widget-span' : ''
+            }`}
+            style={{
+              top: box.top,
+              left: box.left,
+              width: box.width,
+              height: box.spanned ? box.height : undefined,
+            }}
           >
             {item.content}
           </div>

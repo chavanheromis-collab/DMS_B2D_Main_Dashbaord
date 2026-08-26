@@ -90,6 +90,30 @@ test('a widget can be put in a row, and the rows are shown while arranging', () 
   assert.ok(canvas.includes('Row {r.row}'))
 })
 
+test('a widget can be told to cover several rows', () => {
+  assert.ok(bar.includes('onCommit={(raw) => onRowSpan?.(raw)}'))
+  assert.ok(dashboard.includes("onRowSpan={(v) => saveWidgetSize(widget.id, { rowSpan: v })}"))
+  assert.ok(dashboard.includes("if (key === 'rowSpan') {"), 'a count takes no pixel floor either')
+  assert.ok(dashboard.includes('rowSpan: widget.rowSpan'), 'and the canvas is told about it')
+})
+
+test('a spanning widget is drawn as tall as the rows it covers', () => {
+  // Otherwise "covers rows 2 to 4" would mean no more than "starts at row
+  // 2", and the room it reserved below itself would sit visibly empty.
+  assert.ok(canvas.includes('height: box.spanned ? box.height : undefined'))
+  assert.ok(canvas.includes("box.spanned ? 'widget-span' : ''"))
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  assert.ok(css.includes('.widget-span > * > .card'), 'and the card inside it fills that height')
+})
+
+test('the pill says which rows a widget covers, not just where it starts', () => {
+  assert.ok(bar.includes('spans > 1 ?'))
+})
+
+test('space held by a span is shown as held while arranging', () => {
+  assert.ok(canvas.includes('(r.blocked || []).map('))
+})
+
 test('nothing on the canvas is draggable', () => {
   // Sizes are typed, in pixels: exact, repeatable, and the same on every
   // screen, none of which is true of a mouse.

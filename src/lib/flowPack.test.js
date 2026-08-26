@@ -1,7 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { MIN_WIDTH, NAMED_FRACTIONS, packRowGroups, requiredWidth, rowGaps, rowOf, rowSlack } from './flowPack.js'
+import {
+  MAX_ROW_SPAN,
+  MIN_WIDTH,
+  NAMED_FRACTIONS,
+  packRowGroups,
+  requiredWidth,
+  rowGaps,
+  rowOf,
+  rowSlack,
+  rowSpanOf,
+} from './flowPack.js'
 
 const item = (id, widthPx, estimatedHeight = 100) => ({ id, widthPx, estimatedHeight })
 
@@ -420,4 +430,143 @@ test('a widget that fills its row leaves no gap underneath', () => {
     gapY: 20,
   })
   assert.deepEqual(rowGaps(rows, positions, 812, 12, MIN_WIDTH, 20).filter((g) => g.under), [])
+})
+
+// --- a widget that covers several rows -----------------------------------
+
+const at = (id, row, widthPx, estimatedHeight = 100, rowSpan) => ({ id, row, widthPx, estimatedHeight, rowSpan })
+
+test('a span is one row unless somebody says otherwise', () => {
+  assert.equal(rowSpanOf({}), 1)
+  assert.equal(rowSpanOf({ rowSpan: 1 }), 1)
+  assert.equal(rowSpanOf({ rowSpan: 3 }), 3)
+  assert.equal(rowSpanOf({ rowSpan: '4' }), 4)
+  assert.equal(rowSpanOf({ rowSpan: 0 }), 1, 'and nonsense is one row')
+  assert.equal(rowSpanOf({ rowSpan: -2 }), 1)
+  assert.equal(rowSpanOf({ rowSpan: 'tall' }), 1)
+  assert.equal(rowSpanOf({ rowSpan: 900 }), MAX_ROW_SPAN, 'capped, so it cannot run away')
+})
+
+test('a span holds its width in every row it covers', () => {
+  // The chart on the left is 400 wide across rows 1-3, so the KPI assigned
+  // to row 2 starts after it rather than under it.
+  const { positions } = packRowGroups(
+    [at('tall', 1, 400, 300, 3), at('k1', 1, 300, 90), at('k2', 2, 300, 90), at('k3', 3, 300, 90)],
+    { canvasWidth: 1000, gapX: 12, gapY: 12 }
+  )
+  assert.equal(positions.tall.left, 0)
+  assert.equal(positions.k1.left, 412)
+  assert.equal(positions.k2.left, 412, 'row 2 starts past the span, not under it')
+  assert.equal(positions.k3.left, 412)
+})
+
+test('and is as tall as those rows are together', () => {
+  const { positions } = packRowGroups(
+    [at('tall', 1, 400, 100, 3), at('k1', 1, 300, 90), at('k2', 2, 300, 90), at('k3', 3, 300, 90)],
+    { canvasWidth: 1000, gapX: 12, gapY: 12 }
+  )
+  // Three rows of 90 with two 12px gaps between them.
+  assert.equal(positions.tall.height, 90 * 3 + 12 * 2)
+  assert.equal(positions.tall.spanned, true)
+  assert.equal(positions.k3.top + 90, positions.tall.top + positions.tall.height, 'bordered by the last row')
+})
+
+test('a span does NOT set the height of the row it starts in', () => {
+  // Otherwise every row below it would be as tall as the whole span, and
+  // the page would grow by the height of the chart three times over.
+  const { rows } = packRowGroups(
+    [at('tall', 1, 400, 600, 3), at('k1', 1, 300, 90), at('k2', 2, 300, 90), at('k3', 3, 300, 90)],
+    { canvasWidth: 1000, gapX: 12, gapY: 12 }
+  )
+  assert.equal(rows[0].height, 90)
+  assert.equal(rows[1].height, 90)
+})
+
+test('a span taller than its band pushes only the LAST row down', () => {
+  // Slack spread through every row would move things that had no reason to
+  // move; the bottom one is where the extra actually is.
+  const { rows, positions } = packRowGroups(
+    [at('tall', 1, 400, 600, 3), at('k1', 1, 300, 90), at('k2', 2, 300, 90), at('k3', 3, 300, 90)],
+    { canvasWidth: 1000, gapX: 12, gapY: 12 }
+  )
+  assert.equal(rows[0].height, 90)
+  assert.equal(rows[1].height, 90)
+  assert.equal(rows[2].height, 600 - (90 + 12 + 90 + 12))
+  assert.equal(positions.tall.height, 600)
+})
+
+test('a row with nothing but a span passing through it still exists', () => {
+  const { rows, positions } = packRowGroups([at('tall', 1, 400, 500, 3)], {
+    canvasWidth: 1000,
+    gapX: 12,
+    gapY: 12,
+  })
+  assert.deepEqual(rows.map((r) => r.row), [1, 2, 3])
+  assert.equal(positions.tall.height, 500, 'and the span gets the height it asked for')
+})
+
+test('the space a span is holding is not space going spare', () => {
+  const { rows, positions } = packRowGroups([at('tall', 1, 400, 300, 2), at('b', 2, 300, 90)], {
+    canvasWidth: 1000,
+    gapX: 12,
+    gapY: 12,
+  })
+  const slack = rowSlack(rows, positions, 1000, 12)
+  // Row 2 holds 400 for the span plus a 300 widget, both with a gap.
+  assert.equal(slack.b, 1000 - (400 + 12) - 300)
+})
+
+test('no dotted box is drawn over a widget standing there from a row above', () => {
+  // A "300 x 90 fits here" label across something already on the page is an
+  // invitation to a collision.
+  const { rows, positions } = packRowGroups([at('tall', 1, 700, 300, 2), at('b', 2, 100, 90)], {
+    canvasWidth: 1000,
+    gapX: 12,
+    gapY: 12,
+  })
+  const row2 = rows.find((r) => r.row === 2)
+  assert.equal(row2.blocked.length, 1)
+  for (const gap of rowGaps(rows, positions, 1000, 12, MIN_WIDTH, 12)) {
+    for (const b of rows.find((r) => r.row === gap.row).blocked || []) {
+      assert.ok(gap.left + gap.width <= b.left + 0.5 || gap.left >= b.right - 0.5, 'gap overlaps a held stretch')
+    }
+  }
+})
+
+test('a span never stacks into the gap under a short widget', () => {
+  // It is meant to reach down through several rows; tucking it under one of
+  // them would be the opposite of what was asked for.
+  const { positions } = packRowGroups(
+    [item('wide', 700, 300), item('short', 200, 100), at('tall', 1, 200, 100, 2)],
+    { canvasWidth: 950, gapX: 12, gapY: 12 }
+  )
+  assert.equal(positions.tall.stacked, undefined)
+  assert.equal(positions.tall.row, 2, 'it went to the next row instead')
+})
+
+test('a page with no spans lays out exactly as it did before there were any', () => {
+  // The guarantee that this feature is invisible until it is used.
+  const items = [item('a', 260), item('b', 260, 300), item('c', 500), item('d', 700, 140)]
+  const { positions, rows, containerHeight } = packRowGroups(items, { canvasWidth: 812, gapX: 12, gapY: 20 })
+  assert.deepEqual(
+    items.map((i) => [positions[i.id].left, positions[i.id].top, positions[i.id].width, positions[i.id].height]),
+    [
+      [0, 0, 260, 100],
+      [272, 0, 260, 300],
+      [0, 320, 500, 100],
+      [0, 440, 700, 140],
+    ]
+  )
+  assert.deepEqual(rows.map((r) => [r.row, r.top, r.height]), [[1, 0, 300], [2, 320, 100], [3, 440, 140]])
+  assert.equal(containerHeight, 580)
+})
+
+test('every position says how many rows it covers', () => {
+  const { positions } = packRowGroups([at('tall', 1, 300, 100, 2), item('b', 300)], {
+    canvasWidth: 1000,
+    gapX: 12,
+    gapY: 12,
+  })
+  assert.equal(positions.tall.rowSpan, 2)
+  assert.equal(positions.b.rowSpan, 1)
 })

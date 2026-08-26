@@ -11,6 +11,7 @@ import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
 import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from '../lib/filterEngine'
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
+import { MAX_ROW_SPAN } from '../lib/flowPack'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
 import { applyComputed, computedFor, computedHeaders } from '../lib/computed'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
@@ -760,6 +761,12 @@ export default function Dashboard() {
         clean.row = Number.isFinite(n) && n >= 1 ? Math.round(n) : null
         continue
       }
+      // Nor is a span. One row is what everything does, so it is written as
+      // nothing at all rather than as a 1 on every widget on the page.
+      if (key === 'rowSpan') {
+        clean.rowSpan = Number.isFinite(n) && n > 1 ? Math.min(MAX_ROW_SPAN, Math.round(n)) : null
+        continue
+      }
       clean[key] =
         value === '' || value === null || !Number.isFinite(n) || n <= 0
           ? null
@@ -955,6 +962,9 @@ export default function Dashboard() {
                   // ...unless the admin chose pixels, which overrides both.
                   widthPx: widgetUsesPx(widget) ? widgetWidthPx(widget) : null,
                   row: widget.row,
+                  // How many rows it covers. See lib/flowPack.js -- it holds
+                  // its width in each of them, and is as tall as they are.
+                  rowSpan: widget.rowSpan,
                   // A pinned height is a better guess than the type's, and
                   // using it here means the column packing is right on the
                   // first frame rather than after the widget measures.
@@ -983,6 +993,8 @@ export default function Dashboard() {
                           onOrder={(v) => setWidgetOrder(widget.id, v)}
                           row={widget.row ?? ''}
                           onRow={(v) => saveWidgetSize(widget.id, { row: v })}
+                          rowSpan={widget.rowSpan ?? ''}
+                          onRowSpan={(v) => saveWidgetSize(widget.id, { rowSpan: v })}
                           widthPx={widget.widthPx ?? ''}
                           heightPx={widget.heightPx ?? ''}
                           style={widget.style}

@@ -352,6 +352,41 @@ because judging it any other way is impossible. Closing the panel discards
 an unsaved draft rather than leaving the page looking wrong for no visible
 reason.
 
+#### One widget across several rows
+
+The **↕R** box beside **R** is how many rows a widget covers. `R2` with
+**↕R 3** means *rows 2 to 4* — and the pill says so: `R2-4`.
+
+A span is a **vertical reservation**. The widget holds its width all the way
+down through those rows, and it is drawn as tall as they are together —
+bordered by the band of rows rather than floating in the middle of it. That's
+the layout a single row could never express: a tall chart on the left with
+three KPIs stacked beside it, each in its own row.
+
+Everything else keeps working exactly as it did. The rows a span passes
+through go on filling left to right, they just start **after** it rather than
+underneath it, and a widget that no longer fits in what's left spills to the
+next row as usual.
+
+Two decisions worth knowing about, because both are places this could have
+gone quietly wrong:
+
+- **A span does not set the height of the row it starts in.** The rows are
+  sized by everything *else* in them — the three KPIs — and the chart fills
+  what that comes to. The alternative makes every row in the band as tall as
+  the whole span, and the page grows by the height of the chart three times
+  over.
+- **A span taller than its band pushes only the *last* row down.** Spreading
+  the slack through every row would move things that had no reason to move;
+  the bottom of the band is where the extra height actually is.
+
+While arranging, the stretch of a row a span is standing in is shaded, no
+dotted "what fits here" box is ever drawn across it, and the `N free` figure
+on that row counts it as taken. Room that is already occupied is not room.
+
+**Blank means one row**, so this is invisible until it's used, and a page
+that has never heard of spans lays out to the same pixel it always did.
+
 #### The empty space tells you what fits in it
 
 Wherever there is room left over, **Arrange** mode draws a dotted box in it

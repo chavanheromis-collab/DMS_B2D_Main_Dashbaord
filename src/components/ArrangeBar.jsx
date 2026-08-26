@@ -132,6 +132,8 @@ export default function ArrangeBar({
   heightPx,
   row,
   onRow,
+  rowSpan,
+  onRowSpan,
   style,
   measured,
   onSize,
@@ -168,6 +170,7 @@ export default function ArrangeBar({
   // there is no dead strip beside anything. This is the number somebody
   // actually needs: "there are 340 pixels left on this row", which is what
   // decides whether to widen this widget or bring the next one up onto it.
+  const spans = Math.max(1, Math.round(Number(rowSpan) || 1))
   const spare = Math.round(measured?.spare ?? 0)
   const roomy = spare > 24
   const fillRow = () => onSize({ widthPx: String(Math.round((w || 0) + spare)) })
@@ -196,7 +199,10 @@ export default function ArrangeBar({
       >
         <span className="font-bold">{order || index}</span>
         <span className="rounded bg-slate-100 px-1 text-[9px] font-semibold text-slate-500">
+          {/* "R2" is a row. "R2-4" is three rows this widget covers, which
+              is the thing somebody needs to see without opening anything. */}
           R{measured?.row ?? row ?? 1}
+          {spans > 1 ? `-${(measured?.row ?? row ?? 1) + spans - 1}` : ''}
         </span>
         {w && h ? (
           <span className="opacity-70">
@@ -230,6 +236,17 @@ export default function ArrangeBar({
         placeholder={measured?.row ?? 1}
         onCommit={(raw) => onRow(raw)}
         title={`Which row ${title} sits in`}
+      />
+      <NumberBox
+        label="↕R"
+        value={rowSpan ?? ''}
+        // How many rows this one covers. Blank is one -- it stays in its
+        // own row -- and a bigger number holds this width all the way down
+        // through them, as tall as those rows are together. The layout for
+        // a chart standing beside three stacked KPIs.
+        placeholder={1}
+        onCommit={(raw) => onRowSpan?.(raw)}
+        title={`How many rows ${title} covers`}
       />
       <NumberBox
         label="W"
