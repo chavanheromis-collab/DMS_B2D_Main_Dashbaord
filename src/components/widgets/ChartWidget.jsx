@@ -175,7 +175,7 @@ function NestedCircleChart({ data, fmt, colorFor, activeName, onDrill, height, s
         })}
       </svg>
 
-      <ul className="max-h-full shrink-0 space-y-0.5 overflow-y-auto text-[11px]">
+      <ul className="chart-legend max-h-full shrink-0 space-y-0.5 overflow-y-auto text-[11px]">
         {circles.map((c, i) => (
           <li key={c.name}>
             <button
@@ -642,7 +642,18 @@ export default function ChartWidget({
             >
               <LabelList position="right" fill="#475569" stroke="none" dataKey="name" fontSize={11} />
               {showLabels && (
-                <LabelList position="insideRight" fill="#fff" stroke="none" dataKey="value" fontSize={10} formatter={fmt} />
+                <LabelList
+                  position="insideRight"
+                  // White because it sits ON the bar, not on the card. An
+                  // admin's chart-text colour is chosen against the card and
+                  // would vanish here, so this one opts out.
+                  className="label-on-fill"
+                  fill="#fff"
+                  stroke="none"
+                  dataKey="value"
+                  fontSize={10}
+                  formatter={fmt}
+                />
               )}
               {cells()}
             </Funnel>

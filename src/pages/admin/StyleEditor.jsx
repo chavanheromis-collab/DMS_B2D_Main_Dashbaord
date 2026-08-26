@@ -8,7 +8,8 @@ import {
   styleVars,
 } from '../../lib/widgetStyle'
 import { Field, Select, TextInput } from './ui.jsx'
-import TypographyFields from '../../components/TypographyFields.jsx'
+import TypographyFields, { MarkTextFields } from '../../components/TypographyFields.jsx'
+import { hasChartText } from '../../lib/typography'
 
 /**
  * Per-widget appearance.
@@ -104,8 +105,31 @@ export default function StyleEditor({ widget, set }) {
           colour of the captions, the typeface, the weight, the letter
           spacing, the alignment and the size -- and the widget's own
           controls take all of it too. */}
-      <div className="mt-2 max-w-sm rounded-lg border border-violet-100 bg-white/60 p-2">
-        <TypographyFields value={style} onChange={(patch) => setStyle(patch)} />
+      <div className="mt-2 grid gap-2 md:grid-cols-2">
+        <div className="rounded-lg border border-violet-100 bg-white/60 p-2">
+          <TypographyFields value={style} onChange={(patch) => setStyle(patch)} />
+        </div>
+
+        {/* A chart is two kinds of writing in one picture, read differently:
+            an axis is glanced at while reading a value off the chart, a
+            legend is read once and deliberately. One control for both would
+            mean enlarging a legend enlarged forty axis ticks with it. */}
+        {hasChartText(widget.type) && (
+          <div className="space-y-2 rounded-lg border border-violet-100 bg-white/60 p-2">
+            <MarkTextFields
+              label="Chart text"
+              hint="Axis ticks, axis titles and the labels on the marks."
+              value={style.chartText}
+              onChange={(v) => setStyle({ chartText: v })}
+            />
+            <MarkTextFields
+              label="Legend"
+              hint="The key, on its own. Labels drawn inside a bar keep their own colour."
+              value={style.legendText}
+              onChange={(v) => setStyle({ legendText: v })}
+            />
+          </div>
+        )}
       </div>
 
       {/* A live sample, because reading six numbers back as a card in your

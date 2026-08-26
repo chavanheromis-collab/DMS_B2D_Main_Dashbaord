@@ -1566,6 +1566,42 @@ up reading a height in one coordinate space and placing it in another.
 > nothing — nothing ever turned it into a property anything read. That's
 > fixed, and there's a test named after it.
 
+#### Inside a chart, twice
+
+A chart is two kinds of writing in one picture, and they are read
+differently. The **axes and the labels on the marks** are part of the
+drawing: small, quiet, glanced at while reading a value off the chart. The
+**legend** is a key — read once, deliberately, and very often the one thing
+that's too small on a screen across the room.
+
+So they're set separately, each with its own colour, typeface, weight and
+size. One control for both would mean that enlarging a legend enlarged forty
+axis ticks with it and the chart lost the space it was drawn in.
+
+Both appear on the widget's paint panel and in the admin panel's
+*Appearance* — but **only on widgets that actually draw one** (bar, line,
+area, pie, trend, stacked, combo, scatter). Offering it on a table would be a
+control that does nothing, which is the bug this whole section exists to fix.
+Page-wide versions live in the **Text** tab of *Design this page*.
+
+Three details:
+
+- **Size is in pixels here**, not a percentage. What's being sized is a font
+  size the chart set element by element — 11 for an axis tick, 9 for a radius
+  axis — and a multiplier over several different bases is a number nobody can
+  predict the result of.
+- **A label drawn inside a bar keeps its own colour.** It's white because it
+  sits on the bar's fill; a colour picked against a white card would vanish
+  into it. Same reasoning as "only the neutral greys".
+- **The app's own legends count as legends**, not just the built-in one — the
+  pie's scrolling list and the trend chart's series toggles take the legend
+  settings too.
+
+The rules are aimed at Recharts' own class names, which are checked against
+the installed copy of Recharts by a test — an upgrade that renamed one would
+otherwise turn the whole feature off silently.
+
+
 ### A colour belongs to a value, not to a position
 
 A colour is a label. Once a reader has learned that red means **Cancelled**,

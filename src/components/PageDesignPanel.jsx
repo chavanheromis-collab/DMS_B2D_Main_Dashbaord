@@ -10,7 +10,7 @@ import {
   isDefaultDesign,
 } from '../lib/pageDesign'
 import { WIDGET_THEMES } from '../lib/widgetStyle'
-import TypographyFields from './TypographyFields.jsx'
+import TypographyFields, { MarkTextFields } from './TypographyFields.jsx'
 
 /**
  * A page's whole appearance, edited on the page.
@@ -217,6 +217,25 @@ export default function PageDesignPanel({ design, theme, onChange, onThemeChange
                 Applies to every widget and every control on the page. A widget you styled by hand keeps its own.
                 Only the neutral greys are re-coloured — an error stays red and a KPI keeps its accent.
               </p>
+            </div>
+
+            {/* Inside a chart is a different problem: an axis is glanced at
+                while reading a value off it, a legend is read once and
+                deliberately, and the legend is what is too small on a screen
+                across the room. */}
+            <div className="space-y-2 border-t border-slate-100 pt-2">
+              <MarkTextFields
+                label="Chart text"
+                hint="Axis ticks and titles, on every chart on this page."
+                value={d.chartText}
+                onChange={(v) => set({ chartText: v })}
+              />
+              <MarkTextFields
+                label="Legends"
+                hint="The keys, on their own — usually the thing worth enlarging."
+                value={d.legendText}
+                onChange={(v) => set({ legendText: v })}
+              />
             </div>
           </>
         )}

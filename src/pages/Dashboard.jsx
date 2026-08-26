@@ -996,6 +996,7 @@ export default function Dashboard() {
                           onOrder={(v) => setWidgetOrder(widget.id, v)}
                           row={widget.row ?? ''}
                           onRow={(v) => saveWidgetSize(widget.id, { row: v })}
+                          widgetType={widget.type}
                           rowSpan={widget.rowSpan ?? ''}
                           onRowSpan={(v) => saveWidgetSize(widget.id, { rowSpan: v })}
                           widthPx={widget.widthPx ?? ''}

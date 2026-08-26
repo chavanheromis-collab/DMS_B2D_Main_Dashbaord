@@ -16,7 +16,14 @@
 // A widget nobody has restyled emits no custom properties whatsoever, so the
 // stock look is quite literally unchanged -- not re-specified, just absent.
 
-import { DEFAULT_TYPOGRAPHY, typographyClass, typographyVars } from './typography.js'
+import {
+  DEFAULT_MARK_TEXT,
+  DEFAULT_TYPOGRAPHY,
+  markTextClass,
+  markTextVars,
+  typographyClass,
+  typographyVars,
+} from './typography.js'
 
 /** Named starting points, so nobody has to pick six colours from scratch. */
 export const WIDGET_THEMES = [
@@ -116,6 +123,10 @@ export const SHADOW_LEVELS = [
 
 export const DEFAULT_WIDGET_STYLE = {
   ...DEFAULT_TYPOGRAPHY,
+  // A chart's two kinds of text, set apart from the card's and from each
+  // other -- see lib/typography.js for why they are not one control.
+  chartText: { ...DEFAULT_MARK_TEXT },
+  legendText: { ...DEFAULT_MARK_TEXT },
   theme: '',
   bg: null,
   borderColor: null,
@@ -141,6 +152,9 @@ export function withPageTheme(style, pageTheme) {
   return { ...(style || {}), theme: pageTheme }
 }
 
+const isGroup = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+const anySet = (group) => Object.values(group).some((v) => v !== null && v !== undefined && v !== '')
+
 /** Resolves a widget's style, folding in its named theme's preset first. */
 export function resolveStyle(style) {
   if (!style) return null
@@ -151,7 +165,13 @@ export function resolveStyle(style) {
   // can pick "Elevated" and then override just the border colour.
   for (const [key, value] of Object.entries(style)) {
     if (key === 'theme') continue
-    if (value !== null && value !== undefined && value !== '') merged[key] = value
+    if (value === null || value === undefined || value === '') continue
+    // A group of fields -- a chart's text, its legend's -- counts as set
+    // only when something INSIDE it is. The empty group is written by the
+    // editor on every save, and treating its presence as a decision would
+    // report every widget on the page as restyled.
+    if (isGroup(value) && !anySet(value)) continue
+    merged[key] = value
   }
   return Object.keys(merged).length ? merged : null
 }
@@ -170,7 +190,11 @@ export function styleVars(style) {
 
   // The text decisions come from one place, so a widget and a page agree
   // about what "muted" means -- see lib/typography.js.
-  const vars = { ...(typographyVars(s) || {}) }
+  const vars = {
+    ...(typographyVars(s) || {}),
+    ...(markTextVars(s.chartText, 'chart') || {}),
+    ...(markTextVars(s.legendText, 'legend') || {}),
+  }
   if (s.bg) vars['--card-bg'] = s.bg
   if (s.borderColor) vars['--card-border-color'] = s.borderColor
   if (s.borderWidth !== undefined && s.borderWidth !== null) vars['--card-border-width'] = `${s.borderWidth}px`
@@ -195,5 +219,12 @@ export function hasCustomStyle(style) {
 export function styleClass(style) {
   const s = resolveStyle(style)
   if (!s) return ''
-  return [s.invert ? 'card-invert' : '', typographyClass(s)].filter(Boolean).join(' ')
+  return [
+    s.invert ? 'card-invert' : '',
+    typographyClass(s),
+    markTextClass(s.chartText, 'chart'),
+    markTextClass(s.legendText, 'legend'),
+  ]
+    .filter(Boolean)
+    .join(' ')
 }

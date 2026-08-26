@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Copy, Maximize2, Paintbrush, Pencil, Trash2, X } from 'lucide-react'
-import TypographyFields from './TypographyFields.jsx'
+import TypographyFields, { MarkTextFields } from './TypographyFields.jsx'
+import { hasChartText } from '../lib/typography'
 import { DEFAULT_WIDGET_STYLE, SHADOW_LEVELS, WIDGET_THEMES } from '../lib/widgetStyle'
 
 /**
@@ -135,6 +136,7 @@ export default function ArrangeBar({
   onRow,
   rowSpan,
   onRowSpan,
+  widgetType,
   style,
   measured,
   onSize,
@@ -179,7 +181,13 @@ export default function ArrangeBar({
   if (painting) {
     return (
       <Floating anchor={anchor} onDismiss={() => setPainting(false)}>
-        <WidgetPaint title={title} style={style} onStyle={onStyle} onClose={() => setPainting(false)} />
+        <WidgetPaint
+          title={title}
+          style={style}
+          onStyle={onStyle}
+          onClose={() => setPainting(false)}
+          chartText={hasChartText(widgetType)}
+        />
       </Floating>
     )
   }
@@ -348,7 +356,7 @@ export default function ArrangeBar({
  * -- see withPageTheme -- so everything here is an override, and "auto"
  * really does mean "whatever the page says", not a value we re-stated.
  */
-function WidgetPaint({ title, style, onStyle, onClose }) {
+function WidgetPaint({ title, style, onStyle, onClose, chartText = false }) {
   const s = { ...DEFAULT_WIDGET_STYLE, ...(style || {}) }
   const set = (patch) => onStyle({ ...s, ...patch })
 
@@ -393,6 +401,29 @@ function WidgetPaint({ title, style, onStyle, onClose }) {
       <div className="mb-1.5 border-t border-slate-100 pt-1.5">
         <TypographyFields value={s} onChange={set} />
       </div>
+
+      {/* A chart is two kinds of writing in one picture, and they are read
+          differently: an axis is glanced at while reading a value off the
+          chart, a legend is read once and deliberately -- and a legend is
+          very often the thing that is too small on a screen across the
+          room. One control for both would mean enlarging the legend
+          enlarged forty axis ticks with it. */}
+      {chartText && (
+        <div className="mb-1.5 space-y-2 border-t border-slate-100 pt-1.5">
+          <MarkTextFields
+            label="Chart text"
+            hint="Axis ticks, axis titles and the labels on the marks."
+            value={s.chartText}
+            onChange={(v) => set({ chartText: v })}
+          />
+          <MarkTextFields
+            label="Legend"
+            hint="The key, on its own. Labels drawn inside a bar keep their own colour."
+            value={s.legendText}
+            onChange={(v) => set({ legendText: v })}
+          />
+        </div>
+      )}
 
       <Number_ label="Radius" value={s.radius} max={40} onChange={(v) => set({ radius: v })} />
       <Number_ label="Padding" value={s.padding} max={40} onChange={(v) => set({ padding: v })} />

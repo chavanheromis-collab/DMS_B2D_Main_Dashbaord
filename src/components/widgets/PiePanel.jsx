@@ -311,7 +311,7 @@ function SliceList({
       ref={boxRef}
       onScroll={report}
       onPointerEnter={report}
-      className="max-h-[220px] shrink-0 overflow-y-auto pr-1 sm:max-h-none sm:w-[42%] sm:max-w-[240px]">
+      className="chart-legend max-h-[220px] shrink-0 overflow-y-auto pr-1 sm:max-h-none sm:w-[42%] sm:max-w-[240px]">
       <ul className="space-y-px">
         {slices.map((slice, i) => {
           const on = hover === i || activeName === slice.name

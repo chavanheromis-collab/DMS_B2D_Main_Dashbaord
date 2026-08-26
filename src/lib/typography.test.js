@@ -7,13 +7,18 @@ import {
   TEXT_SCALE_MAX,
   TEXT_SCALE_MIN,
   TYPOGRAPHY_KEYS,
+  MARK_SIZE_MAX,
+  MARK_SIZE_MIN,
   clearTypography,
+  hasChartText,
   hasTypography,
+  markTextClass,
+  markTextVars,
   typographyClass,
   typographyVars,
 } from './typography.js'
-import { DEFAULT_WIDGET_STYLE, styleClass, styleVars } from './widgetStyle.js'
-import { DEFAULT_DESIGN, designClass, designVars } from './pageDesign.js'
+import { DEFAULT_WIDGET_STYLE, hasCustomStyle, styleClass, styleVars } from './widgetStyle.js'
+import { DEFAULT_DESIGN, designClass, designVars, isDefaultDesign } from './pageDesign.js'
 
 // ---------------------------------------------------------------------
 // The admin decides what the text looks like
@@ -197,4 +202,135 @@ test('the admin panel’s preview is drawn by the same code as the page', () => 
   // A preview with its own idea of how a style is applied is a preview that
   // will one day be confidently wrong.
   assert.ok(editor.includes('className={`flex-1 ${styleClass(style)}`} style={styleVars(style)}'))
+})
+
+// ---------------------------------------------------------------------
+// The two kinds of writing inside a chart
+// ---------------------------------------------------------------------
+
+test('a chart’s text and its legend are two separate decisions', () => {
+  // One control for both would mean enlarging a legend enlarged forty axis
+  // ticks with it, and the chart lost the space it was drawn in.
+  const vars = styleVars({
+    chartText: { text: '#111111', size: 13 },
+    legendText: { text: '#ff0000', weight: 'bold' },
+  })
+  assert.equal(vars['--chart-text'], '#111111')
+  assert.equal(vars['--chart-size'], '13px')
+  assert.equal(vars['--legend-text'], '#ff0000')
+  assert.equal(vars['--legend-weight'], '700')
+  assert.equal(vars['--legend-size'], undefined, 'the legend took no size from the chart')
+})
+
+test('each property switches on its own rule', () => {
+  // `font-size: var(--chart-size, inherit)` under one class would reset
+  // every tick to its parent's size the moment somebody picked a typeface.
+  assert.equal(markTextClass({ font: 'serif' }, 'chart'), 'chart-font')
+  assert.equal(markTextClass({ size: 12 }, 'chart'), 'chart-size')
+  assert.equal(markTextClass({ text: '#111' }, 'legend'), 'legend-ink')
+  assert.equal(markTextClass({}, 'chart'), '')
+})
+
+test('a chart text size is clamped to something readable', () => {
+  assert.equal(markTextVars({ size: 900 }, 'chart')['--chart-size'], `${MARK_SIZE_MAX}px`)
+  assert.equal(markTextVars({ size: 1 }, 'chart')['--chart-size'], `${MARK_SIZE_MIN}px`)
+  assert.equal(markTextVars({ size: 'big' }, 'chart'), undefined)
+})
+
+test('this is only offered on widgets that draw a chart', () => {
+  // A control that does nothing is the bug this whole file exists to fix.
+  for (const type of ['chart', 'trend', 'stacked', 'combo', 'scatter']) {
+    assert.ok(hasChartText(type), type)
+  }
+  for (const type of ['kpi', 'table', 'pivot', 'flow', 'text', 'leaderboard', undefined]) {
+    assert.ok(!hasChartText(type), String(type))
+  }
+})
+
+test('an empty text group is not a decision', () => {
+  // The editor writes both groups on every save. Counting their presence
+  // would report every widget on the page as restyled.
+  assert.equal(hasCustomStyle({ ...DEFAULT_WIDGET_STYLE }), false)
+  assert.equal(styleVars({ ...DEFAULT_WIDGET_STYLE }), undefined)
+  assert.equal(hasCustomStyle({ ...DEFAULT_WIDGET_STYLE, chartText: { text: '#111' } }), true)
+})
+
+test('a stock design loaded back from storage is still stock', () => {
+  // Two objects that say the same nothing are not the same object, and
+  // comparing them by identity would grey out the Reset button's opposite.
+  assert.equal(isDefaultDesign(JSON.parse(JSON.stringify(DEFAULT_DESIGN))), true)
+  assert.equal(isDefaultDesign({ ...DEFAULT_DESIGN, legendText: { size: 14 } }), false)
+})
+
+test('a page can set the chart text for every chart on it', () => {
+  const vars = designVars({ ...DEFAULT_DESIGN, legendText: { size: 14 } })
+  assert.equal(vars['--legend-size'], '14px')
+  assert.ok(designClass({ ...DEFAULT_DESIGN, legendText: { size: 14 } }).includes('legend-size'))
+})
+
+// --- the rules, and the classes they are aimed at ------------------------
+
+const chartWidget = read('components/widgets/ChartWidget.jsx')
+const pie = read('components/widgets/PiePanel.jsx')
+const analytics = read('components/widgets/AnalyticsWidgets.jsx')
+
+test('every recharts class these rules aim at still exists in recharts', () => {
+  // A recharts upgrade that renamed one of these would otherwise turn the
+  // whole feature off silently.
+  const dir = path.resolve(SRC, '..', 'node_modules', 'recharts', 'lib')
+  if (!fs.existsSync(dir)) return
+
+  const names = [...new Set(css.match(/recharts-[a-z-]+/g) || [])]
+  assert.ok(names.length >= 6)
+
+  const walk = (at) =>
+    fs.readdirSync(at, { withFileTypes: true }).flatMap((e) => {
+      const full = path.join(at, e.name)
+      return e.isDirectory() ? walk(full) : e.name.endsWith('.js') ? [full] : []
+    })
+  const source = walk(dir)
+    .map((f) => fs.readFileSync(f, 'utf8'))
+    .join('\n')
+
+  for (const name of names) assert.ok(source.includes(name), `${name} is gone from recharts`)
+})
+
+test('a label drawn INSIDE a bar keeps its own colour', () => {
+  // It is white because it sits on the bar's fill. A colour picked against
+  // a white card would disappear into it.
+  assert.ok(chartWidget.includes('className="label-on-fill"'))
+  const rules = css.match(/\.chart-(ink|font|size|weight) :where\([^)]*\)/g) || []
+  assert.equal(rules.length, 4)
+  for (const rule of rules) assert.ok(rule.includes(':not(.label-on-fill)'), rule)
+})
+
+test('the app’s own legends are legends too', () => {
+  // Not every legend here is drawn by recharts: the pie's scrolls, and the
+  // trend chart's toggles series on and off.
+  assert.ok(pie.includes('className="chart-legend'))
+  assert.ok(analytics.includes('chart-legend mt-1 flex flex-wrap'))
+  assert.ok(chartWidget.includes('className="chart-legend max-h-full'))
+})
+
+test('the legend rules are written after the card’s, so they win the tie', () => {
+  // A legend sits inside the card, so the card's own text rules match it
+  // too. This is the more specific INTENT even where it is not the more
+  // specific selector.
+  assert.ok(css.indexOf('.legend-ink') > css.indexOf('.card-muted'))
+})
+
+test('chart text can be set on the widget, in the admin panel, and on the page', () => {
+  assert.ok(bar.includes('<MarkTextFields label="Chart text"'))
+  assert.ok(bar.includes('<MarkTextFields label="Legend"'))
+  assert.ok(editor.includes('value={style.chartText}'))
+  assert.ok(editor.includes('value={style.legendText}'))
+  assert.ok(designPanel.includes('value={d.chartText}'))
+  assert.ok(designPanel.includes('value={d.legendText}'))
+})
+
+test('the widget’s own panel only offers it where there is a chart', () => {
+  assert.ok(bar.includes('chartText={hasChartText(widgetType)}'))
+  assert.ok(bar.includes('{chartText && ('))
+  assert.ok(dashboard.includes('widgetType={widget.type}'))
+  assert.ok(editor.includes('{hasChartText(widget.type) && ('))
 })

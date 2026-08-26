@@ -436,6 +436,68 @@ aside.fixed.right-0 {
   zoom: calc(var(--font-scale, 1) * var(--card-zoom, 1));
 }
 
+/* ------------------------------------------------------------------ */
+/* The two kinds of writing inside a chart                             */
+/* ------------------------------------------------------------------ */
+/* Recharts sets `fill` and `font-size` as presentation ATTRIBUTES, which
+   any CSS rule outranks -- so the axes can be restyled without a single
+   chart component learning about theming, exactly as `.card` is.
+
+   The axes and the marks are one decision and the legend is another. They
+   are read differently: an axis is glanced at while reading a value off the
+   chart, a legend is read once and deliberately, and it is very often the
+   thing that is too small on a screen across the room.
+
+   A class per PROPERTY, because `font-size: var(--chart-size, inherit)`
+   under one class would reset every tick to its parent's size the moment
+   somebody picked only a typeface. */
+.chart-ink :where(
+    .recharts-cartesian-axis-tick-value,
+    .recharts-polar-angle-axis-tick-value,
+    .recharts-polar-radius-axis-tick-value,
+    .recharts-pie-label-text,
+    .recharts-label:not(.label-on-fill)
+  ) {
+  fill: var(--chart-text);
+}
+.chart-font :where(.recharts-surface text:not(.label-on-fill)) {
+  font-family: var(--chart-font);
+}
+.chart-size :where(
+    .recharts-cartesian-axis-tick-value,
+    .recharts-polar-angle-axis-tick-value,
+    .recharts-polar-radius-axis-tick-value,
+    .recharts-pie-label-text,
+    .recharts-label:not(.label-on-fill)
+  ) {
+  font-size: var(--chart-size);
+}
+.chart-weight :where(.recharts-surface text:not(.label-on-fill)) {
+  font-weight: var(--chart-weight);
+}
+
+/* A label drawn INSIDE a bar is not chart text an admin is choosing the
+   colour of -- it is white because it sits on the bar's own fill, and a
+   colour picked against a white card would disappear into it. `.label-on-fill`
+   is how a chart says so. */
+
+/* The legend, last so it wins the ties: a legend is inside the card, so the
+   card's own text rules match it too, and this is the more specific
+   INTENT even where it is not the more specific selector. Both the built-in
+   legend and the app's own scrolling ones. */
+.legend-ink :where(.recharts-legend-item-text, .chart-legend, .chart-legend *) {
+  color: var(--legend-text);
+}
+.legend-font :where(.recharts-default-legend, .chart-legend) {
+  font-family: var(--legend-font);
+}
+.legend-size :where(.recharts-legend-item-text, .chart-legend, .chart-legend *) {
+  font-size: var(--legend-size);
+}
+.legend-weight :where(.recharts-legend-item-text, .chart-legend, .chart-legend *) {
+  font-weight: var(--legend-weight);
+}
+
 /* A widget covering several rows is given their combined height, and has
    to actually fill it -- the same arrangement `.widget-sized` uses, one
    level further in, because here the height comes from the canvas rather

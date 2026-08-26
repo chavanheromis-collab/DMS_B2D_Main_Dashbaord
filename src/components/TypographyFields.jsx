@@ -1,12 +1,16 @@
 import { X } from 'lucide-react'
 import {
   CARD_FONTS,
+  DEFAULT_MARK_TEXT,
+  MARK_SIZE_MAX,
+  MARK_SIZE_MIN,
   TEXT_ALIGNS,
   TEXT_SCALE_MAX,
   TEXT_SCALE_MIN,
   TRACKING_LEVELS,
   WEIGHTS,
   clearTypography,
+  hasMarkText,
   hasTypography,
 } from '../lib/typography'
 
@@ -131,5 +135,59 @@ function Swatch({ label, value, fallback, onChange }) {
         </button>
       )}
     </label>
+  )
+}
+
+/**
+ * One of a chart's two kinds of text.
+ *
+ * Fewer fields than a card's, because the rest do not mean anything here:
+ * there is no muted grey in an axis, and aligning an axis tick is the
+ * axis's job. A size in pixels rather than a percentage, because what is
+ * being sized is a fontSize the chart set element by element -- 11 for a
+ * tick, 9 for a radius axis -- and a multiplier over several different
+ * bases is a number nobody can predict the result of.
+ */
+export function MarkTextFields({ label, hint, value, onChange }) {
+  const t = value || {}
+  const set = (patch) => onChange({ ...DEFAULT_MARK_TEXT, ...t, ...patch })
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline gap-1.5">
+        <p className="text-[11px] font-medium text-slate-600">{label}</p>
+        {hasMarkText(t) && (
+          <button
+            onClick={() => onChange({ ...DEFAULT_MARK_TEXT })}
+            className="ml-auto text-[10px] text-slate-400 underline hover:text-rose-500"
+            title="Back to whatever the chart draws by default"
+          >
+            inherited
+          </button>
+        )}
+      </div>
+      {hint && <p className="text-[10px] leading-relaxed text-slate-400">{hint}</p>}
+
+      <div className="flex items-center gap-1.5">
+        <Swatch label="Colour" value={t.text} fallback="#475569" onChange={(v) => set({ text: v })} />
+        <label className="flex items-center gap-1">
+          <span className="text-[10px] text-slate-500">Size</span>
+          <input
+            type="number"
+            min={MARK_SIZE_MIN}
+            max={MARK_SIZE_MAX}
+            value={t.size ?? ''}
+            placeholder="auto"
+            onChange={(e) => set({ size: e.target.value === '' ? null : Number(e.target.value) })}
+            className="w-14 rounded border border-slate-200 px-1 py-0.5 text-center text-[11px] tabular-nums"
+            aria-label={`${label} size in pixels`}
+          />
+          <span className="text-[10px] text-slate-400">px</span>
+        </label>
+      </div>
+
+      <Picker label="Font" value={t.font} options={CARD_FONTS} onChange={(v) => set({ font: v || null })} />
+      <Picker label="Weight" value={t.weight} options={WEIGHTS} onChange={(v) => set({ weight: v || null })} />
+    </div>
   )
 }

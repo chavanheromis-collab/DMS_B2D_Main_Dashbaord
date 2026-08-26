@@ -20,7 +20,14 @@
 // Pure: numbers and objects in, numbers and objects out, so all of it can be
 // tested without a browser.
 
-import { DEFAULT_TYPOGRAPHY, typographyClass, typographyVars } from './typography.js'
+import {
+  DEFAULT_MARK_TEXT,
+  DEFAULT_TYPOGRAPHY,
+  markTextClass,
+  markTextVars,
+  typographyClass,
+  typographyVars,
+} from './typography.js'
 
 export const GAP_MIN = 0
 export const GAP_MAX = 64
@@ -33,6 +40,9 @@ export const DEFAULT_DESIGN = {
   // from the widgets under it is not a design, it is an oversight. A widget
   // that sets its own still wins, the same way it does for the surface.
   ...DEFAULT_TYPOGRAPHY,
+  // And the same two for every chart on the page.
+  chartText: { ...DEFAULT_MARK_TEXT },
+  legendText: { ...DEFAULT_MARK_TEXT },
   // Two numbers, not one: the eye reads a row and a column differently, and
   // a dashboard that needs air between columns very often wants its rows
   // tighter than that, not looser.
@@ -99,7 +109,12 @@ export function designVars(design) {
   if (d.cardPadding !== null) vars['--card-padding'] = `${d.cardPadding}px`
   if (d.cardBg) vars['--card-bg'] = d.cardBg
   if (d.cardBorder) vars['--card-border-color'] = d.cardBorder
-  return { ...vars, ...(typographyVars(d) || {}) }
+  return {
+    ...vars,
+    ...(typographyVars(d) || {}),
+    ...(markTextVars(d.chartText, 'chart') || {}),
+    ...(markTextVars(d.legendText, 'legend') || {}),
+  }
 }
 
 /**
@@ -110,7 +125,10 @@ export function designVars(design) {
  * page would start overriding its own greys with an empty variable.
  */
 export function designClass(design) {
-  return typographyClass(clampDesign(design))
+  const d = clampDesign(design)
+  return [typographyClass(d), markTextClass(d.chartText, 'chart'), markTextClass(d.legendText, 'legend')]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /** Is this page still on the stock design? */
@@ -119,6 +137,12 @@ export function isDefaultDesign(design) {
   return Object.keys(DEFAULT_DESIGN).every((key) => {
     const a = d[key]
     const b = DEFAULT_DESIGN[key]
+    // A group of text fields is two different objects that say the same
+    // nothing, so comparing them by identity would report every stock page
+    // as restyled the moment one was loaded rather than constructed.
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+      return Object.keys(b).every((inner) => (a[inner] ?? null) === (b[inner] ?? null))
+    }
     return a === b || (a === null && b === null)
   })
 }

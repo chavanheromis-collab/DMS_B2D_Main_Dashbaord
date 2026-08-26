@@ -159,9 +159,94 @@ export function typographyClass(t) {
   return out.join(' ')
 }
 
+// ---------------------------------------------------------------------
+// The text inside a chart
+// ---------------------------------------------------------------------
+// A chart is two kinds of writing in one picture. The AXES and the labels
+// on the marks are part of the drawing -- small, quiet, there to be read
+// off. The LEGEND is a key: it is read once, deliberately, and it is very
+// often the thing that is too small on a screen across the room.
+//
+// So they are set separately. Making them one control would mean that
+// enlarging a legend enlarged forty axis ticks with it and the chart lost
+// the space it was drawn in.
+//
+// Both are a smaller set of decisions than a card's, because the rest do
+// not mean anything here: there is no muted grey in an axis, and aligning
+// an axis tick is the axis's job.
+
+/** Widgets that actually draw one. Offering this on the others would be a
+ *  control that does nothing, which is the bug this file exists to fix. */
+export const CHART_TEXT_TYPES = new Set(['chart', 'trend', 'stacked', 'combo', 'scatter'])
+
+export function hasChartText(type) {
+  return CHART_TEXT_TYPES.has(type)
+}
+
+export const MARK_TEXT_KEYS = ['text', 'font', 'size', 'weight']
+
+export const DEFAULT_MARK_TEXT = { text: null, font: null, size: null, weight: null }
+
+/** Below 6px nothing is readable; above 36 an axis tick is a headline. */
+export const MARK_SIZE_MIN = 6
+export const MARK_SIZE_MAX = 36
+
+function markSize(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.round(Math.max(MARK_SIZE_MIN, Math.min(MARK_SIZE_MAX, n)))
+}
+
+/**
+ * Properties for one of a chart's two kinds of text.
+ *
+ * A size in PIXELS rather than a percentage, because the thing being sized
+ * is a `fontSize` the chart set element by element -- 11 for a tick, 9 for a
+ * radius axis -- and a multiplier over several different bases is a number
+ * nobody can predict the result of.
+ */
+export function markTextVars(t, prefix) {
+  if (!t || !prefix) return undefined
+  const vars = {}
+  if (t.text) vars[`--${prefix}-text`] = t.text
+
+  const font = CARD_FONTS.find((f) => f.value === t.font)?.css
+  if (font) vars[`--${prefix}-font`] = font
+
+  const size = markSize(t.size)
+  if (size !== null) vars[`--${prefix}-size`] = `${size}px`
+
+  const weight = WEIGHTS.find((w) => w.value === t.weight)?.css
+  if (weight) vars[`--${prefix}-weight`] = String(weight)
+
+  return Object.keys(vars).length ? vars : undefined
+}
+
+/**
+ * A class per property rather than one for the lot.
+ *
+ * `font-size: var(--chart-size, inherit)` under a single class would reset
+ * every tick to its parent's size the moment somebody picked only a
+ * typeface -- a setting quietly breaking a setting nobody touched.
+ */
+export function markTextClass(t, prefix) {
+  if (!t || !prefix) return ''
+  const out = []
+  if (t.text) out.push(`${prefix}-ink`)
+  if (CARD_FONTS.some((f) => f.value === t.font && f.css)) out.push(`${prefix}-font`)
+  if (markSize(t.size) !== null) out.push(`${prefix}-size`)
+  if (WEIGHTS.some((w) => w.value === t.weight && w.css)) out.push(`${prefix}-weight`)
+  return out.join(' ')
+}
+
 /** Has anybody made a decision about the text here? */
 export function hasTypography(t) {
   return typographyClass(t) !== '' || Boolean(typographyVars(t))
+}
+
+/** The same question for one of a chart's two kinds of text. */
+export function hasMarkText(t) {
+  return Boolean(markTextVars(t, 'x'))
 }
 
 /** Everything back to inherited, without disturbing the fields around it. */

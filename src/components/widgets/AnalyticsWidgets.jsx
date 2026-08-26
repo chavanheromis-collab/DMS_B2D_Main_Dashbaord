@@ -488,7 +488,7 @@ function TrendTooltip({ active, payload, label, single, valueLabel, percentMode,
 function SeriesLegend({ series, hidden, hover, colorOf, onHover, onToggle, scrolls = true, max }) {
   return (
     <div
-      className={`mt-1 flex flex-wrap gap-1 ${scrolls ? 'overflow-y-auto' : ''}`}
+      className={`chart-legend mt-1 flex flex-wrap gap-1 ${scrolls ? 'overflow-y-auto' : ''}`}
       style={scrolls ? { maxHeight: Number(max) > 0 ? Number(max) : 76 } : undefined}
     >
       {series.map((name, i) => {
