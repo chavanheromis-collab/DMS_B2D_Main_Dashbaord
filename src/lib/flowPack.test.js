@@ -3,8 +3,12 @@ import assert from 'node:assert/strict'
 
 import {
   MAX_ROW_SPAN,
+  MIN_FIT,
   MIN_HEIGHT,
   MIN_WIDTH,
+  STACK_WIDTH,
+  fitFor,
+  wantedWidth,
   NAMED_FRACTIONS,
   packRowGroups,
   requiredWidth,
@@ -616,4 +620,160 @@ test('a height too small to be a decision is raised to the floor', () => {
   assert.equal(pinnedHeight({ heightPx: 0 }), null)
   assert.equal(pinnedHeight({}), null)
   assert.equal(pinnedHeight({ heightPx: 'tall' }), null)
+})
+
+// --- meeting the screen it actually got ----------------------------------
+
+const three = [
+  { id: 'a', row: 1, widthPx: 400 },
+  { id: 'b', row: 1, widthPx: 400 },
+  { id: 'c', row: 1, widthPx: 400 },
+]
+
+test('the width a page was designed for is inferred, never typed', () => {
+  // It is the widest row's worth of typed widths. Nobody has to record it,
+  // it cannot go stale, and it moves on its own as the page is edited.
+  assert.equal(wantedWidth(three, 12), 400 * 3 + 24)
+  assert.equal(wantedWidth([{ row: 1, widthPx: 500 }, { row: 2, widthPx: 300 }], 12), 500)
+})
+
+test('a page of named widths wants nothing in particular', () => {
+  // A fraction is already a fraction of whatever room there is.
+  assert.equal(wantedWidth([{ width: 'half' }, { width: 'half' }], 12), 0)
+  assert.equal(fitFor([{ width: 'half' }], 300, 12).fit, 1)
+})
+
+test('when the room is there, nothing is scaled', () => {
+  const at = fitFor(three, 1264, 12)
+  assert.equal(at.fit, 1)
+  assert.equal(at.stacked, false)
+})
+
+test('a narrower screen scales EVERY typed width by the same ratio', () => {
+  // Scaling everything is the point: it is the only way a row stays a row,
+  // and the only way the relative sizes an admin chose survive.
+  const { fit } = fitFor(three, 1000, 12)
+  const { positions, rows } = packRowGroups(three, { canvasWidth: 1000, gapX: 12, gapY: 12, fit })
+  assert.equal(rows.length, 1, 'still one row')
+  assert.equal(positions.a.width, positions.b.width)
+  assert.equal(positions.b.width, positions.c.width)
+  assert.ok(positions.a.width < 400)
+})
+
+test('a scaled row never overflows the canvas it was scaled to', () => {
+  // The gaps are NOT scaled -- 12 pixels of air is 12 pixels at any size --
+  // so a ratio taken over a total that included them would leave every row
+  // a few pixels too wide and wrap the last widget off the end.
+  for (let canvas = 700; canvas <= 1300; canvas += 1) {
+    const { fit, stacked } = fitFor(three, canvas, 12)
+    if (stacked) continue
+    const { positions, rows } = packRowGroups(three, { canvasWidth: canvas, gapX: 12, gapY: 12, fit })
+    const used = three.reduce((sum, i) => sum + positions[i.id].width, 0) + 24
+    assert.ok(used <= canvas, `${canvas}: used ${used}`)
+    assert.equal(rows.length, 1, `${canvas}: wrapped`)
+  }
+})
+
+test('the tightest row decides, not the widest one', () => {
+  // A row of five has four gaps to pay for and a row of one has none.
+  const mixed = [
+    { id: 'wide', row: 1, widthPx: 1200 },
+    ...Array.from({ length: 5 }, (_, i) => ({ id: `k${i}`, row: 2, widthPx: 240 })),
+  ]
+  const { fit } = fitFor(mixed, 1000, 12)
+  const { positions, rows } = packRowGroups(mixed, { canvasWidth: 1000, gapX: 12, gapY: 12, fit })
+  assert.equal(rows.length, 2)
+  for (const row of rows) {
+    const used = row.ids.reduce((sum, id) => sum + positions[id].width, 0) + 12 * (row.ids.length - 1)
+    assert.ok(used <= 1000, `row ${row.row}: ${used}`)
+  }
+})
+
+test('on a phone it stops pretending and goes one to a line', () => {
+  // Three across on 360 pixels is three widgets nobody can read, which is
+  // worse than three screens of one widget each.
+  const at = fitFor(three, 360, 12)
+  assert.equal(at.stacked, true)
+
+  const { positions, rows } = packRowGroups(three, { canvasWidth: 360, gapY: 12, stacked: true })
+  assert.equal(rows.length, 3)
+  for (const item of three) {
+    assert.equal(positions[item.id].width, 360)
+    assert.equal(positions[item.id].left, 0)
+  }
+})
+
+test('stacking keeps the order it was arranged in, across rows too', () => {
+  const items = [
+    { id: 'second', row: 2, widthPx: 300 },
+    { id: 'first', row: 1, widthPx: 300 },
+    { id: 'alsoFirst', row: 1, widthPx: 300 },
+    { id: 'third', row: 3, widthPx: 300 },
+  ]
+  const { positions } = packRowGroups(items, { canvasWidth: 360, gapY: 12, stacked: true })
+  const order = Object.entries(positions)
+    .sort((a, b) => a[1].top - b[1].top)
+    .map(([id]) => id)
+  assert.deepEqual(order, ['first', 'alsoFirst', 'second', 'third'])
+})
+
+test('a typed height comes down with the typed width it was chosen against', () => {
+  // 600x360 stays that SHAPE. Honouring half the decision is how a widget
+  // ends up a letterbox chart with a field of empty card underneath.
+  const items = [{ id: 'chart', row: 1, widthPx: 600, heightPx: 360 }]
+  const { fit } = fitFor([...items, { id: 'x', row: 1, widthPx: 600 }], 900, 12)
+  const { positions } = packRowGroups(items, { canvasWidth: 900, gapX: 12, gapY: 12, fit })
+  const box = positions.chart
+  assert.ok(Math.abs(box.width / box.height - 600 / 360) < 0.02)
+  assert.equal(box.fitted, true, 'and the canvas says it is imposing it')
+})
+
+test('stacked, a typed height comes down with the width too', () => {
+  const items = [{ id: 'chart', row: 1, widthPx: 600, heightPx: 360 }]
+  const { positions } = packRowGroups(items, { canvasWidth: 300, gapY: 12, stacked: true })
+  assert.equal(positions.chart.height, 180)
+})
+
+test('stacked, a widget wider than it was does NOT grow taller', () => {
+  // Its height was a decision, not a ratio waiting to be scaled up.
+  const items = [{ id: 'k', row: 1, widthPx: 300, heightPx: 120 }]
+  const { positions } = packRowGroups(items, { canvasWidth: 600, gapY: 12, stacked: true })
+  assert.equal(positions.k.height, 120)
+})
+
+test('a widget with no typed height is left to measure itself', () => {
+  // Its content reflows at the new width; a scaled guess would be a worse
+  // number than the one the browser is about to produce.
+  const items = [{ id: 'auto', row: 1, widthPx: 600, estimatedHeight: 200 }]
+  const { positions } = packRowGroups(items, { canvasWidth: 900, gapX: 12, gapY: 12, fit: 0.7 })
+  assert.equal(positions.auto.height, 200)
+  assert.equal(positions.auto.fitted, undefined)
+})
+
+test('a span is only a span while there are rows to span', () => {
+  const items = [{ id: 'tall', row: 1, widthPx: 400, rowSpan: 3, heightPx: 300 }]
+  const { positions } = packRowGroups(items, { canvasWidth: 360, gapY: 12, stacked: true })
+  assert.equal(positions.tall.rowSpan, 1)
+})
+
+test('the thresholds are where a phone actually is', () => {
+  assert.ok(STACK_WIDTH >= 480 && STACK_WIDTH <= 640)
+  assert.ok(MIN_FIT > 0.4 && MIN_FIT < 0.75)
+  assert.equal(fitFor(three, STACK_WIDTH - 1, 12).stacked, true)
+  assert.equal(fitFor([{ row: 1, widthPx: 600 }], STACK_WIDTH + 40, 12).stacked, false)
+})
+
+test('an unmeasured canvas scales nothing rather than everything', () => {
+  const at = fitFor(three, 0, 12)
+  assert.equal(at.fit, 1)
+  assert.equal(at.stacked, false)
+})
+
+test('the default is the behaviour this file always had', () => {
+  // Every caller that has not thought about the screen gets the typed
+  // numbers, which is what keeps the rest of this file's tests honest.
+  const plain = packRowGroups(three, { canvasWidth: 1264, gapX: 12, gapY: 12 })
+  const explicit = packRowGroups(three, { canvasWidth: 1264, gapX: 12, gapY: 12, fit: 1, stacked: false })
+  assert.deepEqual(plain.positions, explicit.positions)
+  assert.equal(plain.positions.a.width, 400)
 })

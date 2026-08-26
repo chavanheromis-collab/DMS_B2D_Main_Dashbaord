@@ -55,14 +55,160 @@ export const NAMED_FRACTIONS = {
  * Never wider than the canvas: a 900px widget on a phone is the phone's
  * width, not a horizontal scrollbar across the whole page.
  */
-export function requiredWidth(item, canvasWidth) {
+export function requiredWidth(item, canvasWidth, fit = 1) {
   const canvas = Math.max(1, canvasWidth || 0)
   const pinned = Number(item?.widthPx)
-  if (Number.isFinite(pinned) && pinned > 0) return Math.min(canvas, Math.max(MIN_WIDTH, Math.round(pinned)))
+  if (Number.isFinite(pinned) && pinned > 0) {
+    // `fit` is how much of the width this arrangement was designed for the
+    // canvas actually has. A typed pixel width is a decision about the
+    // widget's size RELATIVE TO THE OTHERS, so on a narrower screen it is
+    // scaled rather than clamped -- clamping only the ones that no longer
+    // fit is what turns a row of three equal charts into two equal ones and
+    // a stub.
+    const ratio = Number.isFinite(fit) && fit > 0 ? Math.min(1, fit) : 1
+    // Floored rather than rounded when scaling: a row is a sum, and three
+    // widths each rounded UP is a row two pixels too wide, which wraps --
+    // losing the arrangement for the sake of half a pixel each.
+    const want = ratio === 1 ? Math.round(pinned) : Math.floor(pinned * ratio)
+    return Math.min(canvas, Math.max(MIN_WIDTH, want))
+  }
 
+  // A named width is already a fraction of whatever room there is, so it
+  // needs no help being responsive.
   const fraction = NAMED_FRACTIONS[item?.width] ?? 1
   return Math.min(canvas, Math.max(MIN_WIDTH, Math.round(canvas * fraction)))
 }
+
+/**
+ * The width this arrangement was DESIGNED for.
+ *
+ * Nobody types it: it is the widest row's worth of typed widths, gaps
+ * included, which is exactly the canvas the admin had in front of them when
+ * they typed those numbers. Inferring it means it is never stale, never a
+ * setting to get wrong, and it moves on its own as the page is edited.
+ *
+ * Only pinned widths count. A named width is a fraction of the canvas and
+ * has no fixed size to want.
+ */
+export function rowTotals(items) {
+  const rows = new Map()
+  for (const item of items || []) {
+    const pinned = Number(item?.widthPx)
+    if (!Number.isFinite(pinned) || pinned <= 0) continue
+    const row = rowOf(item)
+    const at = rows.get(row) || { total: 0, count: 0 }
+    at.total += Math.max(MIN_WIDTH, Math.round(pinned))
+    at.count += 1
+    rows.set(row, at)
+  }
+  return [...rows.values()]
+}
+
+export function wantedWidth(items, gapX = 12) {
+  let widest = 0
+  for (const { total, count } of rowTotals(items)) {
+    widest = Math.max(widest, total + gapX * Math.max(0, count - 1))
+  }
+  return widest
+}
+
+/** A canvas narrower than this is a phone, whatever the arithmetic says. */
+export const STACK_WIDTH = 560
+
+/** Below this, scaling stops being "smaller" and starts being "unreadable". */
+export const MIN_FIT = 0.55
+
+/**
+ * How this arrangement should meet the screen it got.
+ *
+ * Three answers, and they are the three that actually exist:
+ *
+ *   THE ROOM IS THERE -- draw the typed numbers, unchanged.
+ *   SOMEWHAT NARROWER -- scale every typed width by the same ratio. The
+ *     rows, the order and the relative sizes all survive; the page is the
+ *     same page, smaller. Scaling everything is the point: it is the only
+ *     way a row stays a row.
+ *   A PHONE -- stop pretending. One widget per line, full width, in the
+ *     order they were arranged in. A three-across row squeezed onto 360
+ *     pixels is three widgets nobody can read, which is worse than three
+ *     screens of one widget each.
+ */
+export function fitFor(items, canvasWidth, gapX = 12) {
+  const canvas = Math.max(0, canvasWidth || 0)
+  const wanted = wantedWidth(items, gapX)
+
+  // The tightest row decides, and the GAPS are not scaled with it -- 12
+  // pixels of air is 12 pixels of air at any size, and taking the ratio
+  // over a total that included them would leave every row a few pixels too
+  // wide and wrap the last widget off the end of it.
+  let raw = 1
+  if (canvas > 0) {
+    for (const { total, count } of rowTotals(items)) {
+      if (total <= 0) continue
+      const room = canvas - gapX * Math.max(0, count - 1)
+      raw = Math.min(raw, room / total)
+    }
+  }
+  raw = Math.max(0, raw)
+
+  const stacked = canvas > 0 && (canvas < STACK_WIDTH || raw < MIN_FIT)
+  return {
+    wanted,
+    stacked,
+    // Rounded down to the thousandth, so a one-pixel resize is not a
+    // different layout and the rounding can never round UP into an overflow.
+    fit: stacked ? 1 : Math.floor(Math.min(1, raw) * 1000) / 1000,
+    raw,
+  }
+}
+
+/**
+ * Every widget on its own line, full width, in the order they were arranged.
+ *
+ * A pinned height comes down with the width it was chosen against, so a
+ * chart typed as 600x360 stays that shape rather than becoming a 340-wide
+ * letterbox with 360 pixels of empty card under the axis.
+ */
+export function stackRows(items, { canvasWidth = 0, gapY = 12, heights = {}, fallback = 220 } = {}) {
+  const canvas = Math.max(1, canvasWidth || 0)
+  // Stable, so within a row the admin's order is kept and the rows follow
+  // one another exactly as they read across on a wide screen.
+  const order = (items || []).map((item, i) => ({ item, i }))
+  order.sort((a, b) => rowOf(a.item) - rowOf(b.item) || a.i - b.i)
+
+  const positions = {}
+  const rows = []
+  let top = 0
+
+  for (const { item } of order) {
+    const pin = pinnedHeight(item)
+    const was = Number(item?.widthPx)
+    const shape = pin && Number.isFinite(was) && was > 0 ? Math.min(1, canvas / was) : 1
+    const height = pin
+      ? Math.max(MIN_HEIGHT, Math.round(pin * shape))
+      : Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback))
+
+    positions[item.id] = {
+      left: 0,
+      top,
+      width: canvas,
+      height,
+      row: rows.length + 1,
+      rowSpan: 1,
+      // A span means nothing when every widget already has the whole width.
+      fitted: Boolean(pin),
+      stacked: true,
+    }
+    rows.push({ row: rows.length + 1, top, height, ids: [item.id], shelves: [], blocked: [] })
+    top += height + gapY
+  }
+
+  return { positions, rows, spans: [], containerHeight: Math.max(0, top - gapY) }
+}
+
+/**
+ * Every widget placed into its row, spilling into the next when it will not
+ * fit.
 
 /**
  * Which row a widget has been put in.
@@ -127,8 +273,17 @@ export function rowSpanOf(item) {
  *
  * Rows are as tall as their tallest widget, so they line up -- which is the
  * thing that makes a page of rows readable and a masonry not.
+ *
+ * `fit` and `stacked` come from `fitFor` -- how this arrangement meets the
+ * screen it got. They default to "the room is there", so every caller that
+ * has not thought about it gets exactly the behaviour it always had.
  */
-export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, heights = {}, fallback = 220 } = {}) {
+export function packRowGroups(
+  items,
+  { canvasWidth = 0, gapX = 12, gapY = 12, heights = {}, fallback = 220, fit = 1, stacked = false } = {}
+) {
+  if (stacked) return stackRows(items, { canvasWidth, gapY, heights, fallback })
+
   const canvas = Math.max(1, canvasWidth || 0)
   const list = items || []
 
@@ -186,16 +341,21 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
 
     for (let i = 0; i < waiting.length; i += 1) {
       const item = waiting[i]
-      const width = requiredWidth(item, canvas)
+      const width = requiredWidth(item, canvas, fit)
       const span = rowSpanOf(item)
       const pin = pinnedHeight(item)
       // A spanning widget is drawn at the height of its band, so measuring
       // it reads that height straight back. A typed height has to be taken
       // as read or it could never change anything.
+      // A typed height comes down with the width it was chosen against. The
+      // two were one decision -- "this chart is 600 by 360" -- and honouring
+      // half of it on a narrower screen is how a widget ends up as a
+      // letterbox chart with a field of empty card underneath.
+      const scaled = pin && fit < 1 ? Math.max(MIN_HEIGHT, Math.round(pin * fit)) : null
       const h =
         span > 1 && pin
           ? pin
-          : Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback))
+          : (scaled ?? Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback)))
 
       let left = clear(x, width)
       let atTop = 0
@@ -226,7 +386,17 @@ export function packRowGroups(items, { canvasWidth = 0, gapX = 12, gapY = 12, he
         continue
       }
 
-      positions[item.id] = { left, top: atTop, width, height: h, row: rowNumber, rowSpan: span }
+      positions[item.id] = {
+        left,
+        top: atTop,
+        width,
+        height: h,
+        row: rowNumber,
+        rowSpan: span,
+        // The canvas is imposing this height rather than reading it, so it
+        // has to be applied -- see WidgetCanvas.
+        ...(scaled !== null ? { fitted: true } : null),
+      }
       placed.push(item.id)
       x = left + width + gapX
 

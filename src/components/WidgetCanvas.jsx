@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { packRowGroups, rowGaps, rowSlack } from '../lib/flowPack'
+import { fitFor, packRowGroups, rowGaps, rowSlack } from '../lib/flowPack'
 
 /**
  * The page's widgets, laid out by the space each one needs.
@@ -39,9 +39,14 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
     return () => ro.disconnect()
   }, [])
 
+  // How this arrangement meets the screen it got: the room is there, it is
+  // somewhat narrower and everything scales together, or it is a phone and
+  // the widgets go one to a line. See lib/flowPack.js.
+  const { fit, stacked } = useMemo(() => fitFor(items, width, gapX), [items, width, gapX])
+
   const layout = useMemo(
-    () => packRowGroups(items, { canvasWidth: width, gapX, gapY, heights }),
-    [items, width, gapX, gapY, heights]
+    () => packRowGroups(items, { canvasWidth: width, gapX, gapY, heights, fit, stacked }),
+    [items, width, gapX, gapY, heights, fit, stacked]
   )
 
   const slack = useMemo(
@@ -87,6 +92,11 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
         left: box.left,
         top: box.top,
         row: box.row,
+        // What the typed numbers were scaled BY to reach this screen, so the
+        // arrange bar can show what is actually drawn instead of repeating
+        // the number that was typed on a different one.
+        scale: fit,
+        stacked,
         // How tall the rows a span covers are, so the height box can say
         // what the number it is offering to replace actually is.
         band: box.bandHeight,
@@ -141,7 +151,10 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
           style={{ left: gap.left, top: gap.top, width: gap.width, height: gap.height }}
         >
           <span className="rounded bg-white/85 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
-            {gap.width} × {Math.round(gap.height)}
+            {/* In the numbers you would TYPE, not the ones on the glass: on
+                a scaled canvas those are different, and the whole point of
+                this box is that it tells you what to put in the W field. */}
+            {Math.round(gap.width / fit)} × {Math.round(gap.height / fit)}
           </span>
         </div>
       ))}
@@ -166,13 +179,16 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
             // more than "starts at row 2", and the room it reserved below
             // itself would sit visibly empty underneath it.
             className={`absolute transition-[top,left,width] duration-300 ease-out ${
-              box.spanned ? 'widget-span' : ''
+              box.spanned || box.fitted ? 'widget-fit' : ''
             }`}
             style={{
               top: box.top,
               left: box.left,
               width: box.width,
-              height: box.spanned ? box.height : undefined,
+              // Imposed either because the widget covers several rows, or
+              // because a typed height came down with the typed width it was
+              // chosen against.
+              height: box.spanned || box.fitted ? box.height : undefined,
             }}
           >
             {item.content}

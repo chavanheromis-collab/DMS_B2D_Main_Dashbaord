@@ -395,6 +395,56 @@ tells you what the band currently comes to.
 **Blank means one row**, so this is invisible until it's used, and a page
 that has never heard of spans lays out to the same pixel it always did.
 
+#### The same page on a laptop, a tablet and a phone
+
+Typing pixels is how you say what a widget's size is **relative to the
+others**. It is not a promise that every screen is the one you typed them on
+— so the numbers are a design at a width, and the page meets whatever width
+it actually gets:
+
+| | |
+|---|---|
+| **The room is there** | The typed numbers, exactly. Nothing changes on the screen you arranged on. |
+| **Somewhat narrower** | Every typed width is scaled by the same ratio. Rows stay rows, the order stays the order, and the relative sizes you chose survive — the same page, smaller. |
+| **A phone** | One widget per line, full width, in the order they were arranged. |
+
+The width the page was **designed for is inferred, never typed**: it's the
+widest row's worth of typed widths. Nobody has to record it, it can't go
+stale, and it moves on its own as you edit. A page built entirely from named
+widths (*half*, *third*) wants no particular width and was already fluid, so
+nothing about it changes.
+
+**A typed height comes down with the typed width it was chosen against.** A
+chart typed as 600 × 360 stays that shape at every size. Honouring half the
+decision is how a widget becomes a letterbox chart with a field of empty card
+underneath it. A widget with no typed height is left to measure itself — its
+content reflows at the new width, and a scaled guess would be a worse number
+than the one the browser is about to produce.
+
+Three details that decide whether this feels right or merely works:
+
+- **The gaps are not scaled.** Twelve pixels of air is twelve pixels of air
+  at any size. Taking the ratio over a total that included them leaves every
+  row a few pixels too wide, and the last widget wraps off the end of it —
+  losing the whole arrangement for the sake of half a pixel each.
+- **The tightest row decides**, not the widest. A row of five has four gaps
+  to pay for and a row of one has none.
+- **Widths are floored, never rounded up**, when scaling. A row is a sum, and
+  three widths each rounded up is a row two pixels too wide.
+
+Below about 560px — or when scaling would take the page under 55% — it
+stacks instead. Three widgets across 360 pixels is three widgets nobody can
+read, which is worse than three screens of one widget each. Stacked, a widget
+that is now *wider* than it was does **not** grow taller: its height was a
+decision, not a ratio waiting to be scaled up.
+
+While arranging, the pill shows **what is drawn**, not what was typed, with a
+`78%` or `stacked` chip when this screen isn't the one the page was arranged
+for. The **W** and **H** boxes still hold the design numbers, and the dotted
+"what fits here" boxes report in those same design numbers — the point of
+that label is that it tells you what to type, and a number you can't type is
+worse than no number.
+
 #### The empty space tells you what fits in it
 
 Wherever there is room left over, **Arrange** mode draws a dotted box in it

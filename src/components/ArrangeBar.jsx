@@ -163,9 +163,17 @@ export default function ArrangeBar({
     if (!ref.current?.contains(e.relatedTarget)) setOpen(false)
   }
 
-  const w = widthPx || measured?.width
-  const h = heightPx || measured?.height
+  // What is actually on the screen, which on a narrower one is not what
+  // was typed. Showing the typed number here was the whole of the "it says
+  // the same size on every layout" complaint: it did, because it was
+  // reading the design back rather than the drawing.
+  const w = measured?.width || widthPx
+  const h = measured?.height || heightPx
   const pinned = Boolean(widthPx || heightPx)
+
+  // How much the typed design was scaled to reach this screen.
+  const scale = Number(measured?.scale) > 0 ? Number(measured.scale) : 1
+  const shrunk = scale < 0.995 || measured?.stacked
 
   // How much of this widget's ROW is going spare.
   //
@@ -175,8 +183,11 @@ export default function ArrangeBar({
   // decides whether to widen this widget or bring the next one up onto it.
   const spans = Math.max(1, Math.round(Number(rowSpan) || 1))
   const spare = Math.round(measured?.spare ?? 0)
-  const roomy = spare > 24
-  const fillRow = () => onSize({ widthPx: String(Math.round((w || 0) + spare)) })
+  const roomy = spare > 24 && !measured?.stacked
+  // Back into the numbers the W box is in. The spare is measured on the
+  // glass; the box is a design width, and on a scaled canvas those differ.
+  const fillRow = () =>
+    onSize({ widthPx: String(Math.round((widthPx || (w || 0) / scale) + spare / scale)) })
 
   if (painting) {
     return (
@@ -218,6 +229,17 @@ export default function ArrangeBar({
             {Math.round(w)}×{Math.round(h)}
           </span>
         ) : null}
+        {/* Say so when the screen is not the one this was arranged for,
+            rather than letting the numbers look wrong. */}
+        {measured?.stacked ? (
+          <span className="rounded bg-amber-50 px-1 text-[9px] font-semibold text-amber-700">stacked</span>
+        ) : (
+          shrunk && (
+            <span className="rounded bg-amber-50 px-1 text-[9px] font-semibold text-amber-700">
+              {Math.round(scale * 100)}%
+            </span>
+          )
+        )}
         {roomy && <span className="font-semibold text-slate-400">{spare} free</span>}
       </button>
     )
@@ -264,7 +286,13 @@ export default function ArrangeBar({
         // pretending the page pinned it, so an empty box still means "auto".
         placeholder={measured?.width ?? 'auto'}
         onCommit={(raw) => onSize({ widthPx: raw })}
-        title={`Width of ${title} in pixels`}
+        title={
+          shrunk
+            ? `Width of ${title} in pixels, for a full-width screen — this one is narrower, so it is drawing at ${Math.round(
+                w || 0
+              )}px`
+            : `Width of ${title} in pixels`
+        }
       />
       <NumberBox
         label="H"
