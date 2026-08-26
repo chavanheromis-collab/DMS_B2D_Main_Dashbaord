@@ -14,6 +14,7 @@ import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUt
 import { Btn, Field, RowControls, SectionTabs, Select, TextInput, Toggle, listOps } from './ui.jsx'
 import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
 import { clashingPins, nextPinColor } from '../../lib/valueColors'
+import { defaultMeasureLabel, emptyMeasure } from '../../lib/pivotMeasures'
 import ConditionBuilder from './ConditionBuilder.jsx'
 
 /**
@@ -1086,8 +1087,16 @@ export function PivotEditor({ widget, cols, set }) {
             badge: rowColumns.length + colColumns.length,
             hint: 'The columns down the side and across the top',
           },
+          {
+            key: 'values',
+            label: 'Values',
+            badge: totalsOnly ? (widget.measures || []).length : 0,
+            hint: 'Several numbers beside each group',
+          },
         ]}
       />
+
+      {part === 'values' && <MeasuresEditor widget={widget} cols={cols} set={set} />}
 
       {part === 'layout' && (
       <>
@@ -1199,6 +1208,120 @@ export function PivotEditor({ widget, cols, set }) {
 
       <PivotBuckets columns={[...rowColumns, ...colColumns]} widget={widget} set={set} />
       </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Several value columns down one grouped list.
+ *
+ * A grouped pivot -- Region › DSE, and a number -- invites a question the
+ * single number cannot answer: not "the same number again" but "how many,
+ * worth how much, over how many days". Three DIFFERENT measurements of the
+ * same groups, side by side.
+ *
+ * Only offered where there is no column axis. A matrix already spends its
+ * width on the columns, and a second number in every cell of one is not a
+ * table anybody can read.
+ *
+ * The list starts EMPTY, and empty means the single aggregation the widget
+ * already had -- so a pivot nobody has touched renders exactly as it did,
+ * through the same code path, with a list of one.
+ */
+function MeasuresEditor({ widget, cols, set }) {
+  const measures = widget.measures || []
+  const ops = listOps(measures, (next) => set({ measures: next }))
+
+  // A matrix already spends its width on the column axis, and a second
+  // number in every cell of one is not a table anybody can read. Saying so
+  // -- and offering the switch -- beats hiding the button and leaving an
+  // admin to work out why the feature they read about is not there.
+  if (widget.display !== 'totals') {
+    return (
+      <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+        <p className="text-[11px] text-slate-500">
+          Several value columns need the <strong>grouped list</strong>: a matrix already spends its width on the
+          columns across the top, and a second number in every cell of one is not a table anybody can read.
+        </p>
+        <Btn className="mt-1.5" onClick={() => set({ display: 'totals' })}>
+          Switch to the grouped list
+        </Btn>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] font-medium text-slate-500">
+          Value columns <span className="font-normal text-slate-400">(one per number you want beside the groups)</span>
+        </p>
+        <Btn onClick={() => ops.add(emptyMeasure(widget, measures.length))}>
+          <Plus size={11} /> Add value column
+        </Btn>
+      </div>
+
+      {measures.length === 0 && (
+        <p className="py-1 text-[10px] text-slate-400">
+          None — the list shows the one calculation set under <strong>Layout</strong>. Add columns here when the
+          question is “how many, worth how much, over how many days” rather than one number three times.
+        </p>
+      )}
+
+      <div className="space-y-1.5">
+        {measures.map((measure, i) => {
+          const setM = (patch) => ops.update(measure.id, patch)
+          const needsColumn = aggNeedsColumn(measure.aggregation || 'count')
+          return (
+            <div key={measure.id || i} className="flex flex-wrap items-center gap-1.5">
+              <Select
+                value={measure.aggregation || 'count'}
+                onChange={(v) => setM({ aggregation: v })}
+                options={AGGREGATIONS}
+                className="w-52"
+              />
+              <Select
+                value={measure.column || ''}
+                onChange={(v) => setM({ column: v })}
+                options={cols}
+                placeholder={needsColumn ? '— pick a column —' : 'not used'}
+                disabled={!needsColumn}
+                className="w-40"
+              />
+              <TextInput
+                value={measure.label || ''}
+                onChange={(v) => setM({ label: v })}
+                placeholder={defaultMeasureLabel(measure)}
+                className="w-40"
+              />
+              <Select
+                value={measure.format || 'comma'}
+                onChange={(v) => setM({ format: v })}
+                options={NUMBER_FORMATS}
+                className="w-40"
+              />
+              <div className="ml-auto">
+                <RowControls
+                  onUp={() => ops.move(i, -1)}
+                  onDown={() => ops.move(i, 1)}
+                  onDelete={() => ops.remove(measure.id)}
+                  isFirst={i === 0}
+                  isLast={i === measures.length - 1}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {measures.length > 0 && (
+        <p className="mt-1 text-[10px] text-slate-400">
+          The <strong>first</strong> one orders the rows and is what the bar behind the number is drawn from — a bar
+          drawn from one scale under a number from another would be a lie about both. Blank labels take a sensible
+          name (“Sum of Amount”). The footer re-works each total out over the rows shown rather than adding the
+          column up, because a column of averages does not add up to an average.
+        </p>
       )}
     </div>
   )

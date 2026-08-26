@@ -1857,6 +1857,43 @@ Clicking a row drills into that exact combination; each level becomes its own
 condition, so a "West › Ravi" drill filters on both columns rather than on a
 value no single column holds.
 
+#### Several value columns, in a grouped list
+
+A grouped list invites a question the single number can't answer: not *"the
+same number again"* but **"how many, worth how much, over how many days"** —
+several *different* measurements of the same groups, side by side.
+
+The **Values** button on a pivot takes a list. Each entry is an aggregation, a
+column, a label and its own number format:
+
+```
+Model        SKU               Count   Sum of Amount   Average of Days
+SPLENDOR +   HSPLMDRSCFIBHG      159      ₹18,42,300               4.2
+             HSPUNIRSCFIBLA       63       ₹7,11,400              5.8
+```
+
+Four things worth knowing:
+
+- **The list starts empty, and empty means the one calculation the pivot
+  already had.** A pivot nobody has touched renders through exactly the same
+  code path with a list of one — so this is invisible until it's used.
+- **The first measure orders the rows**, and is the only one with the faint
+  proportional bar behind it. A bar drawn from one scale under a number from
+  another would be a lie about both.
+- **The footer re-works each total out over the rows shown** rather than
+  adding the column up, because a column of averages does not add up to an
+  average. It counts only the rows behind the groups that survived the cap, so
+  the total always matches the list it sits under.
+- **Blank labels take a sensible name** — `Sum of Amount`, `Average of Days`.
+
+**Only in the grouped list.** A full matrix already spends its width on the
+column axis, and a second number in every cell of one isn't a table anybody
+can read — so the Values panel says that, and offers the switch, rather than
+hiding the button and leaving you to work out why.
+
+The CSV export follows what's on screen: one column per grouping level, one
+per measure.
+
 ### Cross-filtering (drill-down)
 
 Clicking a **pipeline stage**, a **stage KPI**, a **flow branch**, a **chart
@@ -2253,6 +2290,7 @@ src/
   lib/staleRef.js         Finds a ref read from inside a state updater
   lib/adminPanel.test.js  Guards the admin panel's header, folds and grouping
   lib/sectionTabs.js      A long admin form as a row of marked buttons
+  lib/pivotMeasures.js    Several value columns down one grouped list
   lib/valueColors.js      One colour per value, everywhere, filtered or not
   lib/typography.js       Text colour, typeface and size, admin-chosen
   lib/workspace.js        Sources, pages, canvases, access, legacy migration

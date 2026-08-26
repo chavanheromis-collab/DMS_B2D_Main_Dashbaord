@@ -1015,9 +1015,21 @@ export function pivotTree(rows, {
   maxRows = 400,
   buckets,
   dateOrder = 'DMY',
+  // Several DIFFERENT measurements of the same groups, side by side --
+  // "how many, worth how much, over how many days". A list of one is the
+  // single number this function always produced, so an omitted list is not
+  // a special case: it is built from the single-measure arguments above.
+  measures,
 }) {
   const columns = (rowColumns || []).filter(Boolean)
-  if (columns.length === 0) return { columns: [], rows: [], grandTotal: 0 }
+  const measured =
+    measures && measures.length > 0
+      ? measures.map((m) => ({ column: m.column, aggregation: m.aggregation || 'count' }))
+      : [{ column: valueColumn, aggregation }]
+
+  if (columns.length === 0) {
+    return { columns: [], rows: [], grandTotal: 0, grandTotals: measured.map(() => 0), measureCount: measured.length }
+  }
 
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
@@ -1042,11 +1054,19 @@ export function pivotTree(rows, {
       groups.get(key).push(row)
     }
 
-    const nodes = Array.from(groups.entries()).map(([label, groupRows]) => ({
-      label,
-      value: aggregate(groupRows, valueColumn, aggregation),
-      children: depth + 1 < columns.length ? build(groupRows, depth + 1) : null,
-    }))
+    const nodes = Array.from(groups.entries()).map(([label, groupRows]) => {
+      const values = measured.map((m) => aggregate(groupRows, m.column, m.aggregation))
+      return {
+        label,
+        // The first measure is THE value: it is what the rows are sorted by,
+        // what the bar behind the number is drawn from, and what every
+        // caller written before there were several of them reads.
+        value: values[0],
+        values,
+        source: groupRows,
+        children: depth + 1 < columns.length ? build(groupRows, depth + 1) : null,
+      }
+    })
 
     return sortNodes(nodes)
   }
@@ -1058,17 +1078,36 @@ export function pivotTree(rows, {
   // ancestor so the renderer can show group subtotals without walking back
   // up the tree.
   const flat = []
-  ;(function walk(nodes, parts, subtotals) {
+  ;(function walk(nodes, parts, subtotals, subValues) {
     for (const node of nodes) {
       const nextParts = [...parts, node.label]
       const nextSubs = [...subtotals, node.value]
-      if (node.children?.length) walk(node.children, nextParts, nextSubs)
-      else flat.push({ parts: nextParts, value: node.value, subtotals: nextSubs })
+      const nextSubValues = [...subValues, node.values]
+      if (node.children?.length) walk(node.children, nextParts, nextSubs, nextSubValues)
+      else
+        flat.push({
+          parts: nextParts,
+          value: node.value,
+          values: node.values,
+          subtotals: nextSubs,
+          subtotalValues: nextSubValues,
+          source: node.source,
+        })
       if (flat.length >= maxRows) return
     }
-  })(tree, [], [])
+  })(tree, [], [], [])
 
   const capped = flat.slice(0, maxRows)
+
+  // --- Grand totals ------------------------------------------------------
+  // Re-aggregated over the rows actually SHOWN rather than added up from the
+  // column above it, because adding up a column of averages produces a
+  // number that is not the average of anything. Only the rows behind the
+  // capped groups count -- a total that included the groups the cap hid
+  // would not match the list it sits under.
+  const shown = []
+  for (const row of capped) if (row.source) shown.push(...row.source)
+  const grandTotals = measured.map((m) => aggregate(shown, m.column, m.aggregation))
 
   // --- Row spans ---------------------------------------------------------
   // A cell spans every following row that shares its whole prefix. Computed
@@ -1095,8 +1134,14 @@ export function pivotTree(rows, {
 
   return {
     columns,
-    rows: capped.map((row, i) => ({ ...row, spans: spans[i] })),
+    // `source` is dropped: it is a list of every row behind the group, and
+    // handing that to a renderer is an invitation to walk it on every frame.
+    rows: capped.map(({ source, ...row }, i) => ({ ...row, spans: spans[i] })),
+    // The single-measure total, added up the way it always was, so nothing
+    // that reads it sees a different number than it did before.
     grandTotal: capped.reduce((sum, row) => sum + row.value, 0),
+    grandTotals,
+    measureCount: measured.length,
   }
 }
 

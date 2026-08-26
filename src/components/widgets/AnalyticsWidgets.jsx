@@ -10,6 +10,7 @@ import {
   timeSeriesBy,
 } from '../../lib/seriesData.js'
 import { normalizeKey } from '../../lib/dataUtils'
+import { pivotMeasures } from '../../lib/pivotMeasures.js'
 import { buildRoster, needsRoster } from '../../lib/valueColors.js'
 import {
   Area,
@@ -551,6 +552,11 @@ export function PivotWidget({
   const colCols = widget.colColumns?.length ? widget.colColumns : [widget.colColumn].filter(Boolean)
   const totalsOnly = widget.display === 'totals'
 
+  // Several value columns, but only where there is room for them: a matrix
+  // already spends its width on the column axis, and a second number in
+  // every cell of one is not a table anybody can read.
+  const measures = useMemo(() => (totalsOnly ? pivotMeasures(widget) : []), [totalsOnly, widget])
+
   const { rowLabels, colLabels, matrix, rowTotals, colTotals, grandTotal } = useMemo(
     () =>
       pivot(source, {
@@ -583,9 +589,10 @@ export function PivotWidget({
             maxRows: widget.maxRows || 400,
             buckets: widget.buckets,
             dateOrder,
+            measures,
           })
         : null,
-    [totalsOnly, source, rowCols.join('|'), widget.column, widget.aggregation, widget.sort, widget.maxGroups, widget.maxRows]
+    [totalsOnly, source, rowCols.join('|'), widget.column, widget.aggregation, widget.sort, widget.maxGroups, widget.maxRows, measures]
   )
 
   const max = useMemo(() => Math.max(1, ...matrix.flat()), [matrix])
@@ -658,7 +665,22 @@ export function PivotWidget({
             // dimension, one per column heading, and the totals -- so it
             // lands in a spreadsheet looking like what was on screen.
             rows={() =>
-              rowLabels.map((rowLabel, r) => {
+              // A grouped list with several measures exports as what is on
+              // screen: one column per grouping level, one per measure.
+              // Falling back to the matrix's single Total would drop every
+              // column but the first.
+              tree && measures.length > 1
+                ? tree.rows.map((row) => {
+                    const out = {}
+                    tree.columns.forEach((c, i) => {
+                      out[c] = row.parts[i] ?? ''
+                    })
+                    measures.forEach((m, i) => {
+                      out[m.label] = row.values?.[i] ?? 0
+                    })
+                    return out
+                  })
+                : rowLabels.map((rowLabel, r) => {
                 const parts = splitPivotLabel(rowLabel)
                 const out = {}
                 rowCols.forEach((c, i) => {
@@ -671,8 +693,12 @@ export function PivotWidget({
                 return out
               })
             }
-            columns={() => [...rowCols, ...(totalsOnly ? [] : colLabels), 'Total']}
-            count={rowLabels.length}
+            columns={() =>
+              tree && measures.length > 1
+                ? [...tree.columns, ...measures.map((m) => m.label)]
+                : [...rowCols, ...(totalsOnly ? [] : colLabels), 'Total']
+            }
+            count={tree && measures.length > 1 ? tree.rows.length : rowLabels.length}
           />
         )}
       </div>
@@ -683,6 +709,7 @@ export function PivotWidget({
         <PivotTree
           tree={tree}
           widget={widget}
+          measures={measures}
           color={color}
           onDrill={onCrossFilter ? (parts) => drill(parts.join(' / '), null) : null}
         />
@@ -799,7 +826,7 @@ export function PivotWidget({
  * one cell: it stays put when the table scrolls, copies as one value, and
  * reads correctly to a screen reader.
  */
-function PivotTree({ tree, widget, color, onDrill }) {
+function PivotTree({ tree, widget, measures, color, onDrill }) {
   if (!tree || tree.columns.length === 0) {
     return <p className="empty-state">Pick at least one row column in the admin panel</p>
   }
@@ -811,6 +838,11 @@ function PivotTree({ tree, widget, color, onDrill }) {
   const max = Math.max(1, ...tree.rows.map((r) => r.value))
   const showBars = widget.showBars !== false
   const showSubtotals = !!widget.showGroupTotals
+
+  // One column per measure. A pivot nobody has given several to resolves to
+  // a list of one, which is the single Total column this always drew.
+  const cols = measures?.length ? measures : [{ id: 'v0', label: widget.valueLabel || 'Total', format: widget.format }]
+  const many = cols.length > 1
 
   return (
     <div className="max-h-[460px] overflow-auto rounded-lg border border-slate-100">
@@ -827,9 +859,17 @@ function PivotTree({ tree, widget, color, onDrill }) {
                 {column}
               </th>
             ))}
-            <th className="border-l border-dotted border-slate-200 px-2 py-2 text-right font-semibold text-slate-600">
-              {widget.valueLabel || 'Total'}
-            </th>
+            {cols.map((m, i) => (
+              <th
+                key={m.id || i}
+                className={`whitespace-nowrap px-2 py-2 text-right font-semibold text-slate-600 ${
+                  i === 0 ? 'border-l border-dotted border-slate-200' : ''
+                }`}
+                title={m.label}
+              >
+                {m.label}
+              </th>
+            ))}
           </tr>
         </thead>
 
@@ -869,24 +909,34 @@ function PivotTree({ tree, widget, color, onDrill }) {
                   )
                 })}
 
-                <td
-                  onClick={() => onDrill?.(row.parts)}
-                  className={`relative border-l border-dotted border-slate-200 px-2 py-1.5 text-right tabular-nums text-slate-700 ${
-                    onDrill ? 'cursor-pointer hover:bg-slate-50' : ''
-                  }`}
-                  title={onDrill ? 'Click to filter the dashboard to this row' : undefined}
-                >
-                  {/* A faint proportional bar behind the number: the shape of
-                      the distribution without a column of its own. */}
-                  {showBars && row.value > 0 && (
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute inset-y-0.5 right-0 rounded-l"
-                      style={{ width: `${Math.max(2, (row.value / max) * 100)}%`, backgroundColor: `${color}1F` }}
-                    />
-                  )}
-                  <span className="relative">{formatNumber(row.value, widget.format, widget.aggregation)}</span>
-                </td>
+                {cols.map((m, mi) => {
+                  const v = row.values?.[mi] ?? (mi === 0 ? row.value : 0)
+                  return (
+                    <td
+                      key={m.id || mi}
+                      onClick={() => onDrill?.(row.parts)}
+                      className={`relative px-2 py-1.5 text-right tabular-nums text-slate-700 ${
+                        mi === 0 ? 'border-l border-dotted border-slate-200' : ''
+                      } ${onDrill ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                      title={onDrill ? `${m.label} — click to filter the dashboard to this row` : m.label}
+                    >
+                      {/* A faint proportional bar behind the number: the
+                          shape of the distribution without a column of its
+                          own. Only behind the FIRST measure -- it is the one
+                          the rows are sorted by, and a bar drawn from one
+                          scale under a number from another is a lie about
+                          both. */}
+                      {showBars && mi === 0 && v > 0 && (
+                        <span
+                          aria-hidden
+                          className="pointer-events-none absolute inset-y-0.5 right-0 rounded-l"
+                          style={{ width: `${Math.max(2, (v / max) * 100)}%`, backgroundColor: `${color}1F` }}
+                        />
+                      )}
+                      <span className="relative">{formatNumber(v, m.format || widget.format, m.aggregation || widget.aggregation)}</span>
+                    </td>
+                  )
+                })}
               </tr>
             )
           })}
@@ -895,9 +945,19 @@ function PivotTree({ tree, widget, color, onDrill }) {
             <td colSpan={depth} className="px-2 py-1.5 font-semibold text-slate-600">
               Total · {tree.rows.length.toLocaleString('en-IN')} rows
             </td>
-            <td className="px-2 py-1.5 text-right font-bold tabular-nums text-slate-800">
-              {formatNumber(tree.grandTotal, widget.format, widget.aggregation)}
-            </td>
+            {cols.map((m, mi) => (
+              <td key={m.id || mi} className="px-2 py-1.5 text-right font-bold tabular-nums text-slate-800">
+                {/* Re-aggregated over the rows shown rather than added down
+                    the column: a column of averages does not add up to an
+                    average. The single-measure total keeps the number it
+                    always had. */}
+                {formatNumber(
+                  many ? tree.grandTotals?.[mi] ?? 0 : tree.grandTotal,
+                  m.format || widget.format,
+                  m.aggregation || widget.aggregation
+                )}
+              </td>
+            ))}
           </tr>
         </tbody>
       </table>
