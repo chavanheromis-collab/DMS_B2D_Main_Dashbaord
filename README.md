@@ -793,8 +793,32 @@ Where the key is called different things on different tabs (`VIN` here,
 computed by the filter engine itself, so what you are shown while editing
 cannot drift from what the dashboard will do.
 
-Buttons narrow only the tabs their conditions name. The **global search box**
-is the other exception — it matches any cell on any tab.
+**A button reaches the same three ways.** It says what it wants in
+*conditions* rather than in one column — which is how one button has always
+been able to narrow several tabs at once — but a tab nobody wrote a condition
+for used to be out of its reach entirely. Now it gets the same selector, the
+same **+ link another tab**, the same key bridge and the same coverage strip:
+
+- **Only the tabs its conditions name** — the default, and what every button
+  did before.
+- **Every tab with a column of that name** — each condition also applies
+  wherever that column exists.
+- **The whole page — by column, else by key** — plus a bridge from the
+  button's own tab, built after every other control has run, exactly as a
+  dropdown's is.
+
+A link on a button can say *which* of its columns it stands in for. A button
+naming a single column isn't asked: the link applies to every condition, and
+one *is* every. A tab bound by hand keeps that binding even when the reach
+spreads — guessing over an explicit instruction is never right.
+
+The three rules that stop it lying hold here too: a tab already matched by
+column is never *also* intersected with the keys, a tab sharing neither is
+left completely alone, and the coverage strip is computed by the filter
+engine itself.
+
+The **global search box** is the one real exception — it matches any cell on
+any tab.
 
 ### Calculated columns
 

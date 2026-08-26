@@ -388,6 +388,16 @@ export default function Dashboard() {
       const bridge = buildKeyBridge({ filter, sourceRows: first[filter.tab] || [], tabColumns })
       if (bridge) bridges.push(bridge)
     }
+
+    // A button reaches the same three ways a control does, so it bridges the
+    // same way too -- from its own tab, after the first pass, so every other
+    // control on the page has already narrowed the keys it carries.
+    for (const button of buttons) {
+      if (button.reach !== 'key') continue
+      if (!effectiveButtonIds.includes(button.id)) continue
+      const bridge = buildKeyBridge({ filter: button, sourceRows: first[button.tab] || [], tabColumns })
+      if (bridge) bridges.push(bridge)
+    }
     if (bridges.length === 0) return first
 
     const out = {}

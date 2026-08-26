@@ -182,6 +182,15 @@ function Coverage({ control, tabColumns, labelFor }) {
  * you're looking at, and they could never sit next to each other. Order in
  * this list is order on the dashboard.
  */
+/** The distinct columns a button's conditions actually name. */
+function conditionColumns(control) {
+  const out = []
+  for (const c of control?.conditions || []) {
+    if (c?.column && !out.includes(c.column)) out.push(c.column)
+  }
+  return out
+}
+
 export default function ControlsPanel({ tabs, tabHeaders, controls, setControls, views, setViews, hideSearch, setHideSearch }) {
   const { labelFor } = useWorkspaceCtx()
   const ops = listOps(controls, setControls)
@@ -612,16 +621,29 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                   )}
 
                   {/* --- Reach ------------------------------------------- */}
-                  {!isButton(control) && (
-                    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+                  {/* A button says what it wants in conditions rather than in
+                      one column, but "will this narrow my other table?" is
+                      the same question and deserves the same three answers.
+                      Until now it had only the first of them. */}
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
                       <div className="mb-1.5 flex flex-wrap items-end gap-2">
                         <Field label="How far this reaches" className="w-72">
                           <Select
                             value={control.reach || 'named'}
                             onChange={(v) => set({ reach: v })}
                             options={[
-                              { value: 'named', label: 'Only its own tab and the ones listed below' },
-                              { value: 'auto', label: 'Every tab with a column of this name' },
+                              {
+                                value: 'named',
+                                label: isButton(control)
+                                  ? 'Only the tabs its conditions name'
+                                  : 'Only its own tab and the ones listed below',
+                              },
+                              {
+                                value: 'auto',
+                                label: isButton(control)
+                                  ? 'Every tab with a column of that name'
+                                  : 'Every tab with a column of this name',
+                              },
                               { value: 'key', label: 'The whole page — by column, else by key' },
                             ]}
                           />
@@ -643,7 +665,9 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                           ? 'Tabs without that column are narrowed to the keys still standing on this control’s own tab — so a review table with no “DSE Name” still follows a DSE filter, by VIN.'
                           : control.reach === 'auto'
                             ? 'New tabs are covered the day they are added, as long as the column is named the same.'
-                            : 'Tabs not listed are untouched, so a MASTER filter can’t accidentally empty your GOOGLE REVIEW table.'}
+                            : isButton(control)
+                              ? 'Tabs no condition mentions are untouched, so one button can’t accidentally empty your GOOGLE REVIEW table.'
+                              : 'Tabs not listed are untouched, so a MASTER filter can’t accidentally empty your GOOGLE REVIEW table.'}
                       </p>
 
                       <Coverage control={control} tabColumns={tabColumns} labelFor={labelFor} />
@@ -660,13 +684,32 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                               value={link.tab}
                               onChange={(v) => {
                                 const next = [...control.links]
-                                next[li] = { tab: v, column: '' }
+                                next[li] = { tab: v, column: '', from: next[li]?.from || '' }
                                 set({ links: next })
                               }}
                               options={tabs.filter((t) => optValue(t) !== control.tab)}
                               placeholder="— tab —"
                               className="w-48"
                             />
+                            {/* Which of the button's own columns this one
+                                stands in for. A button naming a single column
+                                needs no answer: the link applies to every
+                                condition, and one IS every. */}
+                            {isButton(control) && conditionColumns(control).length > 1 && (
+                              <Select
+                                value={link.from || ''}
+                                onChange={(v) => {
+                                  const next = [...control.links]
+                                  next[li] = { ...next[li], from: v }
+                                  set({ links: next })
+                                }}
+                                options={[
+                                  { value: '', label: 'for every condition' },
+                                  ...conditionColumns(control).map((c) => ({ value: c, label: `in place of ${c}` })),
+                                ]}
+                                className="w-48"
+                              />
+                            )}
                             <Select
                               value={link.column}
                               onChange={(v) => {
@@ -745,8 +788,7 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                           </button>
                         </div>
                       )}
-                    </div>
-                  )}
+                  </div>
 
                   {/* --- Placement --------------------------------------- */}
                   <div className="flex flex-wrap items-end gap-4 border-t border-slate-100 pt-2">

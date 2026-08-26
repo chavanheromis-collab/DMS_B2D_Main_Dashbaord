@@ -1,7 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { applyFilters, buildKeyBridge, controlCoverage, filterTargets, keyBridgeTargets } from './filterEngine.js'
+import {
+  applyFilters,
+  buildKeyBridge,
+  buttonConditionsFor,
+  controlCoverage,
+  filterTargets,
+  keyBridgeTargets,
+} from './filterEngine.js'
 
 // One page, four tabs. MASTER and QUOTES both record who sold it; REVIEWS
 // records only the vehicle; PARTS shares nothing at all.
@@ -194,4 +201,188 @@ test('coverage agrees with what the page actually does', () => {
       if (row.via === 'none') assert.equal(narrowed, false, `${row.tab} was narrowed but reported as untouched`)
     }
   }
+})
+
+// ---------------------------------------------------------------------
+// A button reaches the same three ways
+// ---------------------------------------------------------------------
+// It says what it wants in CONDITIONS rather than in one column, which is
+// how one has always been able to narrow several tabs. What it could not do
+// is reach a tab nobody wrote a condition for.
+
+const BUTTON = {
+  id: 'b1',
+  kind: 'button',
+  tab: 'MASTER',
+  label: 'Ravi',
+  match: 'all',
+  conditions: [{ tab: 'MASTER', column: 'DSE Name', operator: 'equals', value: 'Ravi' }],
+}
+
+const pageWith = (button) => {
+  const out = {}
+  for (const [tab, rows] of Object.entries(rowsByTab)) {
+    out[tab] = applyFilters(rows, { tab, buttons: [button], activeIds: ['b1'], tabColumns })
+  }
+  return out
+}
+
+test('a button still touches only the tabs its conditions name', () => {
+  // The default, and what every button did before it had a choice.
+  const page = pageWith(BUTTON)
+  assert.equal(page.MASTER.length, 2)
+  assert.equal(page.QUOTES.length, QUOTES.length, 'untouched')
+  assert.equal(page.REVIEWS.length, REVIEWS.length, 'untouched')
+})
+
+test('a button can reach every tab with a column of that name', () => {
+  const page = pageWith({ ...BUTTON, reach: 'auto' })
+  assert.equal(page.MASTER.length, 2)
+  assert.equal(page.QUOTES.length, 2, 'QUOTES has its own DSE Name')
+  assert.equal(page.REVIEWS.length, REVIEWS.length, 'REVIEWS has no such column, so it is left alone')
+  assert.equal(page.PARTS.length, PARTS.length)
+})
+
+test('a button can be bound by hand to a differently-named column', () => {
+  const bound = { ...BUTTON, links: [{ tab: 'QUOTES', column: 'DSE Name' }] }
+  assert.deepEqual(filterTargets(bound, tabColumns), [
+    { tab: 'MASTER', column: 'DSE Name' },
+    { tab: 'QUOTES', column: 'DSE Name' },
+  ])
+  assert.equal(pageWith(bound).QUOTES.length, 2)
+})
+
+test('a hand-bound tab keeps its binding when the reach spreads', () => {
+  // Guessing over an explicit instruction is never right: an admin who
+  // pointed a tab at a differently-named column meant it.
+  const bound = {
+    ...BUTTON,
+    reach: 'auto',
+    links: [{ tab: 'QUOTES', column: 'Amount' }],
+  }
+  const targets = filterTargets(bound, tabColumns).filter((t) => t.tab === 'QUOTES')
+  assert.deepEqual(targets, [{ tab: 'QUOTES', column: 'Amount' }])
+})
+
+test('a link with no column of its own applies to every condition', () => {
+  // Which is what a one-column button wants, and what its editor writes.
+  const two = {
+    ...BUTTON,
+    conditions: [
+      { tab: 'MASTER', column: 'DSE Name', operator: 'equals', value: 'Ravi' },
+      { tab: 'MASTER', column: 'Model', operator: 'equals', value: 'A' },
+    ],
+    links: [{ tab: 'QUOTES', column: 'DSE Name' }],
+  }
+  const conds = buttonConditionsFor(two, 'QUOTES', tabColumns)
+  assert.equal(conds.length, 2)
+  for (const c of conds) assert.equal(c.column, 'DSE Name')
+})
+
+test('a link that names a column stands in for that one only', () => {
+  const two = {
+    ...BUTTON,
+    conditions: [
+      { tab: 'MASTER', column: 'DSE Name', operator: 'equals', value: 'Ravi' },
+      { tab: 'MASTER', column: 'Model', operator: 'equals', value: 'A' },
+    ],
+    links: [{ tab: 'QUOTES', from: 'DSE Name', column: 'DSE Name' }],
+  }
+  const conds = buttonConditionsFor(two, 'QUOTES', tabColumns)
+  assert.equal(conds.length, 1)
+  assert.equal(conds[0].column, 'DSE Name')
+})
+
+test('a button carries to the tabs it could not reach, by key', () => {
+  // REVIEWS has no DSE Name, but it has a VIN, and the VINs Ravi sold are
+  // knowable -- which is the whole of "show me the page as it is for Ravi".
+  const key = { ...BUTTON, reach: 'key', keyColumn: 'VIN' }
+  assert.deepEqual(keyBridgeTargets(key, tabColumns), [{ tab: 'REVIEWS', column: 'VIN' }])
+
+  const first = pageWith(key)
+  const bridge = buildKeyBridge({ filter: key, sourceRows: first.MASTER, tabColumns })
+  const reviews = applyFilters(first.REVIEWS, { tab: 'REVIEWS', crossFilters: [bridge] })
+  assert.deepEqual(reviews.map((r) => r.VIN), ['V1'])
+})
+
+test('a tab a button already matched by column is not ALSO cut by the keys', () => {
+  // A quote for a vehicle MASTER has never heard of still belongs in a
+  // "DSE = Ravi" view, and would silently vanish otherwise.
+  const key = { ...BUTTON, reach: 'key', keyColumn: 'VIN' }
+  assert.ok(!keyBridgeTargets(key, tabColumns).some((t) => t.tab === 'QUOTES'))
+})
+
+test('a tab sharing neither the column nor the key is left completely alone', () => {
+  // That rule never bends, however far a button is told to reach.
+  const key = { ...BUTTON, reach: 'key', keyColumn: 'VIN' }
+  const page = pageWith(key)
+  assert.equal(page.PARTS.length, PARTS.length)
+  assert.ok(!keyBridgeTargets(key, tabColumns).some((t) => t.tab === 'PARTS'))
+})
+
+test('the coverage strip answers for a button too', () => {
+  // "Will this actually narrow my other table?" is otherwise only
+  // discoverable by saving and looking.
+  const key = { ...BUTTON, reach: 'key', keyColumn: 'VIN', links: [{ tab: 'QUOTES', column: 'DSE Name' }] }
+  const by = Object.fromEntries(controlCoverage(key, tabColumns).map((r) => [r.tab, r.via]))
+  assert.equal(by.MASTER, 'own')
+  assert.equal(by.QUOTES, 'link')
+  assert.equal(by.REVIEWS, 'key')
+  assert.equal(by.PARTS, 'none')
+})
+
+test('what the coverage strip promises is what the page does — for buttons', () => {
+  for (const reach of ['named', 'auto', 'key']) {
+    const button = { ...BUTTON, reach, keyColumn: 'VIN' }
+    const first = pageWith(button)
+    const bridge = reach === 'key' ? buildKeyBridge({ filter: button, sourceRows: first.MASTER, tabColumns }) : null
+
+    for (const row of controlCoverage(button, tabColumns)) {
+      const rows = bridge
+        ? applyFilters(first[row.tab], { tab: row.tab, crossFilters: [bridge] })
+        : first[row.tab]
+      const narrowed = rows.length < rowsByTab[row.tab].length
+      if (row.via === 'none') assert.equal(narrowed, false, `${reach}: ${row.tab} was narrowed but reported untouched`)
+    }
+  }
+})
+
+test('a button with nothing to say about a tab says nothing', () => {
+  // Silence, not an empty table -- whatever its reach is set to.
+  for (const reach of ['named', 'auto', 'key']) {
+    const conds = buttonConditionsFor({ ...BUTTON, reach, keyColumn: 'VIN' }, 'PARTS', tabColumns)
+    assert.deepEqual(conds, [], reach)
+  }
+})
+
+// --- wiring ---------------------------------------------------------------
+
+import fs from 'node:fs'
+import path from 'node:path'
+
+const read = (p) =>
+  fs
+    .readFileSync(path.join(path.resolve(import.meta.dirname, '..'), p), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+    .replace(/\s+/g, ' ')
+
+test('the page builds a button’s key bridge the same way it builds a control’s', () => {
+  // From its own tab, after the first pass, so every other control on the
+  // page has already narrowed the keys it carries.
+  const dashboard = read('pages/Dashboard.jsx')
+  assert.ok(dashboard.includes("if (button.reach !== 'key') continue"))
+  assert.ok(dashboard.includes('buildKeyBridge({ filter: button, sourceRows: first[button.tab] || [], tabColumns })'))
+})
+
+test('the reach editor is no longer for filters only', () => {
+  const panel = read('pages/admin/ControlsPanel.jsx')
+  // The block used to be hidden from buttons entirely.
+  assert.ok(!panel.includes('{!isButton(control) && ( <div'))
+  assert.ok(panel.includes("'Only the tabs its conditions name'"), 'and it reads as a button would say it')
+  assert.ok(panel.includes('function conditionColumns(control)'))
+  assert.ok(
+    panel.includes('isButton(control) && conditionColumns(control).length > 1'),
+    'a one-column button is not asked which column a link stands in for'
+  )
 })

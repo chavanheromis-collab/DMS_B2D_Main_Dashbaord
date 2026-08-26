@@ -52,6 +52,12 @@ import {
  * names, which is what every caller that does not care about reach wants.
  */
 export function filterTargets(filter, tabColumns) {
+  // A button says what it wants in CONDITIONS rather than in one column, so
+  // where its reach lands is a different sum -- but it is the same question,
+  // and everything downstream (the key bridge, the coverage strip) asks it
+  // through this one function.
+  if (filter?.kind === 'button') return buttonTargets(filter, tabColumns)
+
   const list = [{ tab: filter.tab, column: filter.column }]
   for (const l of filter.links || []) {
     if (l && l.tab && l.column) list.push({ tab: l.tab, column: l.column })
@@ -70,6 +76,88 @@ export function filterTargets(filter, tabColumns) {
   }
 
   return list.filter((t) => t.tab && t.column)
+}
+
+/**
+ * Every (tab, column) a BUTTON's conditions reach.
+ *
+ * A condition names its own tab, which is how one button has always been
+ * able to narrow several. What it could not do is reach a tab nobody wrote a
+ * condition for -- so it now has the same three answers every other control
+ * has: only the tabs named, every tab with a column of that name, or the
+ * whole page with a key carrying it the rest of the way.
+ *
+ * A tab bound by hand keeps that binding. Guessing over an explicit
+ * instruction is never right: an admin who pointed a tab at a
+ * differently-named column meant it.
+ */
+export function buttonTargets(button, tabColumns) {
+  const list = []
+  const seen = new Set()
+  const add = (tab, column) => {
+    if (!tab || !column) return
+    const key = `${tab}\u0000${column}`
+    if (seen.has(key)) return
+    seen.add(key)
+    list.push({ tab, column })
+  }
+
+  const links = (button?.links || []).filter((l) => l && l.tab && l.column)
+  const bound = new Set(links.map((l) => l.tab))
+  const spreads = button?.reach === 'auto' || button?.reach === 'key'
+
+  for (const c of button?.conditions || []) {
+    if (!c?.column) continue
+    add(c.tab, c.column)
+
+    for (const l of links) {
+      // A link with no column of its own to match applies to every
+      // condition, which is what a one-column button wants and what its
+      // editor writes.
+      if (l.from && l.from !== c.column) continue
+      add(l.tab, l.column)
+    }
+
+    if (spreads && tabColumns) {
+      for (const [tab, columns] of Object.entries(tabColumns)) {
+        if (bound.has(tab)) continue
+        if ((columns || []).includes(c.column)) add(tab, c.column)
+      }
+    }
+  }
+
+  return list
+}
+
+/**
+ * The conditions of a button, as they apply to ONE tab.
+ *
+ * A condition written against this tab is used as written. One written
+ * against another is re-pointed here only if the admin bound this tab by
+ * hand, or asked for the automatic reach and this tab has a column of that
+ * name. Anything else says nothing about this tab, and a button with nothing
+ * to say leaves it completely alone -- silence, not an empty table.
+ */
+export function buttonConditionsFor(button, tab, tabColumns) {
+  const links = (button?.links || []).filter((l) => l && l.tab === tab && l.column)
+  const spreads = button?.reach === 'auto' || button?.reach === 'key'
+  const columns = tabColumns?.[tab] || null
+
+  const out = []
+  for (const c of button?.conditions || []) {
+    if (!c?.column) continue
+    if (c.tab === tab) {
+      out.push(c)
+      continue
+    }
+    const link = links.find((l) => !l.from || l.from === c.column)
+    if (link) {
+      out.push({ ...c, tab, column: link.column })
+      continue
+    }
+    if (spreads && columns && columns.includes(c.column)) out.push({ ...c, tab })
+  }
+  return out
 }
 
 /**
@@ -384,8 +472,8 @@ export function matchesConditions(row, conditions, match = 'all', dateOrder = 'D
  * tab are considered; a button with nothing to say about this tab returns
  * the rows unchanged rather than emptying them.
  */
-function applyButton(rows, button, tab, dateOrder) {
-  const conds = (button.conditions || []).filter((c) => c.tab === tab && c.column)
+function applyButton(rows, button, tab, dateOrder, tabColumns) {
+  const conds = buttonConditionsFor(button, tab, tabColumns)
   if (conds.length === 0) return rows
   return rows.filter((row) => matchesConditions(row, conds, button.match || 'all', dateOrder))
 }
@@ -530,7 +618,7 @@ export function applyFilters(
 
   for (const button of buttons) {
     if (!activeIds.includes(button.id)) continue
-    out = applyButton(out, button, tab, dateOrder)
+    out = applyButton(out, button, tab, dateOrder, tabColumns)
   }
 
   // Cross-filters come from clicking a chart segment, a pipeline stage, a
