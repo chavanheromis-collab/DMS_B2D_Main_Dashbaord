@@ -1268,6 +1268,9 @@ function ChartAdvanced({ widget, set }) {
 function ChartEditor({ widget, cols, set }) {
   const type = widget.chartType || 'bar'
   const caps = chartCaps(type)
+  // Above the histogram's early return, so the hook count does not depend
+  // on which chart style is selected.
+  const [part, setPart] = useState('data')
 
   // A histogram bins ONE numeric column; it has no group-by and no
   // aggregation, so those fields are replaced rather than left to confuse.
@@ -1332,6 +1335,26 @@ function ChartEditor({ widget, cols, set }) {
 
   return (
     <>
+    <SectionTabs
+      className="mb-2"
+      active={part}
+      onPick={setPart}
+      sections={[
+        { key: 'data', label: 'Data', hint: 'What it reads, groups by and counts' },
+        { key: 'style', label: 'Style', hint: 'This chart style’s own options, and how it scrolls' },
+        {
+          key: 'advanced',
+          label: 'Advanced',
+          badge:
+            (widget.references || []).length ||
+            (widget.colorMode && widget.colorMode !== 'single') ||
+            (widget.seriesColors || []).length > 0,
+          hint: 'Colour rules, axis scaling and reference lines',
+        },
+      ]}
+    />
+
+    {part === 'data' && (
     <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
       <Field label="Chart type">
         <Select value={type} onChange={(v) => set({ chartType: v })} options={CHART_TYPES} />
@@ -1379,8 +1402,11 @@ function ChartEditor({ widget, cols, set }) {
         />
       </Field>
     </div>
+    )}
 
     {/* --- Style-specific extras -------------------------------------- */}
+    {part === 'style' && (
+    <>
     {type === 'waterfall' && (
       <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2 md:grid-cols-4">
         <Field label="Rises">
@@ -1542,14 +1568,24 @@ function ChartEditor({ widget, cols, set }) {
       horizontal={['hbar', 'arrowRow'].includes(type)}
       hasLegend={!!caps.legend}
     />
+    </>
+    )}
 
-    <ChartAdvanced widget={widget} set={set} />
+    {part === 'style' && !['waterfall', 'pareto', 'pie', 'donut', 'rose'].includes(type) && (
+      <p className="mt-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] text-slate-500">
+        This style has no options of its own beyond the ones above — everything that shapes it lives under
+        <strong> Data</strong> and <strong>Advanced</strong>.
+      </p>
+    )}
+
+    {part === 'advanced' && <ChartAdvanced widget={widget} set={set} />}
     </>
   )
 }
 
 function TableEditor({ widget, cols, set }) {
   const selected = widget.columns?.length ? widget.columns : cols
+  const [part, setPart] = useState('rows')
   function toggle(col) {
     const next = selected.includes(col) ? selected.filter((c) => c !== col) : [...selected, col]
     set({ columns: next })
@@ -1557,6 +1593,29 @@ function TableEditor({ widget, cols, set }) {
 
   return (
     <div className="space-y-2">
+      <SectionTabs
+        active={part}
+        onPick={setPart}
+        sections={[
+          { key: 'rows', label: 'Rows', hint: 'Paging, height, sorting and inline editing' },
+          { key: 'columns', label: 'Columns', badge: selected.length, hint: 'Which ones, and in what order' },
+          { key: 'detail', label: 'Detail', badge: Boolean(widget.rowDetail), hint: 'The panel a clicked row opens' },
+          {
+            key: 'files',
+            label: 'Files',
+            badge: Boolean(widget.downloadButtons),
+            hint: 'Download buttons for link columns',
+          },
+          {
+            key: 'pills',
+            label: 'Pills',
+            badge: (widget.badgeColumns || []).length,
+            hint: 'Columns shown as coloured pills',
+          },
+        ]}
+      />
+
+      {part === 'rows' && (
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Rows per page" className="w-32">
           <TextInput type="number" value={widget.pageSize || 25} onChange={(v) => set({ pageSize: Number(v) || 25 })} />
@@ -1613,7 +1672,9 @@ function TableEditor({ widget, cols, set }) {
           />
         </div>
       </div>
+      )}
 
+      {part === 'columns' && (
       <div>
         <div className="mb-1 flex items-center gap-3">
           <span className="text-[11px] font-medium text-slate-500">
@@ -1647,8 +1708,11 @@ function TableEditor({ widget, cols, set }) {
 
         <ColumnOrderEditor columns={selected} allColumns={cols} onChange={(next) => set({ columns: next })} />
       </div>
+      )}
 
-      {widget.editable && (
+      {/* The grant note belongs with the switch that raises the question,
+          and the switch is under Rows. */}
+      {part === 'rows' && widget.editable && (
         <p className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] text-slate-500">
           Editing still requires a per-user grant in the Users tab — this switch only makes the table editable in
           principle. Admins can always edit.
@@ -1656,6 +1720,7 @@ function TableEditor({ widget, cols, set }) {
       )}
 
       {/* --- Row detail panel ------------------------------------------ */}
+      {part === 'detail' && (
       <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
         <Toggle
           checked={widget.rowDetail}
@@ -1720,7 +1785,10 @@ function TableEditor({ widget, cols, set }) {
         )}
       </div>
 
+      )}
+
       {/* --- File download actions ------------------------------------- */}
+      {part === 'files' && (
       <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
         <Toggle
           checked={!!widget.downloadButtons}
@@ -1763,7 +1831,10 @@ function TableEditor({ widget, cols, set }) {
         )}
       </div>
 
+      )}
+
       {/* --- Coloured status pills ------------------------------------- */}
+      {part === 'pills' && (
       <div>
         <p className="mb-1 text-[11px] font-medium text-slate-500">
           Show these columns as coloured pills{' '}
@@ -1793,6 +1864,7 @@ function TableEditor({ widget, cols, set }) {
           Each distinct value gets its own stable colour automatically — no colour picking per value.
         </p>
       </div>
+      )}
     </div>
   )
 }

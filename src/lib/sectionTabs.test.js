@@ -140,3 +140,54 @@ test('what is WRONG is never behind a button', () => {
   assert.ok(gated.includes(')}'), 'the connect section closes before the message')
   assert.ok(/\{orphaned\.length > 0 && \(/.test(pages))
 })
+
+// --- and inside a widget's own setup -------------------------------------
+
+const editors = read('pages/admin/WidgetEditors.jsx')
+
+test('a chart’s setup is three buttons', () => {
+  for (const key of ['data', 'style', 'advanced']) {
+    assert.ok(widgets.includes(`key: '${key}'`), key)
+  }
+  assert.ok(widgets.includes("{part === 'advanced' && <ChartAdvanced widget={widget} set={set} />}"))
+})
+
+test('the chart’s section is chosen ABOVE the histogram’s early return', () => {
+  // A hook below it would be skipped on one chart style and not the others,
+  // which is the "rendered fewer hooks than expected" crash.
+  const hook = widgets.indexOf("const [part, setPart] = useState('data')")
+  const early = widgets.indexOf('if (caps.binned) {')
+  assert.ok(hook !== -1 && early !== -1 && hook < early)
+})
+
+test('a table’s setup is five buttons, columns among them', () => {
+  for (const key of ['rows', 'columns', 'detail', 'files', 'pills']) {
+    assert.ok(widgets.includes(`key: '${key}'`), key)
+    assert.ok(widgets.includes(`part === '${key}'`), `${key} is shown`)
+  }
+  assert.ok(widgets.includes("{ key: 'columns', label: 'Columns', badge: selected.length"))
+  assert.ok(widgets.includes("badge: (widget.badgeColumns || []).length"))
+})
+
+test('a trend and a pivot are split too', () => {
+  for (const key of ['data', 'series', 'size', 'readings']) {
+    assert.ok(editors.includes(`key: '${key}'`), `trend ${key}`)
+  }
+  for (const key of ['layout', 'axes']) {
+    assert.ok(editors.includes(`key: '${key}'`), `pivot ${key}`)
+  }
+  assert.equal((editors.match(/<SectionTabs/g) || []).length, 2)
+})
+
+test('a style with no options of its own says so', () => {
+  // An empty panel behind a button reads as a bug, not as "there is nothing
+  // here".
+  assert.ok(widgets.includes("This style has no options of its own beyond the ones above"))
+})
+
+test('a short editor is left alone', () => {
+  // A row of buttons over a sixty-line form is noise: it costs a line to
+  // save none. Only the four long ones are split.
+  const short = editors.slice(editors.indexOf('export function LeaderboardEditor'), editors.indexOf('export function StageKpiEditor'))
+  assert.ok(!short.includes('<SectionTabs'))
+})

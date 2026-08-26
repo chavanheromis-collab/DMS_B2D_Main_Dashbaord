@@ -646,6 +646,21 @@ which the stack of open sections never did.
 A count of **zero is not a mark**: zero is a real answer and it is "none", and
 a mark that is always there tells you nothing.
 
+**Setup is buttons too**, on the four widget editors long enough to need it:
+
+| Widget | Buttons |
+|---|---|
+| **Chart** | Data · Style · Advanced |
+| **Table** | Rows · Columns · Detail · Files · Pills |
+| **Trend** | Data · Series · Size · Readings |
+| **Pivot** | Layout · Axes |
+
+The shorter editors — a leaderboard, a gauge, a scatter — are deliberately
+left as they are. A row of buttons over a sixty-line form costs a line and
+saves none. And a style with no options of its own says so rather than
+showing an empty panel, because an empty panel behind a button reads as a
+bug, not as "there is nothing here".
+
 Three things are deliberately *not* in any section, because they belong to all
 of them:
 

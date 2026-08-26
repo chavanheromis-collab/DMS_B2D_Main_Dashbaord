@@ -11,7 +11,7 @@ import {
   uid,
 } from '../../lib/config'
 import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUtils'
-import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps } from './ui.jsx'
+import { Btn, Field, RowControls, SectionTabs, Select, TextInput, Toggle, listOps } from './ui.jsx'
 import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
 import { clashingPins, nextPinColor } from '../../lib/valueColors'
 import ConditionBuilder from './ConditionBuilder.jsx'
@@ -562,9 +562,32 @@ export function ColumnOrderEditor({ columns, allColumns, onChange }) {
 // =====================================================================
 export function TrendEditor({ widget, cols, set }) {
   const breakdown = widget.breakdown || ''
+  const [part, setPart] = useState('data')
 
   return (
     <div className="space-y-2">
+      <SectionTabs
+        active={part}
+        onPick={setPart}
+        sections={[
+          { key: 'data', label: 'Data', hint: 'The date column, the bucket and the calculation' },
+          {
+            key: 'series',
+            label: 'Series',
+            badge: Boolean(breakdown),
+            hint: 'Splitting the line into several, and their colours',
+          },
+          { key: 'size', label: 'Size', hint: 'How tall it is and how the legend scrolls' },
+          {
+            key: 'readings',
+            label: 'Readings',
+            badge: Boolean(widget.cumulative) || Boolean(widget.movingAverage),
+            hint: 'Running totals and moving averages',
+          },
+        ]}
+      />
+
+      {part === 'data' && (
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <Field label="Date column">
           <Select
@@ -594,8 +617,11 @@ export function TrendEditor({ widget, cols, set }) {
           />
         </Field>
       </div>
+      )}
 
       {/* --- the breakdown ------------------------------------------------ */}
+      {part === 'series' && (
+      <>
       <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Split into series by" className="w-52" hint="One line per value.">
@@ -706,10 +732,13 @@ export function TrendEditor({ widget, cols, set }) {
       </div>
 
       {breakdown && <ValueColorEditor widget={widget} set={set} />}
+      </>
+      )}
 
-      <ScrollEditor widget={widget} set={set} hasLegend={Boolean(breakdown)} />
+      {part === 'size' && <ScrollEditor widget={widget} set={set} hasLegend={Boolean(breakdown)} />}
 
       {/* --- readings ----------------------------------------------------- */}
+      {part === 'readings' && (
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
         <div className="pb-1.5">
           <Toggle
@@ -747,6 +776,7 @@ export function TrendEditor({ widget, cols, set }) {
           once one series is showing — six smoothed lines on top of six real ones is not a chart.
         </p>
       </div>
+      )}
     </div>
   )
 }
@@ -1041,9 +1071,26 @@ export function PivotEditor({ widget, cols, set }) {
   const rowColumns = widget.rowColumns?.length ? widget.rowColumns : [widget.rowColumn].filter(Boolean)
   const colColumns = widget.colColumns?.length ? widget.colColumns : [widget.colColumn].filter(Boolean)
   const totalsOnly = widget.display === 'totals'
+  const [part, setPart] = useState('layout')
 
   return (
     <div className="space-y-2">
+      <SectionTabs
+        active={part}
+        onPick={setPart}
+        sections={[
+          { key: 'layout', label: 'Layout', hint: 'What shape the table is, and what it counts' },
+          {
+            key: 'axes',
+            label: 'Axes',
+            badge: rowColumns.length + colColumns.length,
+            hint: 'The columns down the side and across the top',
+          },
+        ]}
+      />
+
+      {part === 'layout' && (
+      <>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
         <Field
           label="Show as"
@@ -1126,6 +1173,11 @@ export function PivotEditor({ widget, cols, set }) {
         </div>
       )}
 
+      </>
+      )}
+
+      {part === 'axes' && (
+      <>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <AxisColumns
           label="Rows (down the side)"
@@ -1146,6 +1198,8 @@ export function PivotEditor({ widget, cols, set }) {
       </div>
 
       <PivotBuckets columns={[...rowColumns, ...colColumns]} widget={widget} set={set} />
+      </>
+      )}
     </div>
   )
 }
