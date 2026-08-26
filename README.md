@@ -322,13 +322,43 @@ what you're assigning to.
 The rule is the one anybody would guess:
 
 - Rows are filled in order, left to right.
-- A widget goes in the row it asked for **if there is room left in it**.
-- If there isn't, it goes to the **next** row — ahead of whatever was already
-  assigned there, because it came first in the sort.
+- **A row you typed keeps every widget you put in it.** When they don't fit
+  across it they wrap onto a second **line** inside the same row band. A row
+  is a band, and a band can hold more than one line.
+- **A widget you never gave a row still flows** — blank is row 1 for packing,
+  but it isn't somebody *saying* row 1, so it spills into the next row as it
+  always did, ahead of whatever was already assigned there.
 
-So a widget pinned to row 2 stays on row 2 whatever happens above it, and a
-row that runs out of width spills downward instead of squashing anything.
 A row is as tall as its tallest widget, so rows line up.
+
+#### Less data moves nothing
+
+A widget with an empty sheet behind it draws short. If the layout reads that
+height and decides something different, the page rearranges itself because a
+tab happened to be empty on a Monday — and nobody can tell whether they're
+looking at a design or at today's weather.
+
+So **placement never reads a measured height.** Three rules make that true:
+
+- **A row you typed can't be vacated.** It wraps; it never evicts.
+- **A height you typed is used as typed**, not measured back off the screen.
+- **A widget only stacks into room that typed numbers guarantee** — both the
+  widget above the space and the one dropping into it need a typed height,
+  and the depth is measured against the tallest *typed* height on the line.
+  Room that exists only because a neighbour happened to draw tall today is
+  not room; it's weather. Take it, and the day that neighbour has nothing to
+  show, the widget is somewhere else.
+
+There's a test that packs the same page against a hundred different sets of
+measurements and asserts every widget's row, x position and width came out
+identical each time. Only the vertical positions move, because a shorter row
+above genuinely is shorter.
+
+The dotted "what fits here" box under a short widget follows the same rule —
+it only appears under a *typed* height, because a box offering room that
+nothing will ever be placed in is worse than no box at all. And the room at
+the end of a row is now offered **per line**: the end of the first line is a
+different rectangle from the end of the second.
 
 **Blank means row 1**, and that isn't a special case: everything starts in
 row 1, row 1 spills into row 2, row 2 into row 3. A page where nobody has set

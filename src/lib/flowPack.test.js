@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   MAX_ROW_SPAN,
   MIN_FIT,
+  hasRow,
   MIN_HEIGHT,
   MIN_WIDTH,
   STACK_WIDTH,
@@ -182,6 +183,8 @@ test('a full row has nothing spare', () => {
 // --- rows you can put a widget IN ----------------------------------------
 
 const rowItem = (id, widthPx, row, height = 100) => ({ id, widthPx, row, estimatedHeight: height })
+// A typed height, which is what stacking needs: see the shelf rule.
+const pinned = (id, widthPx, heightPx) => ({ id, widthPx, heightPx, estimatedHeight: heightPx })
 
 test('a page with no rows assigned flows, because unset is row 1', () => {
   // Not a special case: everything starts in row 1 and row 1 spills.
@@ -206,26 +209,54 @@ test('a widget put in row 2 stays in row 2, whatever happens above it', () => {
   assert.equal(rows.length, 2)
 })
 
-test('a row that runs out of width spills into the next one', () => {
+test('A ROW SOMEBODY TYPED WRAPS RATHER THAN SPILLING', () => {
+  // A row an admin chose is an instruction. A widget that could be evicted
+  // from it by a day with less data in it is not following one.
   const { positions } = packRowGroups(
     [rowItem('a', 400, 1), rowItem('b', 400, 1), rowItem('c', 400, 1)],
-    { canvasWidth: 900, gapX: 12 }
+    { canvasWidth: 900, gapX: 12, gapY: 20 }
   )
   assert.equal(positions.a.row, 1)
   assert.equal(positions.b.row, 1)
-  assert.equal(positions.c.row, 2, 'no room left, so it goes to the next row')
+  assert.equal(positions.c.row, 1, 'still row 1 — on a second line inside it')
+  assert.equal(positions.c.left, 0)
+  assert.equal(positions.c.top, 120, 'below the first line, plus the gap')
+})
+
+test('a widget nobody put anywhere still flows', () => {
+  // Blank is row 1 for packing, but it is not somebody SAYING row 1 -- so a
+  // page nobody has assigned rows to behaves exactly as it always did.
+  const { positions } = packRowGroups([item('a', 400), item('b', 400), item('c', 400)], {
+    canvasWidth: 900,
+    gapX: 12,
+  })
+  assert.equal(positions.c.row, 2)
   assert.equal(positions.c.left, 0)
 })
 
 test('what spilled goes ahead of what was already assigned there', () => {
-  // It came first in the sort, so it comes first on the row.
-  const { positions } = packRowGroups(
-    [rowItem('a', 500, 1), rowItem('b', 500, 1), rowItem('later', 300, 2)],
-    { canvasWidth: 900, gapX: 12 }
-  )
+  // It came first in the sort, so it comes first on the row. Only a widget
+  // nobody placed can spill now, so `a` and `b` have no row of their own.
+  const { positions } = packRowGroups([item('a', 500), item('b', 500), rowItem('later', 300, 2)], {
+    canvasWidth: 900,
+    gapX: 12,
+  })
   assert.equal(positions.b.row, 2)
   assert.equal(positions.b.left, 0, 'the spilled one is first')
   assert.equal(positions.later.left, 512, 'and the assigned one follows it')
+})
+
+test('a typed row never gives way to what spilled from above', () => {
+  // The spilled one is first ON the row; it does not push the row's own
+  // widgets off the end of it.
+  const { positions } = packRowGroups([item('a', 500), item('b', 500), rowItem('mine', 500, 2)], {
+    canvasWidth: 900,
+    gapX: 12,
+    gapY: 10,
+  })
+  assert.equal(positions.b.row, 2)
+  assert.equal(positions.mine.row, 2, 'still row 2, on a second line of it')
+  assert.equal(positions.mine.left, 0)
 })
 
 test('a row is as tall as its tallest widget, so rows line up', () => {
@@ -267,12 +298,16 @@ test('rows come out in order and nothing overlaps', () => {
 
   assert.deepEqual(rows.map((r) => r.top), [...rows.map((r) => r.top)].sort((a, b) => a - b))
   for (const row of rows) {
-    let edge = 0
-    for (const id of row.ids) {
-      assert.ok(positions[id].left >= edge - 0.5, `${id} overlaps its neighbour`)
-      edge = positions[id].left + positions[id].width + 10
+    // Per LINE: a row is a band, and a band that wrapped starts again at
+    // the left edge on the line below.
+    for (const line of row.lines) {
+      let edge = 0
+      for (const id of line.ids) {
+        assert.ok(positions[id].left >= edge - 0.5, `${id} overlaps its neighbour`)
+        edge = positions[id].left + positions[id].width + 10
+      }
+      assert.ok(edge - 10 <= 900.5, `row ${row.row} runs off the canvas`)
     }
-    assert.ok(edge - 10 <= 900.5, `row ${row.row} runs off the canvas`)
   }
 })
 
@@ -352,11 +387,10 @@ test('a gap is measured from the widest widget on the row, not the last one', ()
 test('a widget that will not fit along the row goes UNDER a short one', () => {
   // A widget half the height of the one beside it leaves a rectangle, and a
   // rectangle that fits is not one anybody wants left empty.
-  const { positions } = packRowGroups([item('short', 400, 100), item('tall', 400, 300), item('next', 400, 120)], {
-    canvasWidth: 900,
-    gapX: 12,
-    gapY: 20,
-  })
+  const { positions } = packRowGroups(
+    [pinned('short', 400, 100), pinned('tall', 400, 300), pinned('next', 400, 120)],
+    { canvasWidth: 900, gapX: 12, gapY: 20 }
+  )
   assert.equal(positions.next.left, 0, 'under the short one, not on a new row')
   assert.equal(positions.next.top, 120, 'its bottom, plus the gap')
   assert.equal(positions.next.stacked, true)
@@ -396,7 +430,7 @@ test('a widget too wide for the gap still goes to the next row', () => {
 
 test('two can stack under the same short widget if they both fit', () => {
   const { positions } = packRowGroups(
-    [item('short', 300, 60), item('tall', 500, 400), item('a', 300, 100), item('b', 300, 100)],
+    [pinned('short', 300, 60), pinned('tall', 500, 400), pinned('a', 300, 100), pinned('b', 300, 100)],
     { canvasWidth: 900, gapX: 12, gapY: 10 }
   )
   assert.equal(positions.a.left, 0)
@@ -415,7 +449,7 @@ test('stacked widgets never overlap what they were stacked under', () => {
 })
 
 test('the gap under a short widget is offered as a size, like the one beside it', () => {
-  const { positions, rows } = packRowGroups([item('short', 400, 100), item('tall', 400, 300)], {
+  const { positions, rows } = packRowGroups([pinned('short', 400, 100), pinned('tall', 400, 300)], {
     canvasWidth: 900,
     gapX: 12,
     gapY: 20,
@@ -543,11 +577,12 @@ test('a span never stacks into the gap under a short widget', () => {
   // It is meant to reach down through several rows; tucking it under one of
   // them would be the opposite of what was asked for.
   const { positions } = packRowGroups(
-    [item('wide', 700, 300), item('short', 200, 100), at('tall', 1, 200, 100, 2)],
+    [pinned('wide', 700, 300), pinned('short', 200, 100), { ...at('tall', 1, 200, 100, 2), heightPx: 100 }],
     { canvasWidth: 950, gapX: 12, gapY: 12 }
   )
   assert.equal(positions.tall.stacked, undefined)
-  assert.equal(positions.tall.row, 2, 'it went to the next row instead')
+  assert.equal(positions.tall.row, 1, 'it took a second line of its own row')
+  assert.equal(positions.tall.left, 0)
 })
 
 test('a page with no spans lays out exactly as it did before there were any', () => {
@@ -605,10 +640,20 @@ test('a typed height taller than the band grows the band to hold it', () => {
 })
 
 
-test('a typed height on a widget that does NOT span is left as it was', () => {
-  // Its own card already keeps that promise, and the measurement is the
-  // truer number on a phone, where a fixed height is capped at 80vh.
+test('A TYPED HEIGHT BEATS THE MEASUREMENT, span or no span', () => {
+  // Measuring it back makes the packing depend on what the browser happened
+  // to draw, and a widget with nothing to show that day draws short -- which
+  // is how a page rearranges itself because a sheet was empty on a Monday.
   const { positions } = packRowGroups([{ id: 'a', widthPx: 300, heightPx: 400 }], {
+    canvasWidth: 1000,
+    heights: { a: 180 },
+  })
+  assert.equal(positions.a.height, 400)
+})
+
+test('a widget with NO typed height is still measured', () => {
+  // Its content is the only thing that knows how tall it is.
+  const { positions } = packRowGroups([{ id: 'a', widthPx: 300, estimatedHeight: 220 }], {
     canvasWidth: 1000,
     heights: { a: 180 },
   })
@@ -776,4 +821,149 @@ test('the default is the behaviour this file always had', () => {
   const explicit = packRowGroups(three, { canvasWidth: 1264, gapX: 12, gapY: 12, fit: 1, stacked: false })
   assert.deepEqual(plain.positions, explicit.positions)
   assert.equal(plain.positions.a.width, 400)
+})
+
+// --- a page that does not rearrange itself when the data changes ---------
+
+const PAGE = [
+  { id: 'kpi1', row: 1, widthPx: 240, heightPx: 120 },
+  { id: 'kpi2', row: 1, widthPx: 240, heightPx: 120 },
+  { id: 'chart', row: 1, widthPx: 520, heightPx: 320 },
+  { id: 'table', row: 2, widthPx: 700 },
+  { id: 'side', row: 2, widthPx: 280, heightPx: 200 },
+  { id: 'wide', row: 3, widthPx: 900 },
+  { id: 'extra', row: 3, widthPx: 300 },
+]
+
+const layoutWith = (heights) =>
+  packRowGroups(PAGE, { canvasWidth: 1000, gapX: 12, gapY: 12, heights })
+
+const seats = (out) =>
+  PAGE.map((i) => [i.id, out.positions[i.id].row, out.positions[i.id].left, out.positions[i.id].width])
+
+test('LESS DATA MOVES NOTHING', () => {
+  // The whole point. A widget with an empty sheet behind it draws short, and
+  // a layout that reads that height decides something different -- so a page
+  // rearranges itself because a tab was empty on a Monday.
+  const busy = layoutWith({ table: 640, wide: 480, chart: 320 })
+  const quiet = layoutWith({ table: 60, wide: 60, chart: 320 })
+  const empty = layoutWith({})
+
+  assert.deepEqual(seats(quiet), seats(busy))
+  assert.deepEqual(seats(empty), seats(busy))
+})
+
+test('nothing the data can do changes a seat', () => {
+  // A sweep rather than one example: every widget's row, x and width against
+  // a hundred different sets of measurements.
+  const base = seats(layoutWith({}))
+  let seed = 7
+  const next = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return seed / 2147483648
+  }
+
+  for (let run = 0; run < 100; run += 1) {
+    const heights = {}
+    for (const item of PAGE) heights[item.id] = Math.round(40 + next() * 900)
+    assert.deepEqual(seats(layoutWith(heights)), base, `run ${run}`)
+  }
+})
+
+test('a row keeps every widget put in it, whatever the heights are', () => {
+  for (const heights of [{}, { table: 30 }, { table: 900, side: 900 }, { wide: 1200 }]) {
+    const { positions } = layoutWith(heights)
+    for (const item of PAGE) {
+      assert.equal(positions[item.id].row, item.row, `${item.id} left row ${item.row}`)
+    }
+  }
+})
+
+test('a widget can only stack into room that TYPED numbers guarantee', () => {
+  // Room a measurement happens to leave today is not room, it is weather:
+  // something drops into it, the data comes back tomorrow, and the widget
+  // is somewhere else.
+  const measured = packRowGroups(
+    [item('short', 400, 100), item('tall', 400, 300), item('next', 400, 120)],
+    { canvasWidth: 900, gapX: 12, gapY: 20 }
+  )
+  assert.equal(measured.positions.next.stacked, undefined, 'no measured height stacks')
+
+  const typed = packRowGroups(
+    [pinned('short', 400, 100), pinned('tall', 400, 300), pinned('next', 400, 120)],
+    { canvasWidth: 900, gapX: 12, gapY: 20 }
+  )
+  assert.equal(typed.positions.next.stacked, true)
+})
+
+test('room that only exists because a NEIGHBOUR drew tall is not room', () => {
+  // The subtle half of it. Both the shelf and the candidate have typed
+  // heights, so stacking looks safe -- but the depth under the shelf comes
+  // from an unpinned neighbour, and that is a fact about today's data. Take
+  // it, and the day the neighbour has nothing to show the widget is gone.
+  const { positions } = packRowGroups(
+    [pinned('short', 400, 100), item('tall', 400, 300), pinned('next', 400, 120)],
+    { canvasWidth: 900, gapX: 12, gapY: 20 }
+  )
+  assert.equal(positions.next.stacked, undefined)
+
+  // Pin the neighbour and the room becomes a promise, so it can be taken.
+  const firm = packRowGroups(
+    [pinned('short', 400, 100), pinned('tall', 400, 300), pinned('next', 400, 120)],
+    { canvasWidth: 900, gapX: 12, gapY: 20 }
+  )
+  assert.equal(firm.positions.next.stacked, true)
+})
+
+test('the room under a short widget is only shown where something could take it', () => {
+  // A dotted box offering room that nothing will ever be placed in is worse
+  // than no box at all.
+  const loose = packRowGroups([item('short', 400, 100), item('tall', 400, 300)], {
+    canvasWidth: 900,
+    gapX: 12,
+    gapY: 20,
+  })
+  assert.deepEqual(rowGaps(loose.rows, loose.positions, 900, 12, MIN_WIDTH, 20).filter((g) => g.under), [])
+
+  const firm = packRowGroups([pinned('short', 400, 100), pinned('tall', 400, 300)], {
+    canvasWidth: 900,
+    gapX: 12,
+    gapY: 20,
+  })
+  assert.equal(rowGaps(firm.rows, firm.positions, 900, 12, MIN_WIDTH, 20).filter((g) => g.under).length, 1)
+})
+
+test('a wrapped row reports every line it has', () => {
+  const { rows } = packRowGroups(
+    [rowItem('a', 400, 1), rowItem('b', 400, 1), rowItem('c', 400, 1)],
+    { canvasWidth: 900, gapX: 12, gapY: 20 }
+  )
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].lines.length, 2)
+  assert.deepEqual(rows[0].lines.map((l) => l.ids), [['a', 'b'], ['c']])
+  assert.equal(rows[0].height, 220, 'both lines, and the gap between them')
+})
+
+test('the room left over is offered per LINE, not per band', () => {
+  // The end of the first line is a different rectangle from the end of the
+  // second, and a band that reported one number for both would be pointing
+  // at a place nothing fits.
+  const { positions, rows } = packRowGroups(
+    [rowItem('a', 400, 1), rowItem('b', 400, 1), rowItem('c', 400, 1)],
+    { canvasWidth: 900, gapX: 12, gapY: 20 }
+  )
+  const gaps = rowGaps(rows, positions, 900, 12, MIN_WIDTH, 20).filter((g) => !g.under)
+  assert.equal(gaps.length, 1, 'the first line is full; only the second has room')
+  assert.equal(gaps[0].top, 120)
+  assert.equal(gaps[0].left, 412)
+})
+
+test('slack is counted per line too', () => {
+  const { positions, rows } = packRowGroups(
+    [rowItem('a', 400, 1), rowItem('b', 400, 1), rowItem('c', 400, 1)],
+    { canvasWidth: 900, gapX: 12, gapY: 20 }
+  )
+  const slack = rowSlack(rows, positions, 900, 12)
+  assert.equal(slack.a, 900 - (400 + 12 + 400))
+  assert.equal(slack.c, 900 - 400, 'its own line has far more room left')
 })

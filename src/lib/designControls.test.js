@@ -223,11 +223,14 @@ test('the gaps are only drawn while arranging', () => {
 
 test('the room under a short widget is offered too, not just the room beside it', () => {
   // A widget half the height of the one beside it leaves a rectangle, and a
-  // rectangle that fits is not one anybody wants left empty.
+  // rectangle that fits is not one anybody wants left empty -- as long as
+  // the rectangle is one TYPED heights guarantee rather than one today's
+  // data happens to leave.
   const pack = read('lib/flowPack.js')
-  assert.ok(pack.includes('const shelves = []'))
+  assert.ok(pack.includes('line.shelves.push('))
   assert.ok(pack.includes('stacked: true'))
   assert.ok(pack.includes('under: true'))
+  assert.ok(pack.includes('if (!shelf.pinned) continue'))
 })
 
 // --- controls are part of the page's design ------------------------------

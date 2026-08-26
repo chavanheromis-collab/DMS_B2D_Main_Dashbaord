@@ -225,6 +225,19 @@ export function rowOf(item) {
 }
 
 /**
+ * Whether a row is something somebody CHOSE, or just where this ended up.
+ *
+ * Blank means row 1 for the purposes of packing, but it does not mean an
+ * admin said "row 1" -- and the difference decides what happens when the
+ * row runs out of width. A widget that was put in a row stays in it; a
+ * widget that was never given one flows.
+ */
+export function hasRow(item) {
+  const n = Number(item?.row)
+  return Number.isFinite(n) && n >= 1
+}
+
+/**
  * The height somebody typed for this widget, if they typed one.
  *
  * Worth asking separately from the measurement because a widget that spans
@@ -328,16 +341,31 @@ export function packRowGroups(
       return x
     }
 
-    let x = 0
-    let height = 0
-    const placed = []
-    // What sits at each x position on this row, and how far down it reaches
-    // -- measured from the top of the row, because how far down the PAGE the
-    // row starts is not known until every row's height is settled.
+    // A row is a BAND, and a band can hold more than one line. When the
+    // widgets put in a row do not fit across it they wrap onto a second
+    // line inside the same band rather than spilling into the row below --
+    // because a row an admin typed is an instruction, and an instruction
+    // that a widget can be evicted from by having less data that day is not
+    // one.
     //
-    // A widget shorter than its neighbours leaves room underneath it, and
-    // that room is somewhere a later widget can go.
-    const shelves = []
+    // A widget that was never given a row still flows: blank is row 1 for
+    // packing, but it is not somebody saying "row 1", so a page nobody has
+    // assigned rows to behaves exactly as it always did.
+    const lines = []
+    // `typed` is the tallest TYPED height on the line, and it is the only
+    // depth stacking is allowed to use: room a measurement happens to leave
+    // today is not room, it is weather.
+    let line = { top: 0, height: 0, typed: 0, ids: [], shelves: [] }
+    let x = 0
+
+    const breakLine = () => {
+      if (line.ids.length === 0) return
+      lines.push(line)
+      line = { top: line.top + line.height + gapY, height: 0, typed: 0, ids: [], shelves: [] }
+      x = 0
+    }
+
+    const placed = []
 
     for (let i = 0; i < waiting.length; i += 1) {
       const item = waiting[i]
@@ -352,38 +380,61 @@ export function packRowGroups(
       // half of it on a narrower screen is how a widget ends up as a
       // letterbox chart with a field of empty card underneath.
       const scaled = pin && fit < 1 ? Math.max(MIN_HEIGHT, Math.round(pin * fit)) : null
-      const h =
-        span > 1 && pin
-          ? pin
-          : (scaled ?? Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback)))
+      // A TYPED height is used as typed. Measuring it back would make the
+      // packing depend on what the browser happened to draw, and a widget
+      // with nothing to show that day draws short -- which is how a page
+      // rearranges itself because a sheet was empty on a Monday.
+      const h = pin
+        ? (scaled ?? pin)
+        : Math.max(MIN_HEIGHT, Math.round(heights[item.id] ?? item.estimatedHeight ?? fallback))
 
       let left = clear(x, width)
-      let atTop = 0
+      let atTop = line.top
 
       if (left + width > canvas + 0.5) {
-        // No room along the row. Before giving up on it, look UNDER what is
+        // No room along the line. Before giving up on it, look UNDER what is
         // already here: a widget half the height of the one beside it has
         // left a rectangle, and a rectangle that fits is not a rectangle
         // anybody wants left empty.
         //
-        // Only tried when the row is full, so the reading order still runs
-        // left to right -- nothing jumps into a hole ahead of its turn. And
-        // never for a widget that spans: it would be stacking something
-        // under one row that is meant to reach down through several.
+        // Only tried when the line is full, so the reading order still runs
+        // left to right -- nothing jumps into a hole ahead of its turn.
+        //
+        // BOTH heights have to be TYPED. Measured, the rectangle is a fact
+        // about today's data: a widget with nothing to show is short, the
+        // hole under it opens, something drops into it, and tomorrow the
+        // data comes back and that widget is somewhere else. Stacking is a
+        // layout decision or it is not worth having.
         const shelf =
-          span > 1
+          span > 1 || !pin
             ? null
-            : shelves.find((sh) => sh.width >= width - 0.5 && height - sh.bottom - gapY >= h - 0.5)
-        if (!shelf) {
+            : line.shelves.find(
+                (sh) => sh.pinned && sh.width >= width - 0.5 && line.typed - (sh.bottom - line.top) - gapY >= h - 0.5
+              )
+
+        if (shelf) {
+          left = shelf.left
+          atTop = line.top + (shelf.bottom - line.top) + gapY
+          shelf.bottom = atTop + h
+          positions[item.id] = { left, top: atTop, width, height: h, row: rowNumber, rowSpan: 1, stacked: true }
+          placed.push(item.id)
+          line.ids.push(item.id)
+          continue
+        }
+
+        if (hasRow(item) && line.ids.length > 0) {
+          breakLine()
+          left = clear(0, width)
+          atTop = line.top
+        }
+
+        // Still nothing. Only a span from a row above can do that, by
+        // holding width this widget needs -- and a span's width is typed, so
+        // this is stable too, not a thing today's data decided.
+        if (left + width > canvas + 0.5) {
           overflow = waiting.slice(i)
           break
         }
-        left = shelf.left
-        atTop = shelf.bottom + gapY
-        shelf.bottom = atTop + h
-        positions[item.id] = { left, top: atTop, width, height: h, row: rowNumber, rowSpan: 1, stacked: true }
-        placed.push(item.id)
-        continue
       }
 
       positions[item.id] = {
@@ -398,6 +449,7 @@ export function packRowGroups(
         ...(scaled !== null ? { fitted: true } : null),
       }
       placed.push(item.id)
+      line.ids.push(item.id)
       x = left + width + gapX
 
       if (span > 1) {
@@ -417,14 +469,20 @@ export function packRowGroups(
         continue
       }
 
-      shelves.push({ left, width, bottom: atTop + h })
-      height = Math.max(height, h)
+      line.shelves.push({ left, width, bottom: atTop + h, pinned: Boolean(pin) })
+      line.height = Math.max(line.height, h)
+      if (pin) line.typed = Math.max(line.typed, h)
     }
+
+    if (line.ids.length > 0) lines.push(line)
+
+    const height = lines.length > 0 ? lines[lines.length - 1].top + lines[lines.length - 1].height : 0
+    const shelves = lines.flatMap((l) => l.shelves)
 
     // A row nothing was placed in is still a real row while a span is
     // reaching through it -- that is the room the span is being given.
     if (placed.length > 0 || blocked.length > 0) {
-      rows.push({ row: rowNumber, top: 0, height, ids: placed, shelves, blocked })
+      rows.push({ row: rowNumber, top: 0, height, ids: placed, shelves, blocked, lines })
     }
     rowNumber += 1
   }
@@ -493,27 +551,42 @@ export function packRowGroups(
 export function rowGaps(rows, positions, canvasWidth, gapX = 12, minimum = MIN_WIDTH, gapY = 12) {
   const out = []
   for (const row of rows || []) {
-    let edge = 0
-    for (const id of row.ids) {
-      const box = positions[id]
-      if (box) edge = Math.max(edge, box.left + box.width)
-    }
+    // Per LINE. A row is a band, and a band that wrapped has a different
+    // rectangle left at the end of each of its lines -- one number for both
+    // would point at a place nothing fits.
+    const lines = row.lines?.length ? row.lines : [{ top: 0, height: row.height, ids: row.ids }]
 
-    // The space at the END of the row -- which ends early if a widget
-    // from a row above is still standing in it. A dotted box drawn across
-    // something already there would be an invitation to a collision.
-    const left = edge + gapX
-    let limit = canvasWidth
-    for (const b of row.blocked || []) {
-      if (b.left >= left) limit = Math.min(limit, b.left - gapX)
+    for (const line of lines) {
+      let edge = 0
+      for (const id of line.ids) {
+        const box = positions[id]
+        if (box) edge = Math.max(edge, box.left + box.width)
+      }
+
+      // The space at the END of the line -- which ends early if a widget
+      // from a row above is still standing in it. A dotted box drawn across
+      // something already there would be an invitation to a collision.
+      const left = edge + gapX
+      let limit = canvasWidth
+      for (const b of row.blocked || []) {
+        if (b.left >= left) limit = Math.min(limit, b.left - gapX)
+      }
+      const width = Math.round(limit - left)
+      if (width >= minimum) {
+        out.push({ row: row.row, left, top: row.top + line.top, width, height: line.height })
+      }
     }
-    const width = Math.round(limit - left)
-    if (width >= minimum) out.push({ row: row.row, left, top: row.top, width, height: row.height })
 
     // And the space UNDER anything shorter than the row it is on. This is
     // the room a widget could actually be moved into, so it is worth as much
     // as the space at the end -- and it is invisible unless it is drawn.
+    //
+    // Only under a TYPED height. Under a measured one the rectangle is a
+    // fact about today's data, nothing will ever be placed in it (see the
+    // packer), and a dotted box offering room that cannot be taken is worse
+    // than no box at all.
     for (const shelf of row.shelves || []) {
+      if (!shelf.pinned) continue
       const free = Math.round(row.top + row.height - shelf.bottom - gapY)
       if (free < MIN_HEIGHT) continue
       out.push({
@@ -543,12 +616,18 @@ export function rowSlack(rows, positions, canvasWidth, gapX = 12) {
     // Space a widget from a row above is holding is not space going spare,
     // however empty it looks from down here.
     const held = (row.blocked || []).reduce((sum, b) => sum + (b.right - b.left) + gapX, 0)
-    const used =
-      row.ids.reduce((sum, id) => sum + (positions[id]?.width || 0), 0) +
-      gapX * Math.max(0, row.ids.length - 1) +
-      held
-    const spare = Math.max(0, Math.round(canvasWidth - used))
-    for (const id of row.ids) out[id] = spare
+    // Per line: the room left at the end of a wrapped row's second line has
+    // nothing to do with how full its first line was.
+    const lines = row.lines?.length ? row.lines : [{ ids: row.ids }]
+
+    for (const line of lines) {
+      const used =
+        line.ids.reduce((sum, id) => sum + (positions[id]?.width || 0), 0) +
+        gapX * Math.max(0, line.ids.length - 1) +
+        held
+      const spare = Math.max(0, Math.round(canvasWidth - used))
+      for (const id of line.ids) out[id] = spare
+    }
   }
   return out
 }
