@@ -22,6 +22,7 @@ import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
 import { hasCustomStyle } from '../../lib/widgetStyle'
 import { COLOR_MODES, DEFAULT_REFERENCE, REFERENCE_KINDS, chartCaps, unsupportedNote } from '../../lib/chartOptions'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
+import { SERIES_PALETTES } from '../../lib/valueColors'
 import AppImage from '../../components/PageIcon.jsx'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, optValue, useWorkspaceCtx } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
@@ -42,6 +43,7 @@ import {
   ColumnOrderEditor,
   ActivityFeedEditor,
   ScorecardEditor,
+  ValueColorEditor,
 } from './WidgetEditors.jsx'
 
 // Every widget that reads ONE tab can blend a second one into itself. The
@@ -987,6 +989,14 @@ function ChartAdvanced({ widget, set }) {
           />
         </Field>
 
+        <Field label="Palette" hint="The colours values are handed out from.">
+          <Select
+            value={widget.palette || 'default'}
+            onChange={(v) => set({ palette: v })}
+            options={SERIES_PALETTES}
+          />
+        </Field>
+
         <Field
           label="Axis steps"
           hint={caps.axisStep ? 'Ticks every N — 50, 100… Blank lets the chart choose.' : 'No axis on this style.'}
@@ -1037,6 +1047,12 @@ function ChartAdvanced({ widget, set }) {
             </Field>
           </div>
         )}
+      </div>
+
+      {/* A pinned colour belongs to the value and beats the mode above, so
+          it sits directly under it rather than in its own far-off section. */}
+      <div className="mt-2">
+        <ValueColorEditor widget={widget} set={set} />
       </div>
 
       {/* --- Reference lines are the one thing worth explaining --------- */}

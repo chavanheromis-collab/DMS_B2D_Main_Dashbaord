@@ -13,6 +13,7 @@ import {
 import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUtils'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps } from './ui.jsx'
 import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
+import { clashingPins, nextPinColor } from '../../lib/valueColors'
 import ConditionBuilder from './ConditionBuilder.jsx'
 
 /**
@@ -704,7 +705,7 @@ export function TrendEditor({ widget, cols, set }) {
         </p>
       </div>
 
-      {breakdown && <SeriesColorEditor widget={widget} set={set} />}
+      {breakdown && <ValueColorEditor widget={widget} set={set} />}
 
       <ScrollEditor widget={widget} set={set} hasLegend={Boolean(breakdown)} />
 
@@ -869,15 +870,20 @@ export function ScrollEditor({ widget, set, horizontal = false, hasLegend = true
 }
 
 /**
- * Fixed colours for the series that have a meaning.
+ * Fixed colours for the values that have a meaning.
  *
  * Red for "Cancelled" is not decoration -- a reader who has learned the
- * colour reads the chart without the legend, and a palette that reshuffles
- * when the data does destroys that. Anything unlisted cycles the palette.
+ * colour reads the chart without the legend. That only works if the colour
+ * belongs to the VALUE, so a pin here beats the chart's colour mode, holds
+ * across every chart it is set on, and survives filtering.
+ *
+ * Anything unpinned takes a palette colour, and keeps it: see
+ * lib/valueColors.js for what "keeps" means when the data is filtered.
  */
-export function SeriesColorEditor({ widget, set }) {
+export function ValueColorEditor({ widget, set }) {
   const rules = widget.seriesColors || []
   const ops = listOps(rules, (next) => set({ seriesColors: next }))
+  const clashes = clashingPins(rules)
 
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
@@ -885,14 +891,14 @@ export function SeriesColorEditor({ widget, set }) {
         <p className="text-[11px] font-medium text-slate-500">
           Fixed colours <span className="font-normal text-slate-400">(by value — optional)</span>
         </p>
-        <Btn onClick={() => ops.add({ id: uid('sc'), value: '', color: PALETTE[rules.length % PALETTE.length] })}>
+        <Btn onClick={() => ops.add({ id: uid('sc'), value: '', color: nextPinColor(rules, widget.palette) })}>
           <Plus size={11} /> Add
         </Btn>
       </div>
 
       {rules.length === 0 && (
         <p className="py-1 text-[10px] text-slate-400">
-          None — every series takes the next palette colour. Pin one where the colour carries meaning: red for
+          None — every value takes the next palette colour. Pin one where the colour carries meaning: red for
           Cancelled, green for Delivered.
         </p>
       )}
@@ -925,12 +931,37 @@ export function SeriesColorEditor({ widget, set }) {
         ))}
       </div>
 
-      {rules.length > 0 && (
-        <p className="mt-1 text-[10px] text-slate-400">
-          Matched on the value, ignoring case and surrounding spaces. “Other” is always grey, so a roll-up never
-          looks like a category of its own.
+      {/* Two values painted the same colour is not a crash -- it is worse: a
+          chart that reads fine and means nothing. Which of the two should
+          move is the admin's call, so this says it rather than renumbering. */}
+      {clashes.map((names, i) => (
+        <p key={i} className="mt-1 rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
+          {names.join(' and ')} are pinned to the same colour — on one chart they’ll be impossible to tell apart.
         </p>
-      )}
+      ))}
+
+      <div className="mt-1.5 border-t border-slate-200 pt-1.5">
+        <Toggle
+          checked={widget.lockColors !== false}
+          onChange={(v) => set({ lockColors: v })}
+          label="Keep each value’s colour when filtered"
+        />
+        <p className="mt-1 text-[10px] text-slate-400">
+          {widget.lockColors === false ? (
+            <>
+              Off: colours are handed out by position, so filtering the page shifts every colour up as categories
+              drop out.
+            </>
+          ) : (
+            <>
+              Filtering narrows the chart without repainting it — a value keeps the colour it had before the filter,
+              so two charts of the same column agree with each other. Pins above are matched on the value, ignoring
+              case and surrounding spaces. “Other” is always grey, so a roll-up never looks like a category of its
+              own.
+            </>
+          )}
+        </p>
+      </div>
     </div>
   )
 }

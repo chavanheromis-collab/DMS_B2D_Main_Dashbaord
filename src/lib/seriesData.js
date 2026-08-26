@@ -1,5 +1,5 @@
 import { aggregate, bucketLabel, bucketStart, dateBucket, isBlank, nextBucket, toDate } from './dataUtils.js'
-import { PALETTE } from './config.js'
+import { SERIES_PALETTES, paletteFor, valueColor } from './valueColors.js'
 
 // ---------------------------------------------------------------------
 // Breaking a chart down into series
@@ -137,55 +137,20 @@ export const SERIES_MODES = [
   { value: 'group', label: 'Grouped bars', hint: 'Side by side — best for a handful of series.' },
 ]
 
-export const SERIES_PALETTES = [
-  { value: 'default', label: 'Standard', colors: PALETTE },
-  {
-    value: 'cool',
-    label: 'Cool',
-    colors: ['#0EA5E9', '#6366F1', '#14B8A6', '#8B5CF6', '#0891B2', '#4F46E5', '#059669', '#7C3AED'],
-  },
-  {
-    value: 'warm',
-    label: 'Warm',
-    colors: ['#F97316', '#EF4444', '#F59E0B', '#EC4899', '#DC2626', '#D97706', '#DB2777', '#B45309'],
-  },
-  {
-    value: 'earth',
-    label: 'Earth',
-    colors: ['#65A30D', '#CA8A04', '#0D9488', '#A16207', '#4D7C0F', '#15803D', '#92400E', '#166534'],
-  },
-  {
-    value: 'mono',
-    label: 'One hue',
-    colors: ['#1E3A8A', '#1D4ED8', '#2563EB', '#3B82F6', '#60A5FA', '#93C5FD', '#BFDBFE', '#DBEAFE'],
-  },
-]
+export { SERIES_PALETTES, paletteFor }
 
 export const OTHER_SERIES = 'Other'
-
-export function paletteFor(name) {
-  return (SERIES_PALETTES.find((p) => p.value === name) || SERIES_PALETTES[0]).colors
-}
 
 /**
  * The colour one series gets.
  *
- * An explicit assignment always wins, and it is matched case-insensitively
- * because "HDFC" in the admin panel and "hdfc" in the sheet are the same
- * bank. Everything else cycles the chosen palette by POSITION, which is
- * stable as long as the series order is -- and the series order is by total,
- * so it only changes when the data genuinely changes.
+ * A thin wrapper over `valueColor` -- a series name IS a value, and a band
+ * in a stack must be the same colour as the bar of that name in the chart
+ * beside it. `roster` is the series order with nothing filtered, so a
+ * filter that removes one band does not recolour the rest.
  */
-export function seriesColor(name, index, assignments, palette = 'default') {
-  const colors = paletteFor(palette)
-  if (name === OTHER_SERIES) return '#cbd5e1'
-
-  const wanted = String(name ?? '').trim().toLowerCase()
-  for (const rule of assignments || []) {
-    if (!rule?.color) continue
-    if (String(rule.value ?? '').trim().toLowerCase() === wanted) return rule.color
-  }
-  return colors[index % colors.length]
+export function seriesColor(name, index, assignments, palette = 'default', roster) {
+  return valueColor(name, index, { assignments, palette, roster })
 }
 
 const labelOf = (value) => (isBlank(value) ? '(blank)' : String(value).trim())

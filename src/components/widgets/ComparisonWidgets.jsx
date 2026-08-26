@@ -18,6 +18,7 @@ import {
 import { bucketConditions, formatNumber, groupSeries, groupStacked, pivot, scatterPoints } from '../../lib/dataUtils'
 import { HEAT_SCALES, PALETTE } from '../../lib/config'
 import { seriesColor } from '../../lib/seriesData.js'
+import { buildRoster, needsRoster } from '../../lib/valueColors.js'
 import { chartExtent, legendStyle } from '../../lib/chartScroll.js'
 
 const tooltipBox = { borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }
@@ -81,26 +82,42 @@ export function StackedWidget({
   dateOrder = 'DMY',
   fillHeight = false,
 }) {
+  const shape = (input) =>
+    groupStacked(input, {
+      groupBy: widget.groupBy,
+      stackBy: widget.stackBy,
+      valueColumn: widget.column,
+      aggregation: widget.aggregation || 'count',
+      limit: widget.limit || 12,
+      maxSeries: widget.maxSeries || 8,
+      bucket: { bucket: widget.bucket, bucketSize: widget.bucketSize, bucketBreaks: widget.bucketBreaks },
+      stackBucket: {
+        bucket: widget.stackBucket,
+        bucketSize: widget.stackBucketSize,
+        bucketBreaks: widget.stackBucketBreaks,
+      },
+      dateOrder,
+      sort: widget.sort || 'value_desc',
+    })
+
   const { data, series } = useMemo(
-    () =>
-      groupStacked(sourceRows(widget, rows, unfilteredRows), {
-        groupBy: widget.groupBy,
-        stackBy: widget.stackBy,
-        valueColumn: widget.column,
-        aggregation: widget.aggregation || 'count',
-        limit: widget.limit || 12,
-        maxSeries: widget.maxSeries || 8,
-        bucket: { bucket: widget.bucket, bucketSize: widget.bucketSize, bucketBreaks: widget.bucketBreaks },
-        stackBucket: {
-          bucket: widget.stackBucket,
-          bucketSize: widget.stackBucketSize,
-          bucketBreaks: widget.stackBucketBreaks,
-        },
-        dateOrder,
-        sort: widget.sort || 'value_desc',
-      }),
-    [widget, rows, unfilteredRows]
+    () => shape(sourceRows(widget, rows, unfilteredRows)),
+    [widget, rows, unfilteredRows, dateOrder]
   )
+
+  /**
+   * The colour seating for the segments.
+   *
+   * `maxSeries` keeps the biggest few and rolls the rest into Other, and
+   * "biggest" is measured on whatever is currently filtered -- so without
+   * this a filter can both drop a segment AND recolour every segment above
+   * where it used to sit.
+   */
+  const roster = useMemo(() => {
+    if (widget.lockColors === false) return null
+    if (!needsRoster(rows, unfilteredRows)) return null
+    return buildRoster(shape(unfilteredRows).series)
+  }, [widget, rows, unfilteredRows, dateOrder])
 
   const activeName = crossFilters.find((cf) => cf.id === `stacked_${widget.id}`)?.value
   const grouped = widget.layout === 'grouped'
@@ -178,7 +195,7 @@ export function StackedWidget({
                   // A shared stackId is the only difference between a stacked
                   // and a grouped chart in recharts.
                   stackId={grouped ? undefined : 'a'}
-                  fill={seriesColor(key, i, widget.seriesColors, widget.palette)}
+                  fill={seriesColor(key, i, widget.seriesColors, widget.palette, roster)}
                   radius={grouped || i === series.length - 1 ? [5, 5, 0, 0] : 0}
                   onClick={(entry) => drill(entry?.name ?? entry?.payload?.name)}
                   cursor="pointer"
@@ -328,18 +345,25 @@ export function ComboWidget({
  * would average away.
  */
 export function ScatterWidget({ widget, rows, unfilteredRows, tabError, fillHeight = false }) {
-  const series = useMemo(
-    () =>
-      scatterPoints(sourceRows(widget, rows, unfilteredRows), {
-        xColumn: widget.xColumn,
-        yColumn: widget.yColumn,
-        sizeColumn: widget.sizeColumn,
-        groupBy: widget.groupBy,
-        labelColumn: widget.labelColumn,
-        limit: widget.limit || 400,
-      }),
-    [widget, rows, unfilteredRows]
-  )
+  const shape = (input) =>
+    scatterPoints(input, {
+      xColumn: widget.xColumn,
+      yColumn: widget.yColumn,
+      sizeColumn: widget.sizeColumn,
+      groupBy: widget.groupBy,
+      labelColumn: widget.labelColumn,
+      limit: widget.limit || 400,
+    })
+
+  const series = useMemo(() => shape(sourceRows(widget, rows, unfilteredRows)), [widget, rows, unfilteredRows])
+
+  // Same rule as everywhere else: the colour belongs to the group, so
+  // filtering out one group must not repaint the others.
+  const roster = useMemo(() => {
+    if (widget.lockColors === false) return null
+    if (!needsRoster(rows, unfilteredRows)) return null
+    return buildRoster(shape(unfilteredRows).map((s) => s.name))
+  }, [widget, rows, unfilteredRows])
 
   const plotted = series.reduce((n, s) => n + s.points.length, 0)
 
@@ -386,7 +410,7 @@ export function ScatterWidget({ widget, rows, unfilteredRows, tabError, fillHeig
                   key={s.name}
                   name={s.name}
                   data={s.points}
-                  fill={PALETTE[i % PALETTE.length]}
+                  fill={seriesColor(s.name, i, widget.seriesColors, widget.palette, roster)}
                   fillOpacity={0.7}
                 />
               ))}

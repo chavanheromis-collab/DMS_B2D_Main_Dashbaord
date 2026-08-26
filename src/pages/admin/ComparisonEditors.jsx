@@ -1,6 +1,6 @@
 import { AGGREGATIONS, HEAT_SCALES, NUMBER_FORMATS, PALETTE, aggNeedsColumn } from '../../lib/config'
 import { SERIES_PALETTES } from '../../lib/seriesData'
-import { BucketPicker, PivotBuckets, ScrollEditor, SeriesColorEditor } from './WidgetEditors.jsx'
+import { BucketPicker, PivotBuckets, ScrollEditor, ValueColorEditor } from './WidgetEditors.jsx'
 import { Field, Select, TextInput, Toggle } from './ui.jsx'
 
 const SORTS = [
@@ -48,7 +48,7 @@ export function StackedEditor({ widget, cols, set }) {
         </Field>
       </div>
 
-      <SeriesColorEditor widget={widget} set={set} />
+      <ValueColorEditor widget={widget} set={set} />
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <Field label="Palette" hint="For anything unassigned.">
@@ -222,6 +222,20 @@ export function ScatterEditor({ widget, cols, set }) {
           <Select value={widget.groupBy || ''} onChange={(v) => set({ groupBy: v })} options={cols} placeholder="— none —" />
         </Field>
       </div>
+
+      {/* Only worth showing once there is something to colour BY. */}
+      {widget.groupBy && (
+        <div className="space-y-2">
+          <Field label="Palette" className="w-44" hint="For anything unpinned.">
+            <Select
+              value={widget.palette || 'default'}
+              onChange={(v) => set({ palette: v })}
+              options={SERIES_PALETTES}
+            />
+          </Field>
+          <ValueColorEditor widget={widget} set={set} />
+        </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Max points" className="w-32" hint="Plotted in sheet order.">

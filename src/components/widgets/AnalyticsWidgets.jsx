@@ -10,6 +10,7 @@ import {
   timeSeriesBy,
 } from '../../lib/seriesData.js'
 import { normalizeKey } from '../../lib/dataUtils'
+import { buildRoster, needsRoster } from '../../lib/valueColors.js'
 import {
   Area,
   AreaChart,
@@ -69,19 +70,21 @@ export function TrendWidget({
   const [hidden, setHidden] = useState(() => new Set())
   const [hover, setHover] = useState(null)
 
+  const shape = (input) =>
+    timeSeriesBy(input, {
+      dateColumn: widget.dateColumn,
+      grain: widget.grain || 'month',
+      breakdown,
+      breakdownGrain: widget.breakdownGrain || '',
+      valueColumn: widget.column,
+      aggregation: widget.aggregation || 'count',
+      order: dateOrder,
+      maxSeries: Number(widget.maxSeries) > 0 ? Number(widget.maxSeries) : 6,
+      seriesSort: widget.seriesSort || 'total',
+    })
+
   const built = useMemo(
-    () =>
-      timeSeriesBy(source, {
-        dateColumn: widget.dateColumn,
-        grain: widget.grain || 'month',
-        breakdown,
-        breakdownGrain: widget.breakdownGrain || '',
-        valueColumn: widget.column,
-        aggregation: widget.aggregation || 'count',
-        order: dateOrder,
-        maxSeries: Number(widget.maxSeries) > 0 ? Number(widget.maxSeries) : 6,
-        seriesSort: widget.seriesSort || 'total',
-      }),
+    () => shape(source),
     [
       source,
       widget.dateColumn,
@@ -95,6 +98,20 @@ export function TrendWidget({
       dateOrder,
     ]
   )
+
+  /**
+   * The colour seating for the series.
+   *
+   * Two things narrow this chart and neither should recolour it: a page
+   * filter, and a reader switching a series off in the legend. The second
+   * is free to fix -- `built.series` is the full list either way -- and the
+   * first needs the unfiltered pass, because `maxSeries` picks the top few
+   * by total and filtered data has different totals.
+   */
+  const roster = useMemo(() => {
+    if (widget.lockColors === false) return null
+    return buildRoster(needsRoster(source, unfilteredRows) ? shape(unfilteredRows).series : built.series)
+  }, [widget, source, unfilteredRows, built.series, dateOrder, breakdown])
 
   const shown = useMemo(() => built.series.filter((name) => !hidden.has(name)), [built.series, hidden])
 
@@ -110,7 +127,7 @@ export function TrendWidget({
   const single = !breakdown
   const singleKey = 'value'
   const colorOf = (name, i) =>
-    single ? widget.color || '#4F46E5' : seriesColor(name, i, widget.seriesColors, widget.palette)
+    single ? widget.color || '#4F46E5' : seriesColor(name, i, widget.seriesColors, widget.palette, roster)
 
   const fmt = (v) => formatNumber(v, widget.format, widget.aggregation)
   const activeCf = crossFilters.find((cf) => cf.id === `trend_${widget.id}`)

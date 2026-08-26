@@ -30,6 +30,7 @@ import {
 } from 'recharts'
 import { bucketConditions, groupKey, groupRows, histogram, formatNumber, normalizeKey } from '../../lib/dataUtils'
 import { PALETTE } from '../../lib/config'
+import { buildRoster, needsRoster, valueColor } from '../../lib/valueColors'
 import ExportButton from '../ExportButton.jsx'
 import PiePanel from './PiePanel.jsx'
 import { arrowRightPath, arrowUpPath, cylinderCapRadius, nestedCircles } from '../../lib/chartShapes.js'
@@ -302,16 +303,16 @@ export default function ChartWidget({
 
   // A histogram bins a numeric column instead of grouping by a category --
   // the one style whose data doesn't come from `groupRows`.
-  const base = useMemo(() => {
+  const shape = (input) => {
     if (caps.binned) {
-      return histogram(source, {
+      return histogram(input, {
         column: widget.column || widget.groupBy,
         bins: widget.bins || 12,
         min: widget.binMin,
         max: widget.binMax,
       })
     }
-    return groupRows(source, {
+    return groupRows(input, {
       groupBy: widget.groupBy,
       valueColumn: widget.column,
       aggregation: widget.aggregation || 'count',
@@ -327,7 +328,26 @@ export default function ChartWidget({
       bucket: widget,
       dateOrder,
     })
-  }, [caps.binned, source, widget, type])
+  }
+
+  const base = useMemo(() => shape(source), [caps.binned, source, widget, type])
+
+  /**
+   * The colour seating: which category sits in which palette seat when
+   * NOTHING is filtered.
+   *
+   * Built only while something is actually filtered -- unfiltered, the
+   * roster order and the render order are the same list, so consulting it
+   * would return the colours the index already gives and grouping the whole
+   * sheet twice to find that out is pure waste.
+   */
+  const roster = useMemo(() => {
+    if (widget.lockColors === false) return null
+    if (!needsRoster(source, unfilteredRows)) return null
+    return buildRoster(shape(unfilteredRows).map((d) => d.name))
+  }, [widget, type, caps.binned, source, unfilteredRows])
+
+  const colorBook = { assignments: widget.seriesColors, palette: widget.palette, roster }
 
   // Waterfall and Pareto are the same grouped numbers rearranged, so they
   // reuse everything above and only reshape at the last moment.
@@ -431,9 +451,9 @@ export default function ChartWidget({
     // Round styles look wrong in a single colour, so they default to the
     // palette -- but an explicit colour mode still wins.
     if (!caps.cartesian && (!widget.colorMode || widget.colorMode === 'single')) {
-      return PALETTE[i % PALETTE.length]
+      return valueColor(entry.name, i, colorBook)
     }
-    return colorForDatum(widget, entry, i, data)
+    return colorForDatum(widget, entry, i, data, colorBook)
   }
 
   const dimFor = (entry) => (activeName && activeName !== entry.name ? 0.25 : 1)

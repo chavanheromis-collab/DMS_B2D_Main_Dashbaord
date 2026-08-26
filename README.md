@@ -1481,6 +1481,67 @@ All of it is adjustable: how many slices to draw, the smallest slice worth
 its own wedge, the label threshold, **what each label says** (name, value, %,
 or any pair of them), and which of the two answers to a long tail you want.
 
+### A colour belongs to a value, not to a position
+
+A colour is a label. Once a reader has learned that red means **Cancelled**,
+they read the chart without the legend — and that only works if the colour
+stays with the value.
+
+Cycling a palette by rendered position breaks it the moment anything is
+filtered. Drop *Delivered* and every category behind it shifts up a seat, so
+Cancelled turns from red to amber: the reader's learned colour is now a
+confident lie about a different category. Two charts of the same column on
+one page disagree with each other for exactly the same reason.
+
+So every chart now takes its colours from one place (`lib/valueColors.js`),
+in this order:
+
+1. **A pin.** *Cancelled is #DC2626.* Set it under **Fixed colours (by
+   value)** on the chart, matched on the value ignoring case and surrounding
+   spaces — "HDFC " in the sheet is `HDFC` in the panel.
+2. **The value's seat in the roster** — the order the chart draws with
+   *nothing* filtered. A filter narrows the chart without moving anybody's
+   colour.
+3. **The rendered position**, when there is no roster to consult.
+
+Because step 2 seats values in their unfiltered order, **an unfiltered chart
+looks exactly as it always did** — its roster order *is* its render order.
+Nothing on an existing dashboard changes colour until something is filtered,
+and then only by *not* changing.
+
+**A pin beats the colour mode.** Pin Cancelled red and it is red in the
+one-colour chart, the shaded-by-value chart and the highlight-best-and-worst
+chart too. A pin that meant something different in every chart on the page
+would be the opposite of what pinning is for.
+
+Where it applies: bars, columns, lines, areas, pies, donuts, roses, treemaps,
+funnels, progress lists and nested circles; stacked and grouped bars; the
+trend chart's series; and scatter groups. Pick the palette unpinned values
+are handed out from in the same place.
+
+Three details worth knowing:
+
+- **A category the roster has never seen sits behind everyone it knows.** A
+  chart capped at twelve categories has a roster of twelve, and a filter can
+  lift a thirteenth into view — seating it at its rendered position would
+  drop it straight on top of whoever holds that seat.
+- **"Other" is always grey**, even if you pin it. It is a bucket the chart
+  invented out of a tail it could not draw, and painting it like a category
+  would have the chart claim a category exists that no row holds.
+- **Two values pinned to the same colour** are flagged in the editor rather
+  than quietly renumbered. Which of the two should move is your call — and a
+  chart where two categories are indistinguishable isn't a crash, it's worse:
+  it reads fine and means nothing.
+
+The trend chart gets this for free in one more place: switching a series off
+in the legend narrows the chart too, and the ones left keep their colours.
+
+Costs nothing when nothing is filtered — the roster is only built when the
+filtered and unfiltered row counts differ, because otherwise it would return
+the colours the position already gives. Turn the whole thing off per chart
+with **Keep each value's colour when filtered** if you want the old
+by-position behaviour back.
+
 ### Two axes worth knowing about
 
 **Log scale** — on the value axis of any chart that has one. On a linear axis
@@ -1964,6 +2025,7 @@ src/
   lib/tdz.js              Finds a const used before the line that declares it
   lib/staleRef.js         Finds a ref read from inside a state updater
   lib/adminPanel.test.js  Guards the admin panel's header, folds and grouping
+  lib/valueColors.js      One colour per value, everywhere, filtered or not
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
   lib/widgetOrder.js      Personal + admin widget ordering (pure)
   lib/widgetStyle.js      Per-widget appearance -> CSS custom properties

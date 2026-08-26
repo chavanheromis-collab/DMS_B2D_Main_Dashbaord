@@ -1,4 +1,5 @@
 import { PALETTE } from './config.js'
+import { pinnedColor, valueColor } from './valueColors.js'
 import { toNumber } from './dataUtils.js'
 
 // ---------------------------------------------------------------------
@@ -64,7 +65,7 @@ export function unsupportedNote(type) {
 
 export const COLOR_MODES = [
   { value: 'single', label: 'One colour', hint: 'Every bar the same.' },
-  { value: 'palette', label: 'A colour per category', hint: 'Cycles the palette.' },
+  { value: 'palette', label: 'A colour per category', hint: 'One palette colour each, and it stays with the value.' },
   { value: 'scale', label: 'Shade by value', hint: 'Darker where the number is bigger.' },
   { value: 'rules', label: 'Conditional colours', hint: 'Your own thresholds — red under target, green over.' },
   { value: 'rank', label: 'Highlight best & worst', hint: 'Top and bottom stand out, the rest recede.' },
@@ -99,15 +100,26 @@ function shade(hex, t) {
 /**
  * The colour for one datum.
  *
+ * A PIN WINS OVER THE MODE. If an admin has said Cancelled is red, then
+ * Cancelled is red in the one-colour chart and the shaded-by-value chart
+ * too -- otherwise pinning a colour would mean something different in every
+ * chart on the page, which is the opposite of what pinning is for. The
+ * modes below decide the colour of everything nobody has spoken for.
+ *
  * `scale` deliberately spans a light-to-full band rather than 0-to-full: a
  * bar shaded to near-white against a white card reads as missing data, not
  * as a small number.
  */
-export function colorForDatum(widget, entry, index, data) {
+export function colorForDatum(widget, entry, index, data, book = {}) {
   const base = widget.color || PALETTE[0]
   const mode = widget.colorMode || 'single'
 
-  if (mode === 'palette') return PALETTE[index % PALETTE.length]
+  const pinned = pinnedColor(entry?.name, book.assignments)
+  if (pinned) return pinned
+
+  // A palette colour belongs to the value, not to the seat it is drawn in,
+  // so a filter narrows the chart without recolouring what is left.
+  if (mode === 'palette') return valueColor(entry?.name, index, book)
 
   if (mode === 'scale') {
     const values = data.map((d) => d.value)
