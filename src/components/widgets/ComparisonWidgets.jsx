@@ -124,7 +124,9 @@ export function StackedWidget({
     <Shell
       widget={widget}
       icon="📶"
-      caption={`${widget.tab} · ${widget.groupBy || '—'} split by ${widget.stackBy || '—'}`}
+      caption={`${widget.tab} · ${widget.groupBy || '—'} split by ${widget.stackBy || '—'}${
+        !grouped && widget.percentStack ? ' · every bar 100%, so the mix is what is compared' : ''
+      }`}
       tabError={tabError}
     >
       {data.length === 0 ? (
@@ -149,7 +151,15 @@ export function StackedWidget({
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={54} />
-              <YAxis tick={{ fontSize: 11 }} />
+              {/* A 100% chart's axis is a percentage. Recharts scales the
+                  bars to 0-1, so the axis has to say so or it reads "0.4"
+                  up the side of a chart about proportions. */}
+              <YAxis
+                tick={{ fontSize: 11 }}
+                {...(!grouped && widget.percentStack
+                  ? { domain: [0, 1], tickFormatter: (v) => `${Math.round(v * 100)}%` }
+                  : {})}
+              />
               <Tooltip
                 contentStyle={tooltipBox}
                 cursor={{ fill: '#f8fafc' }}

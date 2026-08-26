@@ -453,3 +453,40 @@ test('the admin picks what a slice label says', () => {
   assert.ok(panel.includes('onChange={(v) => set({ labelStyle: v })}'))
   assert.ok(panel.includes('options={PIE_LABEL_STYLES}'))
 })
+
+// --- a log axis, and a chart about proportions ---------------------------
+
+const chart = read('components/widgets/ChartWidget.jsx')
+const comparison = read('components/widgets/ComparisonWidgets.jsx')
+
+test('a chart can use a log axis, for data spanning orders of magnitude', () => {
+  // On a linear axis a top bar of 1,667 makes everything under 200 a stub of
+  // the same height, and the difference between 40 and 4 -- which may be
+  // the whole point -- is invisible.
+  assert.ok(chart.includes('const logScale = widget.logScale === true && caps.axisStep'))
+  assert.ok(chart.includes("scale: 'log'"))
+  assert.ok(chart.includes('const axisProps = logAxis || valueAxis'))
+  assert.ok(!chart.includes('{...valueAxis} />'), 'and every axis uses it')
+})
+
+test('a log axis does not start at zero, because zero has no logarithm', () => {
+  assert.ok(chart.includes('Math.max(1, Math.min(...data.map((d) => Number(d.value) || Infinity), Infinity) || 1)'))
+})
+
+test('stacked bars can be scaled to 100%, to compare the mix', () => {
+  assert.ok(comparison.includes("stackOffset={!grouped && widget.percentStack ? 'expand' : undefined}"))
+  const editor = read('pages/admin/ComparisonEditors.jsx')
+  assert.ok(editor.includes("percentStack: v === 'percent'"))
+})
+
+test('a 100% chart says so, and its axis reads as percentages', () => {
+  // Recharts scales the bars to 0-1, so an unformatted axis reads "0.4" up
+  // the side of a chart about proportions.
+  assert.ok(comparison.includes('every bar 100%, so the mix is what is compared'))
+  assert.ok(comparison.includes('tickFormatter: (v) => `${Math.round(v * 100)}%`'))
+})
+
+test('the log toggle is on the panel, not a setting only code can reach', () => {
+  const panel = read('pages/admin/WidgetsPanel.jsx')
+  assert.ok(panel.includes('onChange={(v) => set({ logScale: v })}'))
+})

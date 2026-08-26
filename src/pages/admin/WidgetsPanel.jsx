@@ -1001,6 +1001,13 @@ function ChartAdvanced({ widget, set }) {
         </Field>
 
         <div className="flex flex-col justify-end gap-1 pb-1.5">
+          {caps.axisStep && (
+            <Toggle
+              checked={widget.logScale === true}
+              onChange={(v) => set({ logScale: v })}
+              label="Log scale"
+            />
+          )}
           {caps.labels && (
             <Toggle checked={!!widget.showLabels} onChange={(v) => set({ showLabels: v })} label="Show values on the chart" />
           )}

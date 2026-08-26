@@ -60,10 +60,19 @@ export function StackedEditor({ widget, cols, set }) {
         </Field>
         <Field label="Layout">
           <Select
-            value={widget.layout || 'stacked'}
-            onChange={(v) => set({ layout: v })}
+            value={widget.layout === 'grouped' ? 'grouped' : widget.percentStack ? 'percent' : 'stacked'}
+            onChange={(v) =>
+              set({
+                layout: v === 'grouped' ? 'grouped' : 'stacked',
+                // "Every bar the same height" is a stacked chart answering a
+                // different question, not a third layout -- so it is stored
+                // as what it is rather than as a mode nothing else knows.
+                percentStack: v === 'percent',
+              })
+            }
             options={[
               { value: 'stacked', label: 'Stacked (one bar per group)' },
+              { value: 'percent', label: 'Stacked to 100% (compare the mix)' },
               { value: 'grouped', label: 'Grouped (bars side by side)' },
             ]}
           />

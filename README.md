@@ -1457,24 +1457,47 @@ So there's a second answer, chosen by the admin: **List them all — scroll the
 pie through them.**
 
 - Every category is in the list, in order, with its value and its share.
-- **The circle draws whichever are in view.** Scroll the list and the pie
-  moves through the data, so 120 categories are readable in a space that
-  fits eight. Rows the circle isn't currently drawing are dimmed in the list,
-  so it's always clear which is which.
-- **The circle still adds up to the whole.** Everything outside the window is
-  one grey wedge with its own share on it — because a pie that quietly showed
-  6% of the data as a full circle would be the worst kind of wrong:
-  confident, well drawn, and off by a factor of sixteen. A caption says how
-  many are in view and what share the grey wedge is.
-- **A percentage is always a share of the whole**, never of the window, so
-  the number beside a category means the same thing however the list happens
-  to be scrolled.
-- The grey wedge isn't clickable, for the same reason "Other" isn't: it's a
-  bucket the chart invented, not a value any row holds.
+- **The circle draws whichever are in view, at the size they are relative to
+  each other.** Scroll the list and the pie moves through the data, re-scaling
+  as it goes, so 120 categories are readable in a space that fits eight. Rows
+  the circle isn't currently drawing are dimmed in the list.
+- **The caption says what the circle is.** *"The circle is these 8 of 120 —
+  together they are 6% of the whole."* That sentence is what makes a
+  re-scaled pie honest rather than a lie: eight slices worth 1% between them
+  drawn against a 99% grey wedge is a chart of nothing, and filling the circle
+  with them is the only way the tail is readable at all — but only if it says
+  so.
+- **A percentage can mean either thing, and the admin picks**: *% of
+  everything* (the default — the number that means the same thing however the
+  list is scrolled) or *% of what's on screen* (the one the geometry is
+  showing). Both are carried on every slice, so switching costs nothing.
+- Prefer the strict reading? Turn **Fill the circle with what is on screen**
+  off and it goes back to keeping the whole, with everything outside the
+  window as one grey wedge carrying its own share. That wedge isn't
+  clickable, for the same reason "Other" isn't: it's a bucket the chart
+  invented, not a value any row holds.
 
 All of it is adjustable: how many slices to draw, the smallest slice worth
 its own wedge, the label threshold, **what each label says** (name, value, %,
 or any pair of them), and which of the two answers to a long tail you want.
+
+### Two axes worth knowing about
+
+**Log scale** — on the value axis of any chart that has one. On a linear axis
+a top bar of 1,667 makes everything under about 200 a stub of the same
+height, and the difference between 40 and 4 — which may be the entire point —
+is invisible. A log axis is the honest way to show a range spanning orders of
+magnitude, and a *dishonest* way to show a narrow one, which is why it's a
+choice rather than something the chart decides for you. Zero has no
+logarithm, so the floor is the smallest positive value in the data.
+
+**Stacked to 100%** — a third layout for stacked bars. Regular stacking
+compares totals *and* composition at once, which means a branch with 4,000
+rows drowns one with 40. Scaling every bar to the same height asks a
+different question — *what is the mix here* — and answers it for every
+category equally. The axis reads as percentages and the caption says which
+chart you're looking at, because Recharts scales the bars to 0–1 and an
+unformatted axis would read "0.4" up the side of a chart about proportions.
 
 ### Advanced charts
 
