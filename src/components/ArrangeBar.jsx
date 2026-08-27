@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Copy, Maximize2, Paintbrush, Pencil, Trash2, X } from 'lucide-react'
+import { Copy, Maximize2, Paintbrush, Pencil, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import TypographyFields, { MarkTextFields } from './TypographyFields.jsx'
 import { hasChartText } from '../lib/typography'
 import { DEFAULT_WIDGET_STYLE, SHADOW_LEVELS, WIDGET_THEMES } from '../lib/widgetStyle'
@@ -141,6 +141,7 @@ export default function ArrangeBar({
   measured,
   onSize,
   onStyle,
+  onEdit,
   onRename,
   onDuplicate,
   onDelete,
@@ -312,6 +313,20 @@ export default function ArrangeBar({
           title={`${spare}px are going spare on this row — widen this widget to ${Math.round((w || 0) + spare)}px to use all of it`}
         >
           <Maximize2 size={12} />
+        </button>
+      )}
+      {onEdit && (
+        <button
+          onClick={(e) => {
+            // The widget's own rectangle, so the editor can dock beside it
+            // rather than over it -- see lib/editMode.js.
+            const box = e.currentTarget.closest('[data-widget]')?.getBoundingClientRect()
+            onEdit(box ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : null)
+          }}
+          className="rounded p-0.5 text-slate-400 hover:text-indigo-600"
+          title={`Edit ${title} — everything about it, here on the page`}
+        >
+          <SlidersHorizontal size={12} />
         </button>
       )}
       {onRename && (

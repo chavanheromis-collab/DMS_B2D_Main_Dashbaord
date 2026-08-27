@@ -41,6 +41,7 @@ import { conditionCount, emptyRowCondition } from '../../lib/rowConditions'
 import BlendEditor from './BlendEditor.jsx'
 import FlowEditor from './FlowEditor.jsx'
 import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from '../../lib/flow'
+import { makeWidget } from '../../lib/newWidget'
 import StyleEditor from './StyleEditor.jsx'
 import WidgetControlsEditor from './WidgetControlsEditor.jsx'
 import { ComboEditor, HeatmapEditor, ScatterEditor, StackedEditor } from './ComparisonEditors.jsx'
@@ -71,7 +72,19 @@ const BLENDABLE = new Set([
  * any spreadsheet this page is connected to -- and all of them render
  * together on the one canvas.
  */
-export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pageControls = [] }) {
+export default function WidgetsPanel({
+  tabs,
+  tabHeaders,
+  widgets,
+  setWidgets,
+  pageControls = [],
+  // The page shows this same panel over a list of ONE, beside the widget it
+  // is editing. Compact folds away everything that belongs to the list --
+  // adding, searching, reordering, collapsing -- and leaves the form. Two
+  // implementations of a widget form would disagree about one field within
+  // a month, and it would be the field nobody checked.
+  compact = false,
+}) {
   // Which part of each widget's form is on screen. Keyed by widget id
   // rather than held in a row component, because the row is a body inside
   // a map and turning it into a component to store one string would be a
@@ -90,283 +103,14 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
 
   function addWidget() {
     const tab = addTab || optValue(tabs[0])
-    if (!tab) return null
-    const cols = columnsOf(tab)
-    // The default title has to read like a title, so it uses the tab's
-    // human label ("MASTER", "MASTER · Premia Sales") and never the internal
-    // ref the widget actually stores.
-    const name = labelFor(tab)
-    const base = {
-      id: uid('w'),
+    const base = makeWidget({
       type: addType,
       tab,
-      blend: { ...DEFAULT_BLEND },
-      title:
-        addType === 'table'
-          ? name
-          : addType === 'kpi'
-            ? `Total ${name}`
-            : addType === 'activity'
-              ? `Recent ${name}`
-              : addType === 'scorecard'
-                ? `${name} comparison`
-                : `${name} breakdown`,
-      width:
-        addType === 'kpi' || addType === 'gauge'
-          ? 'quarter'
-          : addType === 'leaderboard' || addType === 'trend' || addType === 'scorecard' || addType === 'activity'
-            ? 'twothird'
-            : 'full',
-      ignoreFilters: false,
-    }
-
-    if (addType === 'kpi') {
-      Object.assign(base, {
-        aggregation: 'count',
-        column: null,
-        secondaryTab: '',
-        secondaryAggregation: 'count',
-        secondaryColumn: null,
-        color: PALETTE[widgets.filter((w) => w.type === 'kpi').length % PALETTE.length],
-        format: 'comma',
-        icon: '',
-      })
-    } else if (addType === 'table') {
-      Object.assign(base, {
-        columns: cols,
-        pageSize: 25,
-        editable: false,
-        rowDetail: true,
-        detailColumns: cols,
-        detailTitleColumn: cols[0] || '',
-        badgeColumns: [],
-        downloadButtons: false,
-        downloadColumns: [],
-        sortBy: '',
-        sortDir: 'asc',
-      })
-    } else if (addType === 'pipeline') {
-      Object.assign(base, {
-        title: 'Workflow Pipeline',
-        percentBase: 'first',
-        showSparkline: true,
-        stages: [
-          {
-            id: uid('s'),
-            label: 'Stage 1',
-            icon: '',
-            color: STAGE_PALETTE[0],
-            tab,
-            match: 'all',
-            conditions: [{ tab, column: '', operator: 'is_not_empty', value: '', value2: '' }],
-            dateColumn: '',
-            kpis: [
-              {
-                id: uid('sk'),
-                label: 'Rows in stage',
-                icon: '',
-                color: KPI_PALETTE[0],
-                aggregation: 'count',
-                column: null,
-                format: 'comma',
-                match: 'all',
-                conditions: [],
-              },
-            ],
-            pivot: {
-              rowColumn: '',
-              colColumn: '',
-              column: null,
-              aggregation: 'count',
-              format: 'comma',
-              display: 'matrix',
-            },
-            leaderboard: {
-              groupBy: '',
-              limit: 10,
-              color: '#4F46E5',
-              sortBy: null,
-              metrics: [
-                {
-                  id: uid('sm'),
-                  label: 'Count',
-                  aggregation: 'count',
-                  column: null,
-                  format: 'comma',
-                },
-              ],
-            },
-          },
-        ],
-      })
-    } else if (addType === 'filters') {
-      Object.assign(base, {
-        title: 'Filters',
-        width: 'quarter',
-        controlIds: [],
-        buttonColumns: 2,
-        showSelectAll: true,
-      })
-    } else if (addType === 'flow') {
-      // Ships with one working level rather than an empty shell: a flow with
-      // no levels is just a number, and the first thing anyone wants to see
-      // is that clicking it opens something.
-      Object.assign(base, {
-        title: `${name} flow`,
-        flow: {
-          ...DEFAULT_FLOW,
-          label: name,
-          levels: [
-            {
-              ...DEFAULT_FLOW_LEVEL,
-              id: uid('fl'),
-              kind: 'split',
-              column: cols[0] || '',
-            },
-          ],
-        },
-      })
-    } else if (addType === 'leaderboard') {
-      Object.assign(base, {
-        title: 'Leaderboard',
-        groupBy: cols[0] || '',
-        limit: 10,
-        color: PALETTE[0],
-        metrics: [{ id: uid('m'), label: 'Count', aggregation: 'count', column: null, format: 'comma' }],
-        sortBy: '',
-      })
-    } else if (addType === 'trend') {
-      const dateCol = cols.find(looksLikeDateColumn) || ''
-      Object.assign(base, {
-        title: `${name} over time`,
-        dateColumn: dateCol,
-        grain: 'month',
-        aggregation: 'count',
-        column: null,
-        chartType: 'area',
-        color: PALETTE[0],
-        format: 'comma',
-        height: 240,
-      })
-    } else if (addType === 'pivot') {
-      Object.assign(base, {
-        title: `${name} pivot`,
-        rowColumn: cols[0] || '',
-        colColumn: cols[1] || '',
-        aggregation: 'count',
-        column: null,
-        color: PALETTE[0],
-        format: 'comma',
-      })
-    } else if (addType === 'gauge') {
-      Object.assign(base, {
-        title: `${name} target`,
-        aggregation: 'count',
-        column: null,
-        target: 100,
-        color: PALETTE[0],
-        format: 'comma',
-        icon: '',
-        lowerIsBetter: false,
-        conditions: [],
-        conditionsMatch: 'all',
-      })
-    } else if (addType === 'heatmap') {
-      Object.assign(base, {
-        title: `${name} heat map`,
-        rowColumn: cols[0] || '',
-        colColumn: cols[1] || '',
-        aggregation: 'count',
-        column: null,
-        scale: 'indigo',
-        format: 'comma',
-        maxRows: 15,
-        maxCols: 12,
-      })
-    } else if (addType === 'stacked') {
-      Object.assign(base, {
-        title: `${name} breakdown`,
-        groupBy: cols[0] || '',
-        stackBy: cols[1] || '',
-        aggregation: 'count',
-        column: null,
-        layout: 'stacked',
-        limit: 12,
-        maxSeries: 8,
-        sort: 'value_desc',
-        format: 'comma',
-        height: 280,
-        showLegend: true,
-      })
-    } else if (addType === 'combo') {
-      Object.assign(base, {
-        title: `${name} combo`,
-        groupBy: cols[0] || '',
-        aggregation: 'count',
-        column: null,
-        barLabel: 'Count',
-        format: 'comma',
-        color: PALETTE[0],
-        lineAggregation: 'avg',
-        lineColumn: null,
-        lineLabel: 'Average',
-        lineFormat: 'comma',
-        lineColor: PALETTE[4],
-        limit: 12,
-        sort: 'value_desc',
-        height: 280,
-        showLegend: true,
-      })
-    } else if (addType === 'scatter') {
-      Object.assign(base, {
-        title: `${name} scatter`,
-        xColumn: '',
-        yColumn: '',
-        sizeColumn: '',
-        groupBy: '',
-        limit: 400,
-        format: 'comma',
-        height: 280,
-        showLegend: true,
-      })
-    } else if (addType === 'activity') {
-      const dateCol = cols.find(looksLikeDateColumn) || ''
-      Object.assign(base, {
-        dateColumn: dateCol,
-        titleColumn: cols[0] || '',
-        subtitleColumns: cols.slice(1, 3),
-        limit: 15,
-        color: PALETTE[0],
-        ignoreFilters: true, // "respect page filters" defaults OFF -- see editor
-      })
-    } else if (addType === 'scorecard') {
-      Object.assign(base, {
-        aggregation: 'count',
-        column: null,
-        format: 'comma',
-        lowerIsBetter: false,
-        labelA: 'A',
-        labelB: 'B',
-        colorA: PALETTE[0],
-        colorB: '#94A3B8',
-        matchA: 'all',
-        matchB: 'all',
-        conditionsA: [],
-        conditionsB: [],
-      })
-    } else {
-      Object.assign(base, {
-        chartType: 'bar',
-        groupBy: cols[0] || '',
-        column: null,
-        aggregation: 'count',
-        limit: 12,
-        sort: 'value_desc',
-        color: PALETTE[0],
-        format: 'comma',
-        height: 260,
-      })
-    }
+      name: labelFor(tab),
+      cols: columnsOf(tab),
+      kpiCount: widgets.filter((w) => w.type === 'kpi').length,
+    })
+    if (!base) return null
     ops.add(base)
     return base.id
   }
@@ -394,6 +138,7 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
 
   return (
     <div className="space-y-3">
+      {!compact && (
       <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
         <Field label="Widget type" className="w-52">
           <Select value={addType} onChange={setAddType} options={WIDGET_TYPES.map((t) => ({ value: t.value, label: `${t.icon} ${t.label}` }))} />
@@ -416,14 +161,15 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
           {WIDGET_TYPES.find((t) => t.value === addType)?.hint}
         </p>
       </div>
+      )}
 
-      {widgets.length === 0 && (
+      {!compact && widgets.length === 0 && (
         <p className="rounded-xl border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400">
           No widgets yet. Pick a type and a tab above, then click “Add to dashboard”.
         </p>
       )}
 
-      {widgets.length > 3 && (
+      {!compact && widgets.length > 3 && (
         <div className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-2.5 py-1.5 backdrop-blur">
           <div className="relative">
             <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-300" />
@@ -452,7 +198,7 @@ export default function WidgetsPanel({ tabs, tabHeaders, widgets, setWidgets, pa
           // where the widget really sits, or searching would silently
           // reorder the wrong things.
           const index = widgets.indexOf(widget)
-          const open = openId === widget.id
+          const open = compact || openId === widget.id
           const here = sectionOf(widget.id)
           // A blended widget's editors must offer the BLENDED column list --
           // the point of a blend is to chart, sort and total the columns it

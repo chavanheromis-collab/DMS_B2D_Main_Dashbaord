@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
 import { ArrowUpDown, Palette, RefreshCw, RotateCcw } from 'lucide-react'
@@ -10,6 +10,11 @@ import { useUserPrefs, orderWidgets } from '../hooks/useUserPrefs'
 import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
 import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from '../lib/filterEngine'
 import { applyRowConditions } from '../lib/rowConditions'
+import { mergeDraft } from '../lib/editMode'
+import { makeWidget, WIDGET_TYPES } from '../lib/newWidget'
+import WidgetEditDrawer from '../components/WidgetEditDrawer.jsx'
+import { WorkspaceCtx } from './admin/ui.jsx'
+import ControlsPanel from './admin/ControlsPanel.jsx'
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
 import { MAX_ROW_SPAN } from '../lib/flowPack'
@@ -91,6 +96,23 @@ export default function Dashboard() {
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState(null)
   const [arranging, setArranging] = useState(false)
+
+  // --- editing the page, on the page -------------------------------------
+  // A dashboard opens as a thing you LOOK at, for everybody including the
+  // admin who built it. Edit is a switch, not a second screen.
+  const [editing, setEditing] = useState(false)
+  // Which widget's editor is open, and the rectangle it occupies -- the
+  // editor docks around that rather than over it.
+  const [editWidget, setEditWidget] = useState(null)
+  // The unsaved edit, merged over the saved widget everywhere on the page,
+  // so the widget redraws as the form is typed into rather than after it is
+  // saved. `{ id, patch }`.
+  const [editDraft, setEditDraft] = useState(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const editTimer = useRef(null)
+  // Page-level editors that have no widget to avoid covering.
+  const [editPart, setEditPart] = useState(null)
+  const [addType, setAddType] = useState('kpi')
   const [savingLayout, setSavingLayout] = useState(false)
 
   // --- designing the page, from the page --------------------------------
@@ -227,8 +249,17 @@ export default function Dashboard() {
   // USER, then the page default. See lib/widgetOrder.js for why in that
   // order.
   const allowedWidgets = useMemo(
-    () => orderWidgets(visibleWidgetsFor(page, access, isAdmin), widgetOrder, access?.widgetOrder),
-    [page, access, isAdmin, widgetOrder]
+    () =>
+      orderWidgets(
+        // The unsaved edit is merged in HERE, before anything reads the
+        // widgets -- so the blend, the filters, the canvas and the widget
+        // itself all see the change at once. Merging it further down would
+        // make a chart redraw while its own caption did not.
+        mergeDraft(visibleWidgetsFor(page, access, isAdmin), editDraft?.id, editDraft?.patch),
+        widgetOrder,
+        access?.widgetOrder
+      ),
+    [page, access, isAdmin, widgetOrder, editDraft]
   )
 
   // Controls that the admin gave a default value open already applied.
@@ -728,6 +759,12 @@ export default function Dashboard() {
   }
 
   /** The page's widget list, rewritten. One writer for every action. */
+  /** One field of the page document, written the way widgets are. */
+  async function writePage(patch) {
+    if (!isAdmin || !page?.id) return
+    await setDoc(doc(db, 'dashboards', page.id), stripUndefined(patch), { merge: true })
+  }
+
   async function writeWidgets(next) {
     if (!isAdmin || !page?.id) return
     setSavingLayout(true)
@@ -736,6 +773,58 @@ export default function Dashboard() {
     } finally {
       setSavingLayout(false)
     }
+  }
+
+  /**
+   * A widget being edited on the page.
+   *
+   * The change lands in `editDraft` immediately -- which is what the canvas
+   * draws from -- and is written to the page after a pause. Writing on every
+   * keystroke would be a document write per character; drawing after the
+   * write would mean watching a round trip before seeing a colour change.
+   */
+  function editWidgetDraft(next) {
+    if (!next?.id) return
+    setEditDraft({ id: next.id, patch: next })
+    setSavingEdit(true)
+
+    clearTimeout(editTimer.current)
+    editTimer.current = setTimeout(async () => {
+      await writeWidgets((page.widgets || []).map((w) => (w.id === next.id ? { ...w, ...next } : w)))
+      setSavingEdit(false)
+    }, 600)
+  }
+
+  /** Closing flushes: an edit still sitting in a timer is an edit lost. */
+  async function closeWidgetEditor() {
+    clearTimeout(editTimer.current)
+    const pending = editDraft
+    setEditWidget(null)
+    if (pending?.patch?.id) {
+      await writeWidgets(
+        (page.widgets || []).map((w) => (w.id === pending.patch.id ? { ...w, ...pending.patch } : w))
+      )
+    }
+    setSavingEdit(false)
+    setEditDraft(null)
+  }
+
+  /** A new widget, added from the page, opened straight into its editor. */
+  async function addWidgetHere(type) {
+    const tab = allowedWidgets[0]?.tab || Object.keys(tabColumns)[0]
+    if (!tab) return
+    const made = makeWidget({
+      type,
+      tab,
+      name: labelFor(tab),
+      cols: tabColumns[tab] || [],
+      kpiCount: (page.widgets || []).filter((w) => w.type === 'kpi').length,
+    })
+    if (!made) return
+    await writeWidgets([...(page.widgets || []), made])
+    // Straight into the thing you just made, rather than leaving it at the
+    // bottom of the page for you to go and find.
+    setEditWidget({ id: made.id, rect: null })
   }
 
   const renameWidget = (id, title) =>
@@ -875,8 +964,44 @@ export default function Dashboard() {
       : `${shown.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')} rows`
   }, [view, rowsByLabel, rawRowsByLabel])
 
+  // Everything the admin forms need to name a tab and list its columns.
+  // The page already knows all of it; the panels only ever asked the admin
+  // screen for it because that is where they used to live.
+  const adminCtx = useMemo(
+    () => ({
+      tabOptions: Object.keys(tabColumns).map((ref) => ({ value: ref, label: labelFor(ref) })),
+      tabHeaders: tabColumns,
+      sources: [],
+      labelFor,
+    }),
+    [tabColumns, labelFor]
+  )
+
   const headerActions = (
     <>
+      {isAdmin && (
+        <button
+          onClick={() => {
+            const next = !editing
+            setEditing(next)
+            // Edit mode is arrange mode plus the rest of it: the pills are
+            // how a widget is reached, so turning one on turns the other on.
+            setArranging(next)
+            if (!next) {
+              setEditWidget(null)
+              setEditPart(null)
+            }
+          }}
+          className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition-colors ${
+            editing
+              ? 'border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+          title={editing ? 'Back to looking at the page' : 'Edit this page, here on the page'}
+        >
+          {editing ? 'Done' : 'Edit'}
+        </button>
+      )}
       {isAdmin && (
         <button
           onClick={() => {
@@ -1007,6 +1132,7 @@ export default function Dashboard() {
                     // An unstyled widget emits none and looks exactly as it
                     // always did -- no widget component knows about theming.
                     <div
+                      data-widget={widget.id}
                       className={`rise-in relative ${styleClass(themed)} ${
                         Number(widget.heightPx) > 0 ? 'widget-sized' : ''
                       }`}
@@ -1034,6 +1160,14 @@ export default function Dashboard() {
                           measured={sizes[widget.id]}
                           onSize={(patch) => saveWidgetSize(widget.id, patch)}
                           onStyle={isAdmin ? (next) => saveWidgetStyle(widget.id, next) : undefined}
+                          onEdit={
+                            isAdmin
+                              ? (rect) => {
+                                  setEditDraft(null)
+                                  setEditWidget({ id: widget.id, rect })
+                                }
+                              : undefined
+                          }
                           onRename={isAdmin ? (next) => renameWidget(widget.id, next) : undefined}
                           onDuplicate={isAdmin ? () => duplicateWidget(widget.id) : undefined}
                           onDelete={isAdmin ? () => deleteWidget(widget.id) : undefined}
@@ -1387,6 +1521,53 @@ export default function Dashboard() {
               </div>
             )}
 
+            {editing && isAdmin && (
+              <div className="page-chrome page-chrome-surface flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-2.5 py-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">Add</span>
+                {/* The types worth one click. Everything else is one more,
+                    under "More", rather than sixteen buttons across a bar. */}
+                {WIDGET_TYPES.slice(0, 6).map((t) => (
+                  <button
+                    key={t.value}
+                    onClick={() => addWidgetHere(t.value)}
+                    className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
+                  >
+                    {t.label}
+                  </button>
+                ))}
+                <select
+                  value=""
+                  onChange={(e) => e.target.value && addWidgetHere(e.target.value)}
+                  className="rounded-lg border border-indigo-200 bg-white px-1.5 py-1 text-[11px] text-indigo-700"
+                >
+                  <option value="">More…</option>
+                  {WIDGET_TYPES.slice(6).map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+
+                <span className="mx-1 h-4 w-px bg-indigo-200" />
+
+                <button
+                  onClick={() => setEditPart(editPart === 'controls' ? null : 'controls')}
+                  className={`rounded-lg border px-2 py-1 text-[11px] font-medium ${
+                    editPart === 'controls'
+                      ? 'border-indigo-500 bg-indigo-600 text-white'
+                      : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  Controls &amp; buttons
+                </button>
+
+                <p className="ml-auto max-w-md text-[10px] leading-relaxed text-indigo-700/70">
+                  Every widget carries its own editor — the ⇄ on its pill opens it beside the widget, and the widget
+                  redraws as you type.
+                </p>
+              </div>
+            )}
+
             <WidgetCanvas
               items={widgetItems}
               gapX={design.gapX}
@@ -1401,6 +1582,59 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {/* A widget's whole editor, docked beside the widget it is editing.
+          Wrapped in the workspace context the admin forms expect -- they ask
+          for it to name a tab, and the page knows every tab it has. */}
+      {editWidget && isAdmin && (
+        <WorkspaceCtx.Provider value={adminCtx}>
+          <WidgetEditDrawer
+            widget={(page.widgets || []).find((w) => w.id === editWidget.id)}
+            rect={editWidget.rect}
+            tabs={adminCtx.tabOptions}
+            tabHeaders={tabColumns}
+            pageControls={pageControls}
+            saving={savingEdit}
+            onChange={editWidgetDraft}
+            onDelete={(id) => {
+              setEditWidget(null)
+              setEditDraft(null)
+              deleteWidget(id)
+            }}
+            onClose={closeWidgetEditor}
+          />
+        </WorkspaceCtx.Provider>
+      )}
+
+      {/* The page's controls, which have no widget to avoid covering. */}
+      {editPart === 'controls' && isAdmin && (
+        <WorkspaceCtx.Provider value={adminCtx}>
+          <div className="fixed inset-0 z-[60] bg-slate-900/45 backdrop-blur-[1px]" onClick={() => setEditPart(null)} />
+          <div className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+              <span className="text-sm font-semibold text-ink">Controls &amp; buttons</span>
+              <button
+                onClick={() => setEditPart(null)}
+                className="ml-auto rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Done
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              <ControlsPanel
+                tabs={adminCtx.tabOptions}
+                tabHeaders={tabColumns}
+                controls={page.controls || []}
+                setControls={(next) => writePage({ controls: next })}
+                views={page.views || []}
+                setViews={(next) => writePage({ views: next })}
+                hideSearch={page.hideSearch}
+                setHideSearch={(v) => writePage({ hideSearch: v })}
+              />
+            </div>
+          </div>
+        </WorkspaceCtx.Provider>
+      )}
 
       {designing && isAdmin && (
         <PageDesignPanel

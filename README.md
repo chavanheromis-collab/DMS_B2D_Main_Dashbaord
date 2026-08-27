@@ -291,6 +291,60 @@ value, so anything that isn't plainly an image location is dropped rather than
 escaped. A rejected URL falls back to the app default rather than painting a
 blank slab.
 
+### View mode and edit mode
+
+A dashboard is a thing you look at, so it **opens as one** — for everybody,
+including the admin who built it. **Edit** is a switch in the header, not a
+second screen, because *go to the admin panel, change a number, save, come
+back, squint* is four steps of which three are travel.
+
+In edit mode every widget carries a **⇄** on its pill. It opens that widget's
+whole editor — the same form the admin panel shows, not a copy of it — and:
+
+**The editor covers the whole screen except the widget it is editing.** The
+widget stays lit, live, and **redraws as you type**. That is the entire point.
+An editor that covered the thing it edits would make you change something,
+close it, look, and open it again — the same four steps in a smaller box.
+
+Where it docks is decided from the widget's own rectangle: the biggest band of
+free screen around it. A KPI in the corner is edited from the right, a
+full-width table from underneath. When nothing is big enough — a phone, or a
+widget that fills the canvas — it becomes a bottom sheet and says so by
+dimming everything.
+
+Four things that make it work rather than nearly work:
+
+- **The screen is covered by four rectangles, not one layer with a hole in
+  it.** A hole would mean lifting the widget above the layer, and the canvas
+  it lives in is its own stacking context — no `z-index` on the widget can
+  reach past a fixed overlay outside it. Here nothing is ever drawn over the
+  widget, so there is nothing for it to climb over.
+- **The unsaved edit is merged in before anything reads the widgets**, so the
+  blend, the filters, the canvas and the widget itself all see the change at
+  once. Merging it further down would make a chart redraw while its own
+  caption did not.
+- **The write is debounced and closing flushes it.** A document write per
+  keystroke is not a save strategy; an edit still sitting in a timer when the
+  panel closes is an edit lost. The header says *Live* or *Saving…*.
+- **The form is the admin panel's**, rendered over a list of one with its own
+  chrome folded away. Two implementations of a widget form would disagree
+  about one field within a month, and it would be the field nobody checked.
+
+**Adding a widget happens on the page.** The edit bar offers the six commonest
+types as one click and the rest under *More*, and the new widget **opens
+straight into its own editor** rather than being left at the bottom of the
+page for you to go and find. The defaults are chosen so it *draws* the moment
+it lands — a widget that renders as an empty box until three more fields are
+picked is a widget nobody finishes.
+
+**Controls and buttons** open in their own panel from the same bar, since they
+belong to the page rather than to any one widget and so have nothing to avoid
+covering.
+
+The admin panel is still there and still does everything it did — it is where
+spreadsheets are connected, pages are created and access is granted. What has
+moved to the page is everything that is *about* a page you can see.
+
 ### Designing a page, from the page
 
 The admin panel is where a page is **built** — which tabs, which widgets,
@@ -2391,6 +2445,8 @@ src/
   lib/sectionTabs.js      A long admin form as a row of marked buttons
   lib/pivotMeasures.js    Several value columns down one grouped list
   lib/rowConditions.js    "Only the rows where...", every widget and control
+  lib/editMode.js         Docking an editor beside the widget it edits
+  lib/newWidget.js        A new widget, from the page or the panel
   lib/valueColors.js      One colour per value, everywhere, filtered or not
   lib/typography.js       Text colour, typeface and size, admin-chosen
   lib/workspace.js        Sources, pages, canvases, access, legacy migration
