@@ -4,7 +4,7 @@ import { doc, setDoc } from 'firebase/firestore'
 import { ArrowUpDown, Palette, RefreshCw, RotateCcw } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
-import { usePageData } from '../hooks/usePageData'
+import { usePageData, useLocalState } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, orderWidgets } from '../hooks/useUserPrefs'
 import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
@@ -12,9 +12,12 @@ import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from 
 import { applyRowConditions } from '../lib/rowConditions'
 import { mergeDraft } from '../lib/editMode'
 import { makeWidget, WIDGET_TYPES } from '../lib/newWidget'
-import WidgetEditDrawer from '../components/WidgetEditDrawer.jsx'
+import EditSplit from '../components/EditSplit.jsx'
+import { DEFAULT_FRACTION, DEFAULT_SIDE, previewKind, targetTitle } from '../lib/editLayout'
+import { PageSettings } from './admin/PagesPanel.jsx'
 import { WorkspaceCtx } from './admin/ui.jsx'
 import ControlsPanel from './admin/ControlsPanel.jsx'
+import WidgetsPanel from './admin/WidgetsPanel.jsx'
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
 import { MAX_ROW_SPAN } from '../lib/flowPack'
@@ -22,7 +25,7 @@ import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/re
 import { applyComputed, computedFor, computedHeaders } from '../lib/computed'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
 import { normalizeKey } from '../lib/dataUtils'
-import { canViewPage, canvasFor, canvasLabelFor, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
+import { canViewPage, canvasFor, canvasLabelFor, emptyPage, newPageId, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
 import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
 import { DEFAULT_DESIGN, clampDesign, designClass, designVars, moveItem } from '../lib/pageDesign'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
@@ -101,18 +104,23 @@ export default function Dashboard() {
   // A dashboard opens as a thing you LOOK at, for everybody including the
   // admin who built it. Edit is a switch, not a second screen.
   const [editing, setEditing] = useState(false)
-  // Which widget's editor is open, and the rectangle it occupies -- the
-  // editor docks around that rather than over it.
-  const [editWidget, setEditWidget] = useState(null)
   // The unsaved edit, merged over the saved widget everywhere on the page,
   // so the widget redraws as the form is typed into rather than after it is
   // saved. `{ id, patch }`.
   const [editDraft, setEditDraft] = useState(null)
   const [savingEdit, setSavingEdit] = useState(false)
   const editTimer = useRef(null)
-  // Page-level editors that have no widget to avoid covering.
-  const [editPart, setEditPart] = useState(null)
-  const [addType, setAddType] = useState('kpi')
+  // What the editor is pointed at: `{ kind: 'widget' | 'controls' | 'page' }`
+  // plus the id where the kind needs one. One target, one panel, one place
+  // the form appears -- rather than a different panel per kind of thing.
+  const [editTarget, setEditTarget] = useState(null)
+  // The page's own settings, edited live the same way a widget's are.
+  const [pageDraft, setPageDraft] = useState(null)
+  // Which side the form sits on, and how much of the screen it takes. Per
+  // browser, because it is a preference about this person's screen and not
+  // a property of the dashboard.
+  const [editSide, setEditSide] = useLocalState('dash.editSide', DEFAULT_SIDE)
+  const [editFraction, setEditFraction] = useLocalState('dash.editFraction', DEFAULT_FRACTION)
   const [savingLayout, setSavingLayout] = useState(false)
 
   // --- designing the page, from the page --------------------------------
@@ -177,7 +185,14 @@ export default function Dashboard() {
   // sub-canvas is reached from its parent's tab strip instead.
   const visiblePages = useMemo(() => sidebarPages(allowedPages), [allowedPages])
 
-  const page = pages.find((p) => p.id === pageId) || null
+  const savedPage = pages.find((p) => p.id === pageId) || null
+  // The page as it should be DRAWN: saved, with whatever the settings form
+  // is holding merged over it. One line here rather than a `livePage` beside
+  // `page` at a hundred call sites, and every one of them becomes live.
+  const page = useMemo(
+    () => (savedPage && pageDraft ? { ...savedPage, ...pageDraft } : savedPage),
+    [savedPage, pageDraft]
+  )
   const access = accessByPage[pageId]
   const canView = canViewPage(access, isAdmin)
 
@@ -799,7 +814,7 @@ export default function Dashboard() {
   async function closeWidgetEditor() {
     clearTimeout(editTimer.current)
     const pending = editDraft
-    setEditWidget(null)
+    setEditTarget(null)
     if (pending?.patch?.id) {
       await writeWidgets(
         (page.widgets || []).map((w) => (w.id === pending.patch.id ? { ...w, ...pending.patch } : w))
@@ -824,7 +839,7 @@ export default function Dashboard() {
     await writeWidgets([...(page.widgets || []), made])
     // Straight into the thing you just made, rather than leaving it at the
     // bottom of the page for you to go and find.
-    setEditWidget({ id: made.id, rect: null })
+    setEditTarget({ kind: 'widget', id: made.id })
   }
 
   const renameWidget = (id, title) =>
@@ -977,6 +992,33 @@ export default function Dashboard() {
     [tabColumns, labelFor]
   )
 
+  // Drawn on the page and again in the editor's preview, so it is a
+  // variable rather than two copies: two copies drift, and the preview
+  // stops being a preview of anything.
+  const controlBar =
+    canView && !error && allowedWidgets.length > 0 ? (
+            <ControlBar
+            controls={view.controls}
+            values={filterValues}
+            onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
+            activeButtonIds={activeButtonIds}
+            onToggleButton={toggleButton}
+            onClearButtons={() => setActiveButtonIds([])}
+            onReset={resetFilters}
+            search={search}
+            onSearch={setSearch}
+            showSearch={!page?.hideSearch}
+            views={views}
+            onApplyView={applyView}
+            tabsData={dataByLabel}
+            optionRows={optionRowsByControl}
+            totalLabel={totalLabel}
+            dateOrder={dateOrder}
+            editable={isAdmin && arranging}
+            onControlEdit={saveControlEdit}
+            />
+    ) : null
+
   const headerActions = (
     <>
       {isAdmin && (
@@ -987,10 +1029,7 @@ export default function Dashboard() {
             // Edit mode is arrange mode plus the rest of it: the pills are
             // how a widget is reached, so turning one on turns the other on.
             setArranging(next)
-            if (!next) {
-              setEditWidget(null)
-              setEditPart(null)
-            }
+            if (!next) setEditTarget(null)
           }}
           className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition-colors ${
             editing
@@ -1162,9 +1201,9 @@ export default function Dashboard() {
                           onStyle={isAdmin ? (next) => saveWidgetStyle(widget.id, next) : undefined}
                           onEdit={
                             isAdmin
-                              ? (rect) => {
+                              ? () => {
                                   setEditDraft(null)
-                                  setEditWidget({ id: widget.id, rect })
+                                  setEditTarget({ kind: 'widget', id: widget.id })
                                 }
                               : undefined
                           }
@@ -1332,6 +1371,43 @@ export default function Dashboard() {
                 }
               })
 
+  // The widget the editor is pointed at, and the canvas item that draws it
+  // -- both taken from what the page is ALREADY rendering, so the preview
+  // cannot be a different render from the page's own.
+  const editedWidget = useMemo(
+    () => (editTarget?.kind === 'widget' ? view.widgets.find((w) => w.id === editTarget.id) : null),
+    [editTarget, view.widgets]
+  )
+  const editedItem = useMemo(
+    () => (editTarget?.kind === 'widget' ? widgetItems.find((i) => i.id === editTarget.id) : null),
+    [editTarget, widgetItems]
+  )
+
+  /** Closing flushes whatever is still in a timer, whatever kind it was. */
+  async function closeEditor() {
+    await closeWidgetEditor()
+    setEditTarget(null)
+    setPageDraft(null)
+  }
+
+  /**
+   * A page, made from the sidebar and opened with its settings beside it.
+   *
+   * Created empty and navigated to straight away rather than after a form is
+   * filled in: a page with no name is a page you can see and rename, and a
+   * form in front of an empty canvas is a form about nothing.
+   */
+  async function addPageHere() {
+    if (!isAdmin) return
+    const id = newPageId()
+    const made = { ...emptyPage(), id, name: 'New page' }
+    await setDoc(doc(db, 'dashboards', id), stripUndefined(made), { merge: true })
+    navigate(`/d/${id}`)
+    setEditing(true)
+    setArranging(true)
+    setEditTarget({ kind: 'page' })
+  }
+
   return (
     <>
       {/* This page's own backdrop, on its own fixed layers BEHIND everything.
@@ -1356,7 +1432,22 @@ export default function Dashboard() {
         </>
       )}
 
-      <AppShell pages={visiblePages} activePageId={pageId} title={page?.name || 'Dashboard'} actions={headerActions}>
+      <AppShell
+        pages={visiblePages}
+        activePageId={pageId}
+        title={page?.name || 'Dashboard'}
+        actions={headerActions}
+        editing={editing && isAdmin}
+        onAddPage={isAdmin ? addPageHere : undefined}
+        onEditPage={
+          isAdmin
+            ? (id) => {
+                if (id !== pageId) navigate(`/d/${id}`)
+                setEditTarget({ kind: 'page' })
+              }
+            : undefined
+        }
+      >
       {/* Sits above the backdrop layers. The sidebar is z-30 and stays above
           both. */}
       <div
@@ -1488,26 +1579,7 @@ export default function Dashboard() {
 
         {canView && !error && allowedWidgets.length > 0 && (
           <>
-            <ControlBar
-              controls={view.controls}
-              values={filterValues}
-              onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
-              activeButtonIds={activeButtonIds}
-              onToggleButton={toggleButton}
-              onClearButtons={() => setActiveButtonIds([])}
-              onReset={resetFilters}
-              search={search}
-              onSearch={setSearch}
-              showSearch={!page?.hideSearch}
-              views={views}
-              onApplyView={applyView}
-              tabsData={dataByLabel}
-              optionRows={optionRowsByControl}
-              totalLabel={totalLabel}
-              dateOrder={dateOrder}
-              editable={isAdmin && arranging}
-              onControlEdit={saveControlEdit}
-            />
+            {controlBar}
 
             <CrossFilterChips
               crossFilters={crossFilters}
@@ -1551,19 +1623,21 @@ export default function Dashboard() {
                 <span className="mx-1 h-4 w-px bg-indigo-200" />
 
                 <button
-                  onClick={() => setEditPart(editPart === 'controls' ? null : 'controls')}
-                  className={`rounded-lg border px-2 py-1 text-[11px] font-medium ${
-                    editPart === 'controls'
-                      ? 'border-indigo-500 bg-indigo-600 text-white'
-                      : 'border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50'
-                  }`}
+                  onClick={() => setEditTarget({ kind: 'controls' })}
+                  className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
                 >
                   Controls &amp; buttons
                 </button>
+                <button
+                  onClick={() => setEditTarget({ kind: 'page' })}
+                  className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
+                >
+                  Page settings
+                </button>
 
                 <p className="ml-auto max-w-md text-[10px] leading-relaxed text-indigo-700/70">
-                  Every widget carries its own editor — the ⇄ on its pill opens it beside the widget, and the widget
-                  redraws as you type.
+                  Everything opens as a split: the form on one side, what it changes on the other, live. Move the
+                  form left, right or bottom from its header.
                 </p>
               </div>
             )}
@@ -1583,44 +1657,60 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* A widget's whole editor, docked beside the widget it is editing.
-          Wrapped in the workspace context the admin forms expect -- they ask
-          for it to name a tab, and the page knows every tab it has. */}
-      {editWidget && isAdmin && (
+      {/* --- The editor ------------------------------------------------
+          One split for every kind of thing: the form on one side, what it
+          changes on the other, live. Wrapped in the workspace context the
+          admin forms expect -- they ask for it to name a tab, and the page
+          knows every tab it has. */}
+      {editTarget && isAdmin && (
         <WorkspaceCtx.Provider value={adminCtx}>
-          <WidgetEditDrawer
-            widget={(page.widgets || []).find((w) => w.id === editWidget.id)}
-            rect={editWidget.rect}
-            tabs={adminCtx.tabOptions}
-            tabHeaders={tabColumns}
-            pageControls={pageControls}
-            saving={savingEdit}
-            onChange={editWidgetDraft}
-            onDelete={(id) => {
-              setEditWidget(null)
-              setEditDraft(null)
-              deleteWidget(id)
-            }}
-            onClose={closeWidgetEditor}
-          />
-        </WorkspaceCtx.Provider>
-      )}
+          <EditSplit
+            title={targetTitle(editTarget, editedWidget)}
+            subtitle={
+              editTarget.kind === 'widget'
+                ? `${editedWidget?.type || ''} · ${labelFor(editedWidget?.tab || '')}`
+                : page?.name
+            }
+            side={editSide}
+            onSide={setEditSide}
+            fraction={editFraction}
+            onFraction={setEditFraction}
+            saving={savingEdit || savingLayout}
+            onClose={closeEditor}
+            preview={
+              previewKind(editTarget) === 'widget' ? (
+                <div className={`page-canvas ${designClass(design)}`} style={designVars(design)}>
+                  {editedItem?.content}
+                </div>
+              ) : (
+                <div className={`page-canvas space-y-3 ${designClass(design)}`} style={designVars(design)}>
+                  {controlBar}
+                  <WidgetCanvas items={widgetItems} gapX={design.gapX} gapY={design.gapY} />
+                </div>
+              )
+            }
+          >
+            {editTarget.kind === 'widget' && editedWidget && (
+              <WidgetsPanel
+                compact
+                tabs={adminCtx.tabOptions}
+                tabHeaders={tabColumns}
+                pageControls={pageControls}
+                widgets={[editedWidget]}
+                setWidgets={(next) => {
+                  const only = Array.isArray(next) ? next[0] : null
+                  if (!only) {
+                    setEditTarget(null)
+                    setEditDraft(null)
+                    deleteWidget(editedWidget.id)
+                  } else {
+                    editWidgetDraft(only)
+                  }
+                }}
+              />
+            )}
 
-      {/* The page's controls, which have no widget to avoid covering. */}
-      {editPart === 'controls' && isAdmin && (
-        <WorkspaceCtx.Provider value={adminCtx}>
-          <div className="fixed inset-0 z-[60] bg-slate-900/45 backdrop-blur-[1px]" onClick={() => setEditPart(null)} />
-          <div className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-              <span className="text-sm font-semibold text-ink">Controls &amp; buttons</span>
-              <button
-                onClick={() => setEditPart(null)}
-                className="ml-auto rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
-              >
-                Done
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            {editTarget.kind === 'controls' && (
               <ControlsPanel
                 tabs={adminCtx.tabOptions}
                 tabHeaders={tabColumns}
@@ -1631,8 +1721,22 @@ export default function Dashboard() {
                 hideSearch={page.hideSearch}
                 setHideSearch={(v) => writePage({ hideSearch: v })}
               />
-            </div>
-          </div>
+            )}
+
+            {editTarget.kind === 'page' && (
+              <PageSettings
+                key={page.id}
+                page={savedPage}
+                onDraft={setPageDraft}
+                pages={pages}
+                sources={sources}
+                onSave={async (next) => {
+                  setPageDraft(null)
+                  await writePage(next)
+                }}
+              />
+            )}
+          </EditSplit>
         </WorkspaceCtx.Provider>
       )}
 

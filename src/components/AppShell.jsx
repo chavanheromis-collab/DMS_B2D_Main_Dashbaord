@@ -15,7 +15,18 @@ import { useLocalState } from '../hooks/usePageData'
  * Everything below `lg` collapses to a single column with the drawer, so the
  * same canvas works on a phone without a second layout to maintain.
  */
-export default function AppShell({ pages, activePageId, children, title, actions }) {
+export default function AppShell({
+  pages,
+  activePageId,
+  children,
+  title,
+  actions,
+  // Passed straight through: the shell has no opinion about editing,
+  // it just owns the sidebar the buttons live in.
+  editing = false,
+  onAddPage,
+  onEditPage,
+}) {
   const [collapsed, setCollapsed] = useLocalState('dash.sidebarCollapsed', false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -35,6 +46,9 @@ export default function AppShell({ pages, activePageId, children, title, actions
         onNavigate={() => setCollapsed(true)}
         query={query}
         onQuery={setQuery}
+        editing={editing}
+        onAddPage={onAddPage}
+        onEditPage={onEditPage}
       />
 
       {/* The content offset has to depend on BOTH the viewport (only inset at

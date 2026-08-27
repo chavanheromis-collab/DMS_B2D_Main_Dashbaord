@@ -2,120 +2,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { MIN_PANEL, dockFor, isEditing, mergeDraft, scrimBands, spotlight } from './editMode.js'
+import { isEditing, mergeDraft } from './editMode.js'
 import { WIDGET_TYPES, makeWidget } from './newWidget.js'
+import {
+  DEFAULT_FRACTION,
+  DEFAULT_SIDE,
+  MIN_PANEL,
+  MIN_PREVIEW,
+  clampFraction,
+  fractionAt,
+  previewKind,
+  splitFor,
+  targetTitle,
+} from './editLayout.js'
 
 const VP = { width: 1440, height: 900 }
-
-// ---------------------------------------------------------------------
-// The editor goes beside the widget, never over it
-// ---------------------------------------------------------------------
-
-test('a widget in a corner is edited from the biggest side', () => {
-  // A KPI top-left leaves the whole rest of the screen; a form beside the
-  // thing it changes beats a form under it.
-  const dock = dockFor({ left: 20, top: 80, right: 300, bottom: 220 }, VP)
-  assert.equal(dock.side, 'right')
-  assert.ok(dock.size > 1000)
-})
-
-test('a full-width widget is edited from underneath', () => {
-  // There is no band beside it, so there is no argument about the side.
-  const dock = dockFor({ left: 20, top: 80, right: 1420, bottom: 400 }, VP)
-  assert.equal(dock.side, 'bottom')
-})
-
-test('a widget with nothing big enough around it gets a sheet', () => {
-  // A phone, or a widget that fills the canvas. Pretending 90 pixels is a
-  // panel is worse than covering the widget honestly.
-  const dock = dockFor({ left: 0, top: 0, right: 1440, bottom: 900 }, VP)
-  assert.equal(dock.side, 'sheet')
-  assert.ok(dock.size >= MIN_PANEL)
-})
-
-test('a panel is never narrower than a form can be read in', () => {
-  for (const rect of [
-    { left: 0, top: 0, right: 1200, bottom: 500 },
-    { left: 300, top: 40, right: 1400, bottom: 860 },
-    { left: 10, top: 10, right: 20, bottom: 20 },
-  ]) {
-    const dock = dockFor(rect, VP)
-    assert.ok(dock.size >= MIN_PANEL, JSON.stringify(rect))
-  }
-})
-
-test('the panel’s box never overlaps the widget’s', () => {
-  // The whole promise. Swept over a grid of widget rectangles.
-  for (let left = 0; left < 1200; left += 137) {
-    for (let top = 0; top < 800; top += 91) {
-      const rect = { left, top, right: Math.min(1440, left + 400), bottom: Math.min(900, top + 260) }
-      const dock = dockFor(rect, VP)
-      if (dock.side === 'sheet') continue
-
-      const p = dock.style
-      const pLeft = p.left ?? VP.width - p.width
-      const pRight = p.width === undefined ? VP.width : pLeft + p.width
-      const pTop = p.top ?? (p.height === undefined ? 0 : VP.height - p.height)
-      const pBottom = p.height === undefined ? VP.height : pTop + p.height
-
-      const apart =
-        pRight <= rect.left + 0.5 ||
-        pLeft >= rect.right - 0.5 ||
-        pBottom <= rect.top + 0.5 ||
-        pTop >= rect.bottom - 0.5
-      assert.ok(apart, `${dock.side} panel covers the widget at ${left},${top}`)
-    }
-  }
-})
-
-test('an unmeasured widget still gets an editor', () => {
-  // A widget added from the edit bar has never been drawn, so it has no
-  // rectangle yet. A crash there would be the first thing anybody saw.
-  const dock = dockFor(null, VP)
-  assert.ok(dock.side)
-  assert.ok(dock.size >= MIN_PANEL)
-})
-
-// --- the screen, minus the widget ---------------------------------------
-
-test('the four bands cover everything the widget does not', () => {
-  const rect = { left: 200, top: 100, right: 600, bottom: 400 }
-  const bands = scrimBands(rect, { width: 1000, height: 800 })
-  const area = bands.reduce((sum, b) => sum + b.width * b.height, 0)
-  assert.equal(area, 1000 * 800 - 400 * 300)
-})
-
-test('no band ever lands on the widget', () => {
-  const rect = { left: 200, top: 100, right: 600, bottom: 400 }
-  for (const b of scrimBands(rect, { width: 1000, height: 800 })) {
-    const apart =
-      b.left + b.width <= rect.left + 0.5 ||
-      b.left >= rect.right - 0.5 ||
-      b.top + b.height <= rect.top + 0.5 ||
-      b.top >= rect.bottom - 0.5
-    assert.ok(apart, `${b.key} covers the widget`)
-  }
-})
-
-test('a band with no size is not drawn at all', () => {
-  // A zero-height element still takes a paint and still answers a click.
-  const bands = scrimBands({ left: 0, top: 0, right: 1000, bottom: 800 }, { width: 1000, height: 800 })
-  assert.deepEqual(bands, [])
-  for (const b of scrimBands({ left: 0, top: 100, right: 1000, bottom: 400 }, { width: 1000, height: 800 })) {
-    assert.ok(b.width > 0 && b.height > 0)
-  }
-})
-
-test('no widget to spare means dim the lot', () => {
-  const bands = scrimBands(null, { width: 800, height: 600 })
-  assert.deepEqual(bands, [{ key: 'all', left: 0, top: 0, width: 800, height: 600 }])
-})
-
-test('the ring sits outside the card, not on its border', () => {
-  const ring = spotlight({ left: 10, top: 10, right: 110, bottom: 60 }, 8)
-  assert.deepEqual(ring, { left: 2, top: 2, width: 116, height: 66 })
-  assert.equal(spotlight(null), null)
-})
 
 // --- what the page draws while you type ---------------------------------
 
@@ -210,7 +111,7 @@ const read = (p) =>
     .replace(/\s+/g, ' ')
 
 const dashboard = read('pages/Dashboard.jsx')
-const drawer = read('components/WidgetEditDrawer.jsx')
+const drawer = read('components/EditSplit.jsx')
 const panel = read('pages/admin/WidgetsPanel.jsx')
 const bar = read('components/ArrangeBar.jsx')
 
@@ -228,8 +129,7 @@ test('the switch is a switch, and it brings the pills with it', () => {
 test('the edit form is the SAME one the admin panel shows', () => {
   // Not a copy and not a cut-down version: two implementations of a widget
   // form would disagree about one field within a month.
-  assert.ok(drawer.includes("import WidgetsPanel from '../pages/admin/WidgetsPanel.jsx'"))
-  assert.ok(drawer.includes('<WidgetsPanel compact'))
+  assert.ok(dashboard.includes('<WidgetsPanel compact'))
   assert.ok(panel.includes('compact = false,'))
   assert.ok(panel.includes('const open = compact || openId === widget.id'), 'and the one widget is open')
 })
@@ -258,29 +158,44 @@ test('the write is debounced, and closing flushes it', () => {
 test('a widget can be added from the page, and opens straight into itself', () => {
   assert.ok(dashboard.includes('async function addWidgetHere(type)'))
   assert.ok(dashboard.includes('makeWidget({'))
-  assert.ok(dashboard.includes('setEditWidget({ id: made.id, rect: null })'))
+  assert.ok(dashboard.includes("setEditTarget({ kind: 'widget', id: made.id })"))
 })
 
-test('the pill carries the way in, and hands over the rectangle', () => {
+test('a PAGE can be added from the sidebar, and opens with its settings', () => {
+  // Created empty and navigated to straight away rather than after a form is
+  // filled in: a form in front of an empty canvas is a form about nothing.
+  assert.ok(dashboard.includes('async function addPageHere()'))
+  assert.ok(dashboard.includes("setEditTarget({ kind: 'page' })"))
+  const sidebar = read('components/Sidebar.jsx')
+  assert.ok(sidebar.includes('{editing && onAddPage && ('))
+  assert.ok(sidebar.includes('{editing && onEditPage && !collapsed && ('))
+  assert.ok(read('components/AppShell.jsx').includes('onAddPage={onAddPage}'))
+})
+
+test('the pill carries the way in', () => {
   assert.ok(bar.includes('onEdit,'))
-  assert.ok(bar.includes("e.currentTarget.closest('[data-widget]')?.getBoundingClientRect()"))
-  assert.ok(dashboard.includes('data-widget={widget.id}'), 'and the wrapper can be found')
-  assert.ok(dashboard.includes('setEditWidget({ id: widget.id, rect })'))
+  assert.ok(dashboard.includes("setEditTarget({ kind: 'widget', id: widget.id })"))
 })
 
-test('nothing is ever drawn over the widget being edited', () => {
-  assert.ok(drawer.includes('{bands.map((b) => ('))
-  assert.ok(!drawer.includes('fixed inset-0 z-[60]'), 'no full-screen scrim over the widget')
+test('the preview is the page’s own render, not a second opinion', () => {
+  // The same component the page draws, given the same unsaved draft, so
+  // there is no second implementation to disagree with the first.
+  assert.ok(dashboard.includes('{editedItem?.content}'))
+  assert.ok(dashboard.includes('<WidgetCanvas items={widgetItems} gapX={design.gapX} gapY={design.gapY} />'))
+  assert.ok(dashboard.includes('{controlBar}'))
 })
 
-test('the drawer is a portal, because a canvas is its own stacking context', () => {
+test('the split is a portal, because a canvas is its own stacking context', () => {
   assert.ok(drawer.includes('createPortal('))
   assert.ok(drawer.includes('document.body'))
 })
 
-test('the page’s own controls are reachable from the page too', () => {
-  assert.ok(dashboard.includes("{editPart === 'controls' && isAdmin && ("))
-  assert.ok(dashboard.includes('<ControlsPanel'))
+test('one panel serves every kind of thing', () => {
+  // A different panel per kind is a different place to look per kind.
+  assert.ok(dashboard.includes('<EditSplit'))
+  for (const kind of ['widget', 'controls', 'page']) {
+    assert.ok(dashboard.includes(`editTarget.kind === '${kind}'`), kind)
+  }
   assert.ok(dashboard.includes('setControls={(next) => writePage({ controls: next })}'))
 })
 
@@ -289,4 +204,137 @@ test('the admin forms are given the context they ask for', () => {
   // used to live; the page knows every tab it has.
   assert.ok(dashboard.includes('const adminCtx = useMemo('))
   assert.ok(dashboard.includes('<WorkspaceCtx.Provider value={adminCtx}>'))
+})
+
+// ---------------------------------------------------------------------
+// The editor on one side, the thing itself on the other
+// ---------------------------------------------------------------------
+
+const wide = { width: 1440, height: 900 }
+
+test('the two panes tile the screen exactly', () => {
+  // No gap, no overlap: a strip of the old page showing between them would
+  // leave it ambiguous which half is which.
+  for (const side of ['left', 'right', 'bottom']) {
+    const s = splitFor(side, wide)
+    const area = s.panel.width * s.panel.height + s.preview.width * s.preview.height
+    assert.equal(area, wide.width * wide.height, side)
+
+    const apart =
+      s.panel.left + s.panel.width <= s.preview.left + 0.5 ||
+      s.panel.left >= s.preview.left + s.preview.width - 0.5 ||
+      s.panel.top + s.panel.height <= s.preview.top + 0.5 ||
+      s.panel.top >= s.preview.top + s.preview.height - 0.5
+    assert.ok(apart, `${side}: the panes overlap`)
+  }
+})
+
+test('each side puts the panel where it says', () => {
+  assert.equal(splitFor('left', wide).panel.left, 0)
+  assert.equal(splitFor('right', wide).preview.left, 0)
+  assert.equal(splitFor('bottom', wide).preview.top, 0)
+  assert.ok(splitFor('bottom', wide).panel.top > 0)
+})
+
+test('a nonsense side is the default rather than a broken layout', () => {
+  assert.equal(splitFor('sideways', wide).side, DEFAULT_SIDE)
+  assert.equal(splitFor(undefined, wide).side, DEFAULT_SIDE)
+})
+
+test('the split is clamped from BOTH ends', () => {
+  // A panel too narrow to read a form in is not a panel; a preview too
+  // small to see the thing in is not a preview.
+  assert.ok(splitFor('right', wide, 0.99).panelSize <= wide.width - MIN_PREVIEW)
+  assert.ok(splitFor('right', wide, 0.01).panelSize >= MIN_PANEL)
+})
+
+test('a screen with no room for two columns stacks itself', () => {
+  // A 320px form beside an 80px "preview" is not a preview, it is a strip
+  // of colour.
+  const phone = splitFor('right', { width: 400, height: 800 })
+  assert.equal(phone.side, 'bottom')
+  assert.equal(phone.asked, 'right', 'and it remembers what was asked for')
+  assert.equal(phone.preview.width, 400)
+})
+
+test('when the screen cannot honour both, the FORM keeps its minimum', () => {
+  // A form you cannot use makes the preview pointless as well.
+  const tiny = splitFor('bottom', { width: 900, height: 400 })
+  assert.equal(tiny.panelSize, MIN_PANEL)
+  assert.equal(tiny.panelSize + tiny.previewSize, 400)
+})
+
+test('dragging the divider reads the pointer, not a delta', () => {
+  // A delta-based resize drifts away from the hand moving it the first time
+  // the drag outruns the pointer.
+  assert.equal(fractionAt('right', { x: 1440 * 0.6 }, wide), 0.4)
+  assert.equal(fractionAt('left', { x: 1440 * 0.6 }, wide), 0.6)
+  assert.equal(fractionAt('bottom', { y: 900 * 0.7 }, wide), 0.3)
+})
+
+test('a drag is clamped to the same range the layout is', () => {
+  assert.equal(fractionAt('right', { x: -5000 }, wide), 0.75)
+  assert.equal(fractionAt('right', { x: 5000 }, wide), 0.2)
+  assert.equal(clampFraction('nonsense'), clampFraction(DEFAULT_FRACTION))
+})
+
+test('a widget previews as itself; everything else previews as the page', () => {
+  // You cannot see what a filter bar looks like by looking at the filter bar
+  // alone.
+  assert.equal(previewKind({ kind: 'widget' }), 'widget')
+  for (const kind of ['controls', 'page', 'design', undefined]) {
+    assert.equal(previewKind({ kind }), 'page', String(kind))
+  }
+})
+
+test('the panel is named after what it is editing', () => {
+  assert.equal(targetTitle({ kind: 'widget' }, { title: 'Sales by DSE' }), 'Sales by DSE')
+  assert.equal(targetTitle({ kind: 'controls' }), 'Controls & buttons')
+  assert.equal(targetTitle({ kind: 'page' }), 'Page settings')
+  assert.equal(targetTitle(null), '')
+})
+
+// --- wiring --------------------------------------------------------------
+
+const split = read('components/EditSplit.jsx')
+const sidebar = read('components/Sidebar.jsx')
+
+test('the side is a choice, and it is remembered', () => {
+  assert.ok(split.includes('{EDIT_SIDES.map((s) => {'))
+  assert.ok(dashboard.includes("useLocalState('dash.editSide', DEFAULT_SIDE)"))
+  assert.ok(dashboard.includes("useLocalState('dash.editFraction', DEFAULT_FRACTION)"))
+})
+
+test('the divider drags', () => {
+  assert.ok(split.includes('onPointerDown={() => setDragging(true)}'))
+  assert.ok(split.includes('fractionAt(split.side, { x: e.clientX, y: e.clientY }, viewport)'))
+})
+
+test('the page settings form reports every keystroke', () => {
+  // So a rename shows in the heading while the form is still open.
+  const pages = read('pages/admin/PagesPanel.jsx')
+  assert.ok(pages.includes('onDraft?.(next)'))
+  assert.ok(dashboard.includes('onDraft={setPageDraft}'))
+  assert.ok(dashboard.includes('savedPage && pageDraft ? { ...savedPage, ...pageDraft } : savedPage'))
+})
+
+test('the admin panel is not changed by the page being live', () => {
+  // It passes no `onDraft`, so it saves on Save exactly as it did.
+  const pages = read('pages/admin/PagesPanel.jsx')
+  assert.ok(pages.includes('onDraft?.('), 'optional, with a guard')
+  assert.ok(!pages.includes('onDraft(next)'), 'never called unguarded')
+})
+
+test('a page is created from the sidebar, not from another screen', () => {
+  assert.ok(sidebar.includes('New page'))
+  assert.ok(sidebar.includes('onClick={onAddPage}'))
+  assert.ok(dashboard.includes('onAddPage={isAdmin ? addPageHere : undefined}'))
+})
+
+test('the sidebar’s edit affordance is not a button inside a button', () => {
+  // Browsers resolve that by dropping one of them, usually the one you
+  // wanted.
+  // `data-role="button"` contains `role="button"`, so the space matters.
+  assert.ok(sidebar.includes('<span role="button"'))
+  assert.ok(sidebar.includes('e.stopPropagation()'))
 })

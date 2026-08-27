@@ -201,13 +201,28 @@ export default function PagesPanel({ pages, sources, onSave, onDelete, onOpen })
   )
 }
 
-function PageSettings({ page, pages, sources, onSave }) {
+/**
+ * A page's own settings.
+ *
+ * Exported because the page itself now shows them: an admin editing a page
+ * should not have to leave it to rename it. Same component in both places --
+ * two forms for one document would disagree about a field within a month.
+ */
+export function PageSettings({ page, pages, sources, onSave, onDraft }) {
   const [draft, setDraft] = useState(page)
   // Four sections as four buttons. Stacked open they are a form nobody can
   // see the end of, and the Save button that belongs to all four is off the
   // bottom of it.
   const [part, setPart] = useState('basics')
-  const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
+  const set = (patch) =>
+    setDraft((d) => {
+      const next = { ...d, ...patch }
+      // The page editing itself watches this, so a rename shows in the
+      // heading and a new backdrop appears behind the widgets while the
+      // form is still open. The admin panel passes nothing and is unchanged.
+      onDraft?.(next)
+      return next
+    })
   const dirty = !stableEqual(draft, page)
   const chosen = draft.sourceIds || []
 

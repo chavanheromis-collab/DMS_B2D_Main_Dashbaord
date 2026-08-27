@@ -298,52 +298,80 @@ including the admin who built it. **Edit** is a switch in the header, not a
 second screen, because *go to the admin panel, change a number, save, come
 back, squint* is four steps of which three are travel.
 
-In edit mode every widget carries a **⇄** on its pill. It opens that widget's
-whole editor — the same form the admin panel shows, not a copy of it — and:
+#### The editor is a split, not a panel
 
-**The editor covers the whole screen except the widget it is editing.** The
-widget stays lit, live, and **redraws as you type**. That is the entire point.
-An editor that covered the thing it edits would make you change something,
-close it, look, and open it again — the same four steps in a smaller box.
+Turn on Edit and everything opens the same way: **the form on one side, what
+it changes on the other, live.**
 
-Where it docks is decided from the widget's own rectangle: the biggest band of
-free screen around it. A KPI in the corner is edited from the right, a
-full-width table from underneath. When nothing is big enough — a phone, or a
-widget that fills the canvas — it becomes a bottom sheet and says so by
-dimming everything.
+```
+┌──────────────────────────┬───────────────┐
+│                          │  Sales by DSE │
+│   ▁▃▅█▆▃▁  (live)        │  ─────────────│
+│                          │  Chart type ▾ │
+│   the widget, rendered    │  Group by   ▾ │
+│   by the page's own code │  Colour     ▉ │
+│                          │  …            │
+└──────────────────────────┴───────────────┘
+        preview                  editor
+```
 
-Four things that make it work rather than nearly work:
+**The preview is not a mock-up.** It is the same component the page renders,
+given the same unsaved draft — so what you see *is* what the page will show.
+There is no second implementation to disagree with the first.
 
-- **The screen is covered by four rectangles, not one layer with a hole in
-  it.** A hole would mean lifting the widget above the layer, and the canvas
-  it lives in is its own stacking context — no `z-index` on the widget can
-  reach past a fixed overlay outside it. Here nothing is ever drawn over the
-  widget, so there is nothing for it to climb over.
+**Move the form** to the left, the right or the bottom from the buttons in
+its header, and **drag the divider** to resize. Both are remembered per
+browser, because they're a preference about *your* screen and not a property
+of the dashboard. On a screen too narrow for two columns the split stacks
+itself — a 320px form beside an 80px "preview" is a strip of colour, not a
+preview.
+
+An earlier version of this docked the panel around the widget's own
+rectangle. It worked, and it was wrong: the form appeared in a different
+place every time and you had to find it again.
+
+#### Everything opens in it
+
+| Click | You get |
+|---|---|
+| **⇄** on a widget's pill | That widget's whole editor — the same form the admin panel shows |
+| **Controls & buttons** | The page's filter bar, previewed as the page |
+| **Page settings** | Title, icon, placement, backdrop, spreadsheets |
+| **⚙ on a sidebar entry** | That page's settings, from anywhere |
+| **+ New page** in the sidebar | A page, created and opened with its settings beside it |
+
+**A widget or a control previews as the page**, not as itself — you cannot see
+what a filter bar looks like by looking at the filter bar alone. Only a widget
+previews as itself.
+
+#### Live means live
+
 - **The unsaved edit is merged in before anything reads the widgets**, so the
-  blend, the filters, the canvas and the widget itself all see the change at
-  once. Merging it further down would make a chart redraw while its own
-  caption did not.
+  blend, the filters, the canvas and the widget all see the change at once.
+  Merged further down, a chart would redraw while its own caption did not.
+- **The page's own settings are live too.** The settings form reports every
+  keystroke, and the page it is describing is the saved page with that draft
+  merged over it — one line, so a rename shows in the heading and a new
+  backdrop appears behind the widgets while the form is still open. The admin
+  panel passes no such callback and is unchanged: it still saves on **Save**.
 - **The write is debounced and closing flushes it.** A document write per
   keystroke is not a save strategy; an edit still sitting in a timer when the
-  panel closes is an edit lost. The header says *Live* or *Saving…*.
-- **The form is the admin panel's**, rendered over a list of one with its own
-  chrome folded away. Two implementations of a widget form would disagree
-  about one field within a month, and it would be the field nobody checked.
+  panel closes is an edit lost. The header says *Saved* or *Saving…*.
 
-**Adding a widget happens on the page.** The edit bar offers the six commonest
-types as one click and the rest under *More*, and the new widget **opens
-straight into its own editor** rather than being left at the bottom of the
-page for you to go and find. The defaults are chosen so it *draws* the moment
-it lands — a widget that renders as an empty box until three more fields are
-picked is a widget nobody finishes.
+**Adding a widget happens on the page** — six common types as one click, the
+rest under *More* — and it **opens straight into its own editor**. The
+defaults are chosen so it *draws* the moment it lands: a widget that renders
+as an empty box until three more fields are picked is a widget nobody
+finishes.
 
-**Controls and buttons** open in their own panel from the same bar, since they
-belong to the page rather than to any one widget and so have nothing to avoid
-covering.
+**Adding a page happens in the sidebar**, where pages are. It's created empty
+and opened immediately rather than after a form is filled in — a page with no
+name is a page you can see and rename, and a form in front of an empty canvas
+is a form about nothing.
 
-The admin panel is still there and still does everything it did — it is where
-spreadsheets are connected, pages are created and access is granted. What has
-moved to the page is everything that is *about* a page you can see.
+The admin panel is still there and still does everything it did: it is where
+spreadsheets are connected and access is granted. What has moved to the page
+is everything that is *about* a page you can see.
 
 ### Designing a page, from the page
 
@@ -2445,7 +2473,8 @@ src/
   lib/sectionTabs.js      A long admin form as a row of marked buttons
   lib/pivotMeasures.js    Several value columns down one grouped list
   lib/rowConditions.js    "Only the rows where...", every widget and control
-  lib/editMode.js         Docking an editor beside the widget it edits
+  lib/editMode.js         The unsaved edit, merged over the saved widget
+  lib/editLayout.js       The editor on one side, the thing itself on the other
   lib/newWidget.js        A new widget, from the page or the panel
   lib/valueColors.js      One colour per value, everywhere, filtered or not
   lib/typography.js       Text colour, typeface and size, admin-chosen

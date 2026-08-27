@@ -6,6 +6,7 @@ import {
   ChevronRight,
   LayoutGrid,
   LogOut,
+  Plus,
   Search,
   Settings,
   X,
@@ -43,6 +44,13 @@ export default function Sidebar({
   onNavigate,
   query,
   onQuery,
+  // Edit mode reaches the sidebar too: a page is created HERE, where pages
+  // are, and its settings open beside it. Going to another screen to make a
+  // page and coming back to look at it is the travel this whole mode exists
+  // to remove.
+  editing = false,
+  onAddPage,
+  onEditPage,
 }) {
   const { isAdmin, signOut, userDoc } = useAuth()
   const navigate = useNavigate()
@@ -176,17 +184,55 @@ export default function Sidebar({
                   >
                     <PageIcon page={page} size={17} />
                     {!collapsed && <span className="truncate">{label}</span>}
+                    {editing && onEditPage && !collapsed && (
+                      // A span rather than a nested button: a button inside a
+                      // button is invalid HTML and browsers resolve it by
+                      // dropping one of them, usually the one you wanted.
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onEditPage(page.id)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return
+                          e.preventDefault()
+                          e.stopPropagation()
+                          onEditPage(page.id)
+                        }}
+                        title={`Settings for ${page.name}`}
+                        className={`ml-auto shrink-0 rounded p-0.5 ${
+                          active ? 'text-white/80 hover:text-white' : 'text-slate-300 hover:text-indigo-600'
+                        }`}
+                      >
+                        <Settings size={13} />
+                      </span>
+                    )}
                   </button>
                 )
               })}
           </div>
         ))}
 
+        {editing && onAddPage && (
+          <button
+            onClick={onAddPage}
+            title="New page — it opens with its settings beside it"
+            className={`mt-1 flex w-full items-center gap-2.5 rounded-lg border border-dashed border-indigo-300 px-2.5 py-2 text-left text-sm font-medium text-indigo-600 hover:bg-indigo-50 ${
+              collapsed ? 'justify-center px-0' : ''
+            }`}
+          >
+            <Plus size={16} />
+            {!collapsed && <span>New page</span>}
+          </button>
+        )}
+
         {groups.length === 0 && (
           <p className={`px-2 py-6 text-center text-xs text-slate-400 ${collapsed ? 'hidden' : ''}`}>
             {pages.length === 0
               ? isAdmin
-                ? 'No pages yet — create one in the admin panel.'
+                ? 'No pages yet — turn on Edit and use “New page” below.'
                 : 'No pages have been shared with you yet.'
               : 'No page matches that search.'}
           </p>
