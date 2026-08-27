@@ -39,6 +39,24 @@ export const BACKGROUND_PRESETS = [
   { label: 'Mint', mode: 'gradient', gradientFrom: '#ECFDF5', gradientTo: '#CFFAFE', angle: 150 },
   { label: 'Graphite', mode: 'color', color: '#F1F5F9' },
   { label: 'Paper', mode: 'color', color: '#FFFFFF' },
+  // --- more starting points ------------------------------------------
+  // Light backdrops first, because a dashboard is read for minutes at a
+  // time and a dark one is a deliberate choice (a wall screen, a dim room)
+  // rather than the default anybody should fall into.
+  { label: 'Ivory', mode: 'color', color: '#FFFDF8' },
+  { label: 'Fog', mode: 'gradient', gradientFrom: '#F8FAFC', gradientTo: '#E2E8F0', angle: 170 },
+  { label: 'Lavender haze', mode: 'gradient', gradientFrom: '#F5F3FF', gradientTo: '#E0E7FF', angle: 150 },
+  { label: 'Peach', mode: 'gradient', gradientFrom: '#FFF7ED', gradientTo: '#FFE4E6', angle: 150 },
+  { label: 'Seafoam', mode: 'gradient', gradientFrom: '#F0FDFA', gradientTo: '#DBEAFE', angle: 145 },
+  { label: 'Meadow', mode: 'gradient', gradientFrom: '#F7FEE7', gradientTo: '#D1FAE5', angle: 150 },
+  { label: 'Blueprint', mode: 'gradient', gradientFrom: '#EFF6FF', gradientTo: '#DBEAFE', angle: 180 },
+  // --- dark, for a screen on a wall ----------------------------------
+  { label: 'Deep ocean', mode: 'gradient', gradientFrom: '#020617', gradientTo: '#0C4A6E', angle: 155 },
+  { label: 'Aurora', mode: 'gradient', gradientFrom: '#0F172A', gradientTo: '#134E4A', angle: 145 },
+  { label: 'Nebula', mode: 'gradient', gradientFrom: '#1E1B4B', gradientTo: '#4C1D95', angle: 150 },
+  { label: 'Ember', mode: 'gradient', gradientFrom: '#1C1917', gradientTo: '#7C2D12', angle: 150 },
+  { label: 'Carbon', mode: 'color', color: '#111318' },
+  { label: 'Slate night', mode: 'color', color: '#0F172A' },
 ]
 
 export const DEFAULT_BACKGROUND = {

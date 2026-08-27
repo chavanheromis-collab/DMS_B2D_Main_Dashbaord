@@ -13,7 +13,7 @@ import { matchesConditions } from './filterEngine.js'
 // KPIs sitting beside it, and a chart wants a "top 10" limiter that would be
 // meaningless applied page-wide.
 //
-// This started life as in-TABLE controls. It now serves all fourteen widget
+// This started life as in-TABLE controls. It now serves every widget
 // types, because the rendering moved up into the canvas wrapper -- the
 // widgets themselves never learned that controls exist.
 

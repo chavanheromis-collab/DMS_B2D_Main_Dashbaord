@@ -1,14 +1,7 @@
 import { AGGREGATIONS, HEAT_SCALES, NUMBER_FORMATS, PALETTE, aggNeedsColumn } from '../../lib/config'
 import { SERIES_PALETTES } from '../../lib/seriesData'
-import { BucketPicker, PivotBuckets, ScrollEditor, ValueColorEditor } from './WidgetEditors.jsx'
+import { BucketPicker, PivotBuckets, ScrollEditor, SortFields, ValueColorEditor } from './WidgetEditors.jsx'
 import { Field, Select, TextInput, Toggle } from './ui.jsx'
-
-const SORTS = [
-  { value: 'value_desc', label: 'Value, highest first' },
-  { value: 'value_asc', label: 'Value, lowest first' },
-  { value: 'name_asc', label: 'Name, A→Z' },
-  { value: 'name_desc', label: 'Name, Z→A' },
-]
 
 function ColorPicker({ value, onChange, fallback = PALETTE[0] }) {
   return (
@@ -83,9 +76,7 @@ export function StackedEditor({ widget, cols, set }) {
         <Field label="Max segments" hint="The rest merge into “Other”.">
           <TextInput type="number" value={widget.maxSeries ?? 8} onChange={(v) => set({ maxSeries: Number(v) || 8 })} />
         </Field>
-        <Field label="Sort bars by">
-          <Select value={widget.sort || 'value_desc'} onChange={(v) => set({ sort: v })} options={SORTS} />
-        </Field>
+        <SortFields widget={widget} cols={cols} set={set} className="" label="Sort bars by" />
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -180,9 +171,7 @@ export function ComboEditor({ widget, cols, set }) {
         <Field label="Max groups" className="w-28">
           <TextInput type="number" value={widget.limit ?? 12} onChange={(v) => set({ limit: Number(v) || 12 })} />
         </Field>
-        <Field label="Sort by" className="w-48">
-          <Select value={widget.sort || 'value_desc'} onChange={(v) => set({ sort: v })} options={SORTS} />
-        </Field>
+        <SortFields widget={widget} cols={cols} set={set} className="w-48" />
         <Field label="Height (px)" className="w-28">
           <TextInput type="number" value={widget.height || 280} onChange={(v) => set({ height: Number(v) || 280 })} />
         </Field>

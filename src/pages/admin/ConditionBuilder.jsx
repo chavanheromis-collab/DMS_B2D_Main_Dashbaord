@@ -1,6 +1,7 @@
 import { X } from 'lucide-react'
 import { OPERATORS, operatorMeta } from '../../lib/config'
 import { Select, TextInput, optValue, toTabOptions, useWorkspaceCtx } from './ui.jsx'
+import { useId } from 'react'
 
 /**
  * The operator and its value box(es) -- how many, and whether they are date
@@ -11,8 +12,23 @@ import { Select, TextInput, optValue, toTabOptions, useWorkspaceCtx } from './ui
  * two lists of operators that drift apart would be two dialects of the same
  * language.
  */
-export function OperatorValue({ operator, value, value2, onChange, className = 'w-44' }) {
+/**
+ * The operator, and the value(s) it needs.
+ *
+ * `choices` turns the value box into one you can either type in or pick
+ * from -- a `datalist`, not a `select`, because a condition may legitimately
+ * name a value that is not in the column today ("Cancelled", on a sheet
+ * where nothing has been cancelled yet) and a select would make that
+ * impossible to express.
+ *
+ * The list is EVERY value in the column, never narrowed by what the page is
+ * currently showing: somebody writing a rule is describing what the data
+ * CAN say, not what it happens to be saying while they write.
+ */
+export function OperatorValue({ operator, value, value2, onChange, className = 'w-44', choices = null }) {
   const meta = operatorMeta(operator)
+  const listId = useId()
+  const list = Array.isArray(choices) && choices.length > 0 ? choices : null
   return (
     <>
       <Select
@@ -22,13 +38,23 @@ export function OperatorValue({ operator, value, value2, onChange, className = '
         className={className}
       />
       {meta.arity >= 1 && (
-        <TextInput
-          type={meta.date ? 'date' : 'text'}
-          value={value}
-          onChange={(v) => onChange({ value: v })}
-          placeholder="value"
-          className="w-28"
-        />
+        <>
+          <TextInput
+            type={meta.date ? 'date' : 'text'}
+            value={value}
+            onChange={(v) => onChange({ value: v })}
+            placeholder={list ? `value (${list.length})` : 'value'}
+            className="w-28"
+            list={list ? listId : undefined}
+          />
+          {list && (
+            <datalist id={listId}>
+              {list.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
+          )}
+        </>
       )}
       {meta.arity === 2 && (
         <>
@@ -57,7 +83,7 @@ export function OperatorValue({ operator, value, value2, onChange, className = '
  * the screen.
  */
 export default function ConditionBuilder({ conditions, match = 'all', tabs, tabHeaders, onChange, compact }) {
-  const { labelFor } = useWorkspaceCtx()
+  const { labelFor, valuesFor } = useWorkspaceCtx()
   const options = toTabOptions(tabs, labelFor)
   const columnsOf = (tab) => tabHeaders?.[tab] || []
 
@@ -103,6 +129,8 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
                 value2={cond.value2}
                 onChange={(patch) => setCondition(ci, patch)}
                 className={compact ? 'w-40' : 'w-48'}
+                // Everything that is in that column, as of the last sync.
+                choices={valuesFor?.(cond.tab, cond.column)}
               />
               <button
                 onClick={() => removeCondition(ci)}

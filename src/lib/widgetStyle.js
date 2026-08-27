@@ -5,7 +5,7 @@
 // corner radius, shadow, accent -- without a code change.
 //
 // The mechanism is deliberately indirect. Every widget already renders its
-// own `.card` (or a hand-rolled equivalent), and rewriting all fourteen of
+// own `.card` (or a hand-rolled equivalent), and rewriting every one of
 // them to accept style props would be a large, risky change for a cosmetic
 // feature. Instead `.card` in index.css reads CSS CUSTOM PROPERTIES, and
 // this module turns a widget's saved style into exactly those properties on
@@ -24,6 +24,7 @@ import {
   typographyClass,
   typographyVars,
 } from './typography.js'
+import { DEFAULT_CHART_VISUALS, chartVisualClass, chartVisualVars } from './chartVisuals.js'
 
 /** Named starting points, so nobody has to pick six colours from scratch. */
 export const WIDGET_THEMES = [
@@ -112,6 +113,113 @@ export const WIDGET_THEMES = [
     // are unreadable on a dark card.
     preset: { bg: '#0F172A', borderColor: '#1E293B', borderWidth: 1, radius: 16, shadow: 'lg', invert: true },
   },
+
+  // ------------------------------------------------------------------
+  // More named looks
+  // ------------------------------------------------------------------
+  // Each is a surface, a border and an accent chosen together, the same way
+  // the six above are -- so picking one is one decision rather than six,
+  // and a whole page set to one of them looks composed rather than tinted.
+  //
+  // Every light preset keeps its text on the near-black the widgets already
+  // use, so contrast is never worse than the stock card. The dark ones set
+  // `invert`, which is the only way slate-* text survives on them.
+  {
+    value: 'linen',
+    label: 'Linen',
+    preset: { bg: '#FDFCFA', borderColor: '#E7E2D9', borderWidth: 1, radius: 14, shadow: 'sm', accent: '#8C7851' },
+  },
+  {
+    value: 'porcelain',
+    label: 'Porcelain',
+    preset: { bg: '#FCFDFE', borderColor: '#DDE7F0', borderWidth: 1, radius: 18, shadow: 'md', accent: '#0369A1' },
+  },
+  {
+    value: 'mint',
+    label: 'Mint',
+    preset: { bg: '#F6FDFA', borderColor: '#C7EBDC', borderWidth: 1, radius: 18, shadow: 'sm', accent: '#0F766E' },
+  },
+  {
+    value: 'lavender',
+    label: 'Lavender',
+    preset: { bg: '#FAF8FF', borderColor: '#DED7F5', borderWidth: 1, radius: 18, shadow: 'sm', accent: '#6D28D9' },
+  },
+  {
+    value: 'blush',
+    label: 'Blush',
+    preset: { bg: '#FFF9FA', borderColor: '#F6D9DF', borderWidth: 1, radius: 18, shadow: 'sm', accent: '#BE185D' },
+  },
+  {
+    value: 'sand',
+    label: 'Sand',
+    preset: { bg: '#FEFBF3', borderColor: '#EDDFC4', borderWidth: 1, radius: 12, shadow: 'sm', accent: '#B45309' },
+  },
+  {
+    value: 'slate',
+    label: 'Cool slate',
+    preset: { bg: '#F7F9FB', borderColor: '#D8E0E8', borderWidth: 1, radius: 14, shadow: 'sm', accent: '#334155' },
+  },
+  {
+    value: 'newsprint',
+    label: 'Newsprint',
+    // A rule at the top and nothing else. Print does not use shadows to
+    // separate things, it uses whitespace and a line -- which is why a page
+    // of these reads as a document rather than as a set of tiles.
+    preset: { bg: '#FFFFFF', borderColor: '#0F172A', borderWidth: 0, radius: 0, shadow: 'none', accent: '#0F172A' },
+  },
+  {
+    value: 'blueprint',
+    label: 'Blueprint',
+    preset: { bg: '#F2F7FD', borderColor: '#9CC1E8', borderWidth: 1, radius: 4, shadow: 'none', accent: '#1D4ED8' },
+  },
+  {
+    value: 'terminal',
+    label: 'Terminal',
+    preset: { bg: '#0A0F0A', borderColor: '#1C3B22', borderWidth: 1, radius: 6, shadow: 'none', accent: '#4ADE80', invert: true },
+  },
+  {
+    value: 'carbon',
+    label: 'Carbon',
+    preset: { bg: '#161616', borderColor: '#2E2E2E', borderWidth: 1, radius: 4, shadow: 'md', accent: '#78A9FF', invert: true },
+  },
+  {
+    value: 'graphite',
+    label: 'Graphite',
+    preset: { bg: '#1C1F26', borderColor: '#2E333D', borderWidth: 1, radius: 14, shadow: 'lg', accent: '#A5B4FC', invert: true },
+  },
+  {
+    value: 'ocean',
+    label: 'Deep ocean',
+    preset: { bg: '#08203A', borderColor: '#14406B', borderWidth: 1, radius: 18, shadow: 'lg', accent: '#22D3EE', invert: true },
+  },
+  {
+    value: 'plum',
+    label: 'Plum',
+    preset: { bg: '#1B1027', borderColor: '#3B2255', borderWidth: 1, radius: 18, shadow: 'lg', accent: '#E879F9', invert: true },
+  },
+  {
+    value: 'forest',
+    label: 'Forest',
+    preset: { bg: '#0C1F18', borderColor: '#1B3D30', borderWidth: 1, radius: 16, shadow: 'lg', accent: '#34D399', invert: true },
+  },
+  {
+    value: 'espresso',
+    label: 'Espresso',
+    preset: { bg: '#211A14', borderColor: '#3D3128', borderWidth: 1, radius: 12, shadow: 'md', accent: '#F59E0B', invert: true },
+  },
+  {
+    value: 'glassdark',
+    label: 'Smoked glass',
+    preset: {
+      bg: 'rgba(15,23,42,0.58)',
+      borderColor: 'rgba(148,163,184,0.28)',
+      borderWidth: 1,
+      radius: 22,
+      shadow: 'lg',
+      accent: '#7DD3FC',
+      invert: true,
+    },
+  },
 ]
 
 export const SHADOW_LEVELS = [
@@ -127,6 +235,10 @@ export const DEFAULT_WIDGET_STYLE = {
   // other -- see lib/typography.js for why they are not one control.
   chartText: { ...DEFAULT_MARK_TEXT },
   legendText: { ...DEFAULT_MARK_TEXT },
+  // And how the chart is DRAWN, which is a third decision again: the grid,
+  // the axes, the tooltip, and the writing that sits on the marks rather
+  // than beside them. See lib/chartVisuals.js.
+  chartVisuals: { ...DEFAULT_CHART_VISUALS },
   theme: '',
   bg: null,
   borderColor: null,
@@ -194,6 +306,7 @@ export function styleVars(style) {
     ...(typographyVars(s) || {}),
     ...(markTextVars(s.chartText, 'chart') || {}),
     ...(markTextVars(s.legendText, 'legend') || {}),
+    ...(chartVisualVars(s.chartVisuals) || {}),
   }
   if (s.bg) vars['--card-bg'] = s.bg
   if (s.borderColor) vars['--card-border-color'] = s.borderColor
@@ -221,9 +334,13 @@ export function styleClass(style) {
   if (!s) return ''
   return [
     s.invert ? 'card-invert' : '',
+    // An accent was offered on every widget and honoured by one of them.
+    // This is the switch that lets the rest of them honour it too.
+    s.accent ? 'card-accented' : '',
     typographyClass(s),
     markTextClass(s.chartText, 'chart'),
     markTextClass(s.legendText, 'legend'),
+    chartVisualClass(s.chartVisuals),
   ]
     .filter(Boolean)
     .join(' ')

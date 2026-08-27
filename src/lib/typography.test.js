@@ -334,3 +334,49 @@ test('the widget’s own panel only offers it where there is a chart', () => {
   assert.ok(dashboard.includes('widgetType={widget.type}'))
   assert.ok(editor.includes('{hasChartText(widget.type) && ('))
 })
+
+// --- the accent, on the widgets that were offered one --------------------
+
+test('AN ACCENT IS HONOURED BY MORE THAN ONE WIDGET TYPE', () => {
+  // The picker is on every widget's paint panel and six named themes set
+  // one. Exactly one widget type read it -- everywhere else it was a colour
+  // you could choose and never see.
+  assert.ok(styleClass({ accent: '#ff0000' }).includes('card-accented'))
+  assert.equal(styleVars({ accent: '#ff0000' })['--card-accent'], '#ff0000')
+})
+
+test('no accent, no class -- an untouched widget is untouched', () => {
+  assert.equal(styleClass({ bg: '#fff' }).includes('card-accented'), false)
+})
+
+test('the accent colours the control that is ON', () => {
+  // What an accent means inside a widget is "the thing that is currently
+  // narrowing it".
+  const controlsSrc = read('components/WidgetControls.jsx')
+  assert.ok(controlsSrc.includes("const live = 'control-live border-indigo-300"))
+  assert.ok(css.includes('.card-accented :where(.control-live)'))
+})
+
+test('it falls back to what the control looked like before', () => {
+  // Where `color-mix` is unsupported the declaration is dropped and the
+  // indigo underneath stands -- which is the right thing to land on,
+  // because it is what was there.
+  const rule = css.slice(css.indexOf('.card-accented :where(.control-live)'))
+  assert.ok(rule.slice(0, 260).includes('color-mix(in srgb, var(--card-accent)'))
+  const controlsSrc = read('components/WidgetControls.jsx')
+  assert.ok(controlsSrc.includes('border-indigo-300 bg-indigo-50 text-indigo-700'), 'the fallback is still there')
+})
+
+test('every custom property this app emits is read by something', () => {
+  // The bug class this whole area keeps producing: a picker that saves a
+  // value nothing ever draws. `--page-gap-*` are published for authors and
+  // deliberately have no rule of their own.
+  const emitted = new Set()
+  for (const file of ['lib/widgetStyle.js', 'lib/typography.js', 'lib/pageDesign.js']) {
+    const src = fs.readFileSync(path.join(SRC, file), 'utf8')
+    for (const m of src.matchAll(/'(--[a-z0-9-]+)'/g)) emitted.add(m[1])
+  }
+  const consumers = [css, read('components/widgets/FilterPanelWidget.jsx')].join('\n')
+  const unread = [...emitted].filter((p) => !consumers.includes(`var(${p}`) && !p.startsWith('--page-gap'))
+  assert.deepEqual(unread, [])
+})

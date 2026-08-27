@@ -3,6 +3,7 @@ import { Plus, SlidersHorizontal, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, uid } from '../../lib/config'
 import { DATE_BUCKETS, bucketNeeds } from '../../lib/dataUtils'
 import { CONTROL_KINDS, controlMeta, controlNeedsColumn } from '../../lib/widgetControls'
+import { DEFAULT_REDUCER, OPTION_SORTS, SORT_REDUCERS, sortsByColumn } from '../../lib/groupSort'
 import { Btn, Field, Select, TextInput, useWorkspaceCtx } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
 
@@ -115,6 +116,33 @@ export default function WidgetControlsEditor({ widget, cols, tabHeaders, set }) 
                     options={DATE_BUCKETS}
                     className="w-44"
                   />
+                )}
+
+                {/* The order the values are offered in -- see lib/groupSort.js. */}
+                {['select', 'multi'].includes(control.kind) && (
+                  <Select
+                    value={control.optionSort || ''}
+                    onChange={(v) => setControl({ optionSort: v })}
+                    options={OPTION_SORTS}
+                    className="w-52"
+                  />
+                )}
+                {['select', 'multi'].includes(control.kind) && sortsByColumn(control.optionSort) && (
+                  <>
+                    <Select
+                      value={control.sortColumn || ''}
+                      onChange={(v) => setControl({ sortColumn: v })}
+                      options={cols}
+                      placeholder="— order column —"
+                      className="w-44"
+                    />
+                    <Select
+                      value={control.sortReducer || DEFAULT_REDUCER}
+                      onChange={(v) => setControl({ sortReducer: v })}
+                      options={SORT_REDUCERS}
+                      className="w-40"
+                    />
+                  </>
                 )}
 
                 {bucketNeeds(control.bucket) === 'size' && (

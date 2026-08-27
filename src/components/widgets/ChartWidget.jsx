@@ -35,6 +35,7 @@ import ExportButton from '../ExportButton.jsx'
 import PiePanel from './PiePanel.jsx'
 import { arrowRightPath, arrowUpPath, cylinderCapRadius, nestedCircles } from '../../lib/chartShapes.js'
 import { chartExtent, legendStyle } from '../../lib/chartScroll.js'
+import { autoFillLabels, barGapProps, barRadius, fillLabelColor, gridProps } from '../../lib/chartVisuals.js'
 import {
   axisTicks,
   chartCaps,
@@ -136,7 +137,7 @@ function CylinderSheen() {
  * better, which is why the roll-up is deliberate rather than automatic here:
  * the admin's `limit` already caps it.
  */
-function NestedCircleChart({ data, fmt, colorFor, activeName, onDrill, height, showLabels }) {
+function NestedCircleChart({ data, fmt, colorFor, activeName, onDrill, height, showLabels, ink }) {
   const box = { width: 320, height: Math.max(160, height || 260) }
   const circles = nestedCircles(data, { ...box, padding: 10 })
   if (circles.length === 0) return <p className="empty-state">No data to chart</p>
@@ -159,12 +160,16 @@ function NestedCircleChart({ data, fmt, colorFor, activeName, onDrill, height, s
               <circle cx={c.cx} cy={c.cy} r={c.r} fill={colorFor(c, i)} fillOpacity={0.9 * dim} />
               {showLabels && c.r > 18 && (
                 <text
+                  className="label-on-fill"
                   x={c.cx}
                   y={c.labelY}
                   textAnchor="middle"
                   fontSize={11}
                   fontWeight={600}
-                  fill="#fff"
+                  // Worked out from the ring this sits on, so a pale
+                  // palette gets dark ink and a deep one gets light --
+                  // rather than white on both and unreadable on one.
+                  fill={ink ? ink(colorFor(c, i)) : '#fff'}
                   style={{ pointerEvents: 'none' }}
                 >
                   {fmt(c.value)}
@@ -252,12 +257,14 @@ function ProgressList({ data, fmt, activeName, onDrill, colorFor, showLabels }) 
  * so drilling from the container drilled to the wrong thing (or to nothing).
  */
 function TreemapCell(props) {
-  const { x, y, width, height, index, name, value, activeName, colorFor, onDrill, showLabels, fmt } = props
+  const { x, y, width, height, index, name, value, activeName, colorFor, onDrill, showLabels, fmt, ink } = props
   if (!(width > 0) || !(height > 0)) return null
 
   const entry = { name, value }
   const dimmed = activeName && activeName !== name
   const roomForLabel = width > 56 && height > 30
+  const fillColor = colorFor ? colorFor(entry, index) : PALETTE[index % PALETTE.length]
+  const labelInk = ink ? ink(fillColor) : '#fff'
 
   return (
     <g onClick={() => onDrill?.(name)} style={{ cursor: onDrill ? 'pointer' : 'default' }}>
@@ -266,7 +273,7 @@ function TreemapCell(props) {
         y={y}
         width={width}
         height={height}
-        fill={colorFor ? colorFor(entry, index) : PALETTE[index % PALETTE.length]}
+        fill={fillColor}
         fillOpacity={dimmed ? 0.25 : 0.9}
         stroke="#fff"
         strokeWidth={2}
@@ -274,11 +281,27 @@ function TreemapCell(props) {
       />
       {roomForLabel && (
         <>
-          <text x={x + 7} y={y + 17} fill="#fff" fontSize={11} fontWeight={600} pointerEvents="none">
+          <text
+            className="label-on-fill"
+            x={x + 7}
+            y={y + 17}
+            fill={labelInk}
+            fontSize={11}
+            fontWeight={600}
+            pointerEvents="none"
+          >
             {String(name).length > width / 7 ? `${String(name).slice(0, Math.floor(width / 7))}…` : name}
           </text>
           {showLabels !== false && (
-            <text x={x + 7} y={y + 31} fill="#fff" fontSize={10} opacity={0.85} pointerEvents="none">
+            <text
+              className="label-on-fill"
+              x={x + 7}
+              y={y + 31}
+              fill={labelInk}
+              fontSize={10}
+              opacity={0.85}
+              pointerEvents="none"
+            >
               {fmt(value)}
             </text>
           )}
@@ -296,6 +319,10 @@ function TreemapCell(props) {
 export default function ChartWidget({
   canExport = false,
   dateOrder = 'DMY',
+  // The page's and the widget's drawing settings, already merged. Only the
+  // handful CSS cannot reach are read here -- everything else arrives as a
+  // custom property on the wrapper and needs no prop at all.
+  chartVisuals = null,
   fillHeight = false, widget, rows, unfilteredRows, tabError, crossFilters = [], onCrossFilter }) {
   const type = widget.chartType || 'bar'
   const caps = chartCaps(type)
@@ -325,6 +352,9 @@ export default function ChartWidget({
       // and its frame scrolls, rather than the tail being dropped.
       limit: PIE_TYPES.has(type) ? 0 : (widget.limit ?? 12),
       sort: widget.sort || 'value_desc',
+      // Sorting by a column that is neither the group nor the measure.
+      sortColumn: widget.sortColumn,
+      sortReducer: widget.sortReducer,
       bucket: widget,
       dateOrder,
     })
@@ -512,7 +542,36 @@ export default function ChartWidget({
       key === 'cumulativePct' ? [pct(v), 'Cumulative'] : [fmt(v), widget.valueLabel || 'Value'],
   }
 
-  const grid = showGrid ? <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} /> : null
+  // The grid an admin asked for, over the one the chart draws by default.
+  // Colour and dash could equally be done in CSS -- and are, for the charts
+  // that build their own -- but a rule that is switched OFF should not cost
+  // a DOM node and a layout pass just to be hidden, so which sets of lines
+  // exist is decided here.
+  const gridOverride = gridProps(chartVisuals)
+  const grid =
+    showGrid && !gridOverride?.hidden ? (
+      <CartesianGrid
+        strokeDasharray="3 3"
+        stroke="#eef2f7"
+        vertical={false}
+        {...(gridOverride || {})}
+      />
+    ) : null
+
+  // Two settings that cannot be custom properties. A bar's corner radius is
+  // baked into its path data by Recharts, and a gap is a layout computed
+  // from the width the chart was given -- neither is reachable from a
+  // stylesheet. `undefined` leaves whatever the chart already did.
+  const barCorners = (fallback, horizontal = false) => barRadius(chartVisuals, { horizontal }) ?? fallback
+  const gapProps = barGapProps(chartVisuals) || {}
+
+  // A label drawn ON a mark, coloured from the mark it sits on. White is
+  // right on an indigo bar and invisible on a pale yellow one, so unless an
+  // admin has pinned one colour the ink is worked out per mark. Returning
+  // undefined in pinned mode is deliberate: the single colour is already a
+  // property on the wrapper, and an inline attribute would out-rank it.
+  const autoInk = autoFillLabels(chartVisuals)
+  const inkOnFill = (markColor) => (autoInk ? fillLabelColor(chartVisuals, markColor) || '#fff' : undefined)
 
   const refLines = (axis = 'y') =>
     references.map((reference, i) => (
@@ -600,7 +659,14 @@ export default function ChartWidget({
               background
               cornerRadius={6}
               onClick={(entry) => drill(nameFromShapeEvent(entry))}
-              label={showLabels ? { position: 'insideStart', fill: '#fff', fontSize: 10, formatter: fmt } : null}
+              // `label-on-fill` is what lets a chosen colour reach this.
+              // It sits on the bar's own fill, so it stays white unless an
+              // admin pins one -- see index.css.
+              label={
+                showLabels
+                  ? { position: 'insideStart', className: 'label-on-fill', fill: '#fff', fontSize: 10, formatter: fmt }
+                  : null
+              }
             >
               {cells()}
             </RadialBar>
@@ -620,6 +686,7 @@ export default function ChartWidget({
               <TreemapCell
                 activeName={activeName}
                 colorFor={colorFor}
+                ink={inkOnFill}
                 onDrill={onCrossFilter ? drill : null}
                 showLabels={showLabels}
                 fmt={fmt}
@@ -693,7 +760,7 @@ export default function ChartWidget({
                 label={{ value: '80%', position: 'right', fontSize: 10, fill: '#94a3b8' }}
               />
             )}
-            <Bar yAxisId="left" dataKey="value" name={widget.valueLabel || 'Value'} radius={[5, 5, 0, 0]} label={label()}>
+            <Bar yAxisId="left" dataKey="value" name={widget.valueLabel || 'Value'} radius={barCorners([5, 5, 0, 0])} label={label()}>
               {cells()}
             </Bar>
             <Line
@@ -711,6 +778,7 @@ export default function ChartWidget({
       case 'waterfall':
         return (
           <BarChart
+            {...gapProps}
             data={data}
             margin={{ top: topMargin, right: 10, bottom: 5, left: -12 }}
             onClick={onChartClick}
@@ -730,13 +798,17 @@ export default function ChartWidget({
             />
             {refLines('y')}
             <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive={false} legendType="none" />
-            <Bar dataKey="delta" stackId="w" radius={[4, 4, 0, 0]} label={label()}>
+            <Bar dataKey="delta" stackId="w" radius={barCorners([4, 4, 0, 0])} label={label()}>
               {cells()}
             </Bar>
           </BarChart>
         )
 
       case 'histogram':
+        // Deliberately NOT given the admin's bar gap. A histogram's bins are
+        // contiguous ranges -- 0-100, 100-200 -- and air between them says
+        // the values in the gap did not happen. That is a different chart,
+        // not a restyled one.
         return (
           <BarChart
             data={data}
@@ -855,6 +927,7 @@ export default function ChartWidget({
       case 'hbar':
         return (
           <BarChart
+            {...gapProps}
             data={data}
             layout="vertical"
             margin={{ top: 5, right: 28, bottom: 5, left: 8 }}
@@ -878,7 +951,7 @@ export default function ChartWidget({
             {refLines('x')}
             <Bar
               dataKey="value"
-              radius={[0, 6, 6, 0]}
+              radius={barCorners([0, 6, 6, 0], true)}
               label={label('right')}
               shape={type === 'arrowRow' ? (props) => <ArrowBar {...props} horizontal /> : undefined}
             >
@@ -890,6 +963,7 @@ export default function ChartWidget({
       default:
         return (
           <BarChart
+            {...gapProps}
             data={data}
             margin={{ top: topMargin, right: 10, bottom: 5, left: -12 }}
             onClick={onChartClick}
@@ -903,7 +977,7 @@ export default function ChartWidget({
             {type === 'cylinder' && <CylinderSheen />}
             <Bar
               dataKey="value"
-              radius={[6, 6, 0, 0]}
+              radius={barCorners([6, 6, 0, 0])}
               label={label()}
               shape={
                 type === 'arrow' ? ArrowBar : type === 'cylinder' ? CylinderBar : undefined
@@ -964,6 +1038,7 @@ export default function ChartWidget({
           data={data}
           fmt={fmt}
           colorFor={colorFor}
+          ink={inkOnFill}
           activeName={activeName}
           onDrill={onCrossFilter ? drill : undefined}
           height={height}

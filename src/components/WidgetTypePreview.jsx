@@ -1,7 +1,7 @@
 /**
  * What a widget type actually looks like, before you add one.
  *
- * A list of sixteen names tells you nothing about the difference between a
+ * A list of thirty names tells you nothing about the difference between a
  * combo chart and a stacked one, and the way anybody finds out is by adding
  * both and deleting one. A sketch answers it in the time it takes to move
  * the mouse.
@@ -210,6 +210,234 @@ const SKETCHES = {
           <div className="h-2.5 flex-1 rounded-md border border-slate-200" />
         </div>
       ))}
+    </Frame>
+  ),
+
+  // -------------------------------------------------------------------
+  // The later additions. Same rule as the sketches above: shapes and
+  // proportions only. A stat grid is "four small numbers in a grid" and a
+  // bullet chart is "a bar with a tick on it", and those two sentences are
+  // the entire difference somebody needs before they pick one.
+  // -------------------------------------------------------------------
+  stat: () => (
+    <Frame>
+      <div className="grid h-full grid-cols-3 grid-rows-2 gap-1">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="flex flex-col justify-center gap-0.5 rounded bg-slate-50 px-1">
+            <div className={`h-1 w-4 ${FAINT}`} />
+            <div className="text-[8px] font-bold leading-none text-indigo-500">
+              {['482', '91%', '1.2K', '38', '7.4', '12'][i]}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  bullet: () => (
+    <Frame className="justify-center gap-2">
+      {[68, 92, 45].map((v, i) => (
+        <div key={i} className="relative h-2.5 w-full overflow-hidden rounded-sm">
+          <div className="absolute inset-0 flex">
+            <div className="w-[55%] bg-rose-100" />
+            <div className="w-[30%] bg-amber-100" />
+            <div className="flex-1 bg-emerald-100" />
+          </div>
+          <div className="absolute inset-y-[30%] left-0 rounded-sm bg-indigo-500" style={{ width: `${v}%` }} />
+          <div className="absolute inset-y-0 w-[1.5px] bg-slate-800" style={{ left: '78%' }} />
+        </div>
+      ))}
+    </Frame>
+  ),
+  movers: () => (
+    <Frame>
+      <div className="flex h-full gap-1.5">
+        {[
+          { color: 'bg-emerald-400', widths: [80, 55, 34] },
+          { color: 'bg-rose-400', widths: [70, 44, 26] },
+        ].map((side, i) => (
+          <div key={i} className="flex flex-1 flex-col justify-center gap-1">
+            {side.widths.map((w, j) => (
+              <div key={j} className="flex items-center gap-1">
+                <div className={`h-1 flex-1 ${FAINT}`} />
+                <div className={`h-1.5 rounded-sm ${side.color}`} style={{ width: `${w * 0.3}%` }} />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  waffle: () => (
+    <Frame className="items-center justify-center">
+      <div className="grid grid-cols-10 gap-[2px]">
+        {Array.from({ length: 50 }, (_, i) => (
+          <span
+            key={i}
+            className="h-[5px] w-[5px] rounded-[1px]"
+            style={{
+              backgroundColor: i < 19 ? '#6366f1' : i < 33 ? '#38bdf8' : i < 42 ? '#34d399' : '#e2e8f0',
+            }}
+          />
+        ))}
+      </div>
+    </Frame>
+  ),
+  calendar: () => (
+    <Frame className="justify-center">
+      <div className="flex gap-[2px]">
+        {Array.from({ length: 17 }, (_, w) => (
+          <div key={w} className="flex flex-col gap-[2px]">
+            {Array.from({ length: 7 }, (_, d) => {
+              // A fixed pseudo-random pattern -- deliberately not random,
+              // so the sketch is the same picture every time it is opened.
+              const v = ((w * 7 + d) * 37) % 11
+              return (
+                <span
+                  key={d}
+                  className="h-[5px] w-[5px] rounded-[1px]"
+                  style={{ backgroundColor: v < 3 ? '#eef2ff' : v < 6 ? '#c7d2fe' : v < 9 ? '#818cf8' : '#4338ca' }}
+                />
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  gantt: () => (
+    <Frame className="justify-center">
+      {[
+        [0, 45],
+        [20, 40],
+        [15, 70],
+        [55, 40],
+      ].map(([left, width], i) => (
+        <div key={i} className="relative h-2">
+          <div
+            className="absolute h-full rounded-sm bg-indigo-400/70"
+            style={{ left: `${left}%`, width: `${width}%` }}
+          />
+        </div>
+      ))}
+    </Frame>
+  ),
+  cohort: () => (
+    <Frame>
+      <div className="grid h-full grid-cols-5 grid-rows-4 gap-[2px]">
+        {Array.from({ length: 20 }, (_, i) => {
+          const row = Math.floor(i / 5)
+          const col = i % 5
+          // The empty triangle IS the sketch -- it is what tells a cohort
+          // grid apart from a heat map at a glance.
+          if (col > 4 - row) return <span key={i} className="rounded-[1px] border border-dashed border-slate-200" />
+          const strength = Math.max(0.12, 1 - col * 0.24)
+          return <span key={i} className="rounded-[1px]" style={{ backgroundColor: `rgba(79,70,229,${strength})` }} />
+        })}
+      </div>
+    </Frame>
+  ),
+  boxplot: () => (
+    <Frame>
+      <div className="flex h-full items-stretch gap-2 px-1">
+        {[
+          [25, 45, 60],
+          [40, 55, 75],
+          [15, 30, 50],
+          [50, 70, 85],
+        ].map(([q1, med, q3], i) => (
+          <div key={i} className="relative flex-1">
+            <span className="absolute left-1/2 w-px -translate-x-1/2 bg-slate-400" style={{ bottom: `${q1 - 15}%`, height: `${q3 - q1 + 30}%` }} />
+            <span
+              className="absolute left-1/2 w-full -translate-x-1/2 rounded-sm border border-indigo-500 bg-indigo-400/30"
+              style={{ bottom: `${q1}%`, height: `${q3 - q1}%` }}
+            />
+            <span className="absolute left-1/2 h-[2px] w-full -translate-x-1/2 bg-indigo-600" style={{ bottom: `${med}%` }} />
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  sankey: () => (
+    <Frame className="justify-center">
+      <svg viewBox="0 0 100 50" className="h-full w-full" preserveAspectRatio="none">
+        <path d="M6,4 C50,4 50,6 94,6 L94,22 C50,22 50,26 6,26 Z" fill="#818cf8" opacity="0.55" />
+        <path d="M6,28 C50,28 50,26 94,26 L94,36 C50,36 50,42 6,42 Z" fill="#38bdf8" opacity="0.55" />
+        <path d="M6,44 C50,44 50,40 94,40 L94,48 C50,48 50,48 6,48 Z" fill="#34d399" opacity="0.55" />
+        <rect x="0" y="2" width="6" height="26" fill="#6366f1" rx="1" />
+        <rect x="0" y="30" width="6" height="18" fill="#0ea5e9" rx="1" />
+        <rect x="94" y="4" width="6" height="34" fill="#6366f1" rx="1" />
+        <rect x="94" y="40" width="6" height="8" fill="#10b981" rx="1" />
+      </svg>
+    </Frame>
+  ),
+  wordcloud: () => (
+    <Frame className="items-center justify-center">
+      <div className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 leading-none">
+        {[
+          ['delay', 9],
+          ['finance', 14],
+          ['approval', 8],
+          ['colour', 11],
+          ['stock', 7],
+          ['delivery', 10],
+        ].map(([word, size]) => (
+          <span key={word} style={{ fontSize: size, color: '#6366f1', opacity: 0.4 + size / 24 }}>
+            {word}
+          </span>
+        ))}
+      </div>
+    </Frame>
+  ),
+  profile: () => (
+    <Frame>
+      {[
+        [96, 'bg-emerald-400'],
+        [72, 'bg-amber-400'],
+        [41, 'bg-rose-400'],
+        [88, 'bg-emerald-400'],
+      ].map(([w, color], i) => (
+        <div key={i} className="flex items-center gap-1">
+          <div className={`h-1.5 w-6 ${FAINT}`} />
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+            <div className={`h-full rounded-full ${color}`} style={{ width: `${w}%` }} />
+          </div>
+        </div>
+      ))}
+    </Frame>
+  ),
+  note: () => (
+    <Frame className="justify-center">
+      <div className="flex items-center gap-1">
+        <div className="h-1.5 w-8 rounded-sm bg-indigo-400/70" />
+        <div className="h-px flex-1 bg-slate-200" />
+      </div>
+      <div className={`h-1 w-full ${FAINT}`} />
+      <div className={`h-1 w-4/5 ${FAINT}`} />
+      <div className={`h-1 w-3/5 ${FAINT}`} />
+    </Frame>
+  ),
+  media: () => (
+    <Frame className="items-center justify-center">
+      <div className="flex h-full w-full items-center justify-center rounded-md bg-slate-100">
+        <svg viewBox="0 0 24 24" className="h-6 w-6 text-slate-300" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <circle cx="8.5" cy="9.5" r="1.5" />
+          <path d="M21 16l-5-5-4 4-2-2-5 5" />
+        </svg>
+      </div>
+    </Frame>
+  ),
+  countdown: () => (
+    <Frame className="items-center justify-center">
+      <div className={`h-1 w-10 ${FAINT}`} />
+      <div className="flex items-end gap-1.5">
+        {['12', '04', '38'].map((n, i) => (
+          <div key={i} className="flex flex-col items-center">
+            <span className="text-sm font-bold leading-none text-indigo-500">{n}</span>
+            <span className={`mt-0.5 h-[3px] w-3 ${FAINT}`} />
+          </div>
+        ))}
+      </div>
     </Frame>
   ),
 }

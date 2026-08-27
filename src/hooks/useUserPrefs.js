@@ -67,6 +67,51 @@ export function useUserPrefs(uid, pageId) {
   return { prefs, widgetOrder: prefs?.widgetOrder || {}, setWidgetOrder, clearOrder, loading }
 }
 
+/**
+ * One user's own order for the SIDEBAR, at `userPrefs/{uid}_pages`.
+ *
+ * The same collection and the same rule as the per-page settings above --
+ * the id still starts with the uid, so a user still writes only their own
+ * document -- but keyed on the workspace rather than on a page, because the
+ * order of the pages is not a property of any one of them.
+ *
+ * A rep who lives in two of nine dashboards can put those two at the top
+ * without asking anybody, and without changing what anybody else sees.
+ */
+export function usePagePrefs(uid) {
+  const [order, setOrder] = useState(null)
+  const id = uid ? `${uid}_pages` : null
+
+  useEffect(() => {
+    if (!id) {
+      setOrder(null)
+      return undefined
+    }
+    return onSnapshot(
+      doc(db, 'userPrefs', id),
+      (snap) => setOrder(snap.exists() ? snap.data()?.pageOrder || null : null),
+      // A preference is a convenience, never a gate: unreadable means the
+      // sidebar shows the workspace order, not an error.
+      () => setOrder(null)
+    )
+  }, [id])
+
+  const setPageOrder = useCallback(
+    async (next) => {
+      if (!id) return
+      await setDoc(doc(db, 'userPrefs', id), stripUndefined({ pageOrder: next || {} }), { merge: true })
+    },
+    [id]
+  )
+
+  const clearPageOrder = useCallback(async () => {
+    if (!id) return
+    await setDoc(doc(db, 'userPrefs', id), { pageOrder: {} }, { merge: true })
+  }, [id])
+
+  return { pageOrder: order || {}, setPageOrder, clearPageOrder }
+}
+
 // Re-exported so callers can pull the hook and the ordering it feeds from
 // one place, while the ordering itself stays pure and testable in lib/.
 export { orderWidgets } from '../lib/widgetOrder'

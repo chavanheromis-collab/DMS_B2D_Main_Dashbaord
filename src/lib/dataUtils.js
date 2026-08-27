@@ -4,6 +4,8 @@
 // lets ONE code path serve MASTER, Quotations, GOOGLE REVIEW and any tab
 // an admin adds later.
 
+import { DEFAULT_REDUCER, byKey, reduceKeys, sortsByColumn } from './groupSort.js'
+
 export function isBlank(v) {
   return v === null || v === undefined || String(v).trim() === ''
 }
@@ -145,6 +147,102 @@ export function normalizeKey(value) {
 // ---------------------------------------------------------------------
 // Aggregation
 // ---------------------------------------------------------------------
+/**
+ * The value at a percentile, interpolating between the two neighbours.
+ *
+ * `sorted` must already be ascending. Linear interpolation rather than
+ * "nearest rank" because a p90 that jumps between two actual observations
+ * as one row is added reads as noise; the interpolated one moves smoothly,
+ * which is what makes it usable as a dashboard number at all.
+ */
+export function percentile(sorted, p) {
+  const list = sorted || []
+  if (list.length === 0) return 0
+  if (list.length === 1) return list[0]
+  const rank = (Math.max(0, Math.min(100, p)) / 100) * (list.length - 1)
+  const low = Math.floor(rank)
+  const high = Math.ceil(rank)
+  if (low === high) return list[low]
+  return list[low] + (list[high] - list[low]) * (rank - low)
+}
+
+/**
+ * The most frequently occurring NUMBER in a column.
+ *
+ * Counted over the numeric values only, deliberately. Every aggregation in
+ * this app returns a number -- that is what a KPI card, a bar and a gauge
+ * all consume -- so a "most common value" that could return "West" would
+ * have to be turned into a number somewhere downstream, and the only
+ * available answer is zero. A column of names therefore reports the same
+ * nothing that `sum` and `avg` already report for it, rather than a
+ * plausible-looking 0 that means "West".
+ */
+function modeOf(values) {
+  const counts = new Map()
+  for (const v of values) {
+    const n = toNumber(v)
+    if (n === null) continue
+    counts.set(n, (counts.get(n) || 0) + 1)
+  }
+  let best = 0
+  let bestCount = 0
+  for (const [value, n] of counts) {
+    // Ties go to the first seen, which is stable across renders because a
+    // Map iterates in insertion order.
+    if (n > bestCount) {
+      best = value
+      bestCount = n
+    }
+  }
+  return best
+}
+
+/**
+ * The value a group sorts on, when it sorts on a column that is not the one
+ * being measured.
+ *
+ * Lives here rather than in groupSort.js because it PARSES, and the parsers
+ * live here. A value becomes a number if it reads as one, then a time if it
+ * reads as a date, and otherwise stays the text it is -- so a column of
+ * dates orders by date and a column of names orders like names, without
+ * anybody being asked which it is.
+ *
+ * The order the two parsers are tried in matters, and neither can simply go
+ * first. `toNumber` strips punctuation, so it reads "01/03/2020" as the
+ * number 1032020; `toDate` accepts a bare number as a sheet serial, so it
+ * reads the quantity 42 as a day in 2041. So a value is only offered to
+ * `toNumber` when it LOOKS like a plain number -- digits, with the grouping
+ * and currency marks a sheet puts around them -- and everything else goes to
+ * the date parser first.
+ */
+const PLAIN_NUMBER = /^[-+(]?\s*[^\w\s.,+-]?\s*\d[\d,\s]*(\.\d+)?\s*[)%]?$/
+export function groupSortKey(rows, column, reducer = DEFAULT_REDUCER, dateOrder = 'DMY') {
+  if (!column) return null
+
+  const keys = []
+  for (const row of rows || []) {
+    const raw = row?.[column]
+    if (isBlank(raw)) continue
+
+    const text = typeof raw === 'number' ? String(raw) : String(raw).trim()
+    if (typeof raw === 'number' || PLAIN_NUMBER.test(text)) {
+      const n = toNumber(raw)
+      if (n !== null) {
+        keys.push(n)
+        continue
+      }
+    }
+    const d = toDate(raw, dateOrder)
+    if (d) {
+      keys.push(d.getTime())
+      continue
+    }
+    keys.push(text)
+  }
+
+  return reduceKeys(keys, reducer)
+}
+
 export function aggregate(rows, column, agg) {
   const list = rows || []
   if (agg === 'count') return list.length
@@ -163,6 +261,12 @@ export function aggregate(rows, column, agg) {
       if (list.length === 0) return 0
       return (raw.filter((v) => !isBlank(v)).length / list.length) * 100
     }
+    case 'percent_empty': {
+      if (list.length === 0) return 0
+      return (raw.filter((v) => isBlank(v)).length / list.length) * 100
+    }
+    case 'mode':
+      return modeOf(raw)
     default: {
       const nums = raw.map(toNumber).filter((n) => n !== null)
       if (nums.length === 0) return 0
@@ -170,6 +274,42 @@ export function aggregate(rows, column, agg) {
       if (agg === 'avg') return nums.reduce((a, b) => a + b, 0) / nums.length
       if (agg === 'min') return Math.min(...nums)
       if (agg === 'max') return Math.max(...nums)
+
+      // --- the distribution ones -------------------------------------
+      // An average is the wrong summary the moment a column has a tail --
+      // one ₹40 lakh deal drags the "typical" invoice somewhere no invoice
+      // has ever been. A median says what the middle row actually did, and
+      // a p90 says what the bad days look like. Both are one sort away, so
+      // the sort is done once and shared.
+      if (
+        agg === 'median' ||
+        agg === 'p25' ||
+        agg === 'p75' ||
+        agg === 'p90' ||
+        agg === 'p95' ||
+        agg === 'p99' ||
+        agg === 'iqr' ||
+        agg === 'range'
+      ) {
+        const sorted = [...nums].sort((a, b) => a - b)
+        if (agg === 'median') return percentile(sorted, 50)
+        if (agg === 'p25') return percentile(sorted, 25)
+        if (agg === 'p75') return percentile(sorted, 75)
+        if (agg === 'p90') return percentile(sorted, 90)
+        if (agg === 'p95') return percentile(sorted, 95)
+        if (agg === 'p99') return percentile(sorted, 99)
+        if (agg === 'iqr') return percentile(sorted, 75) - percentile(sorted, 25)
+        return sorted[sorted.length - 1] - sorted[0]
+      }
+      if (agg === 'stddev' || agg === 'variance') {
+        const mean = nums.reduce((a, b) => a + b, 0) / nums.length
+        // Population rather than sample: a dashboard is describing the rows
+        // it has, not inferring a wider population from a sample of them.
+        const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / nums.length
+        return agg === 'variance' ? variance : Math.sqrt(variance)
+      }
+      if (agg === 'first') return nums[0]
+      if (agg === 'last') return nums[nums.length - 1]
       return 0
     }
   }
@@ -191,16 +331,118 @@ export function formatNumber(value, format = 'comma', agg) {
   switch (format) {
     case 'percent':
       return `${n.toFixed(n >= 10 ? 0 : 1)}%`
+    case 'percent1':
+      return `${n.toFixed(1)}%`
     case 'inr':
       return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: decimals })}`
     case 'compact':
       return new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
     case 'plain':
       return String(Number(n.toFixed(decimals)))
+
+    // --- money in a currency that is not the rupee ---------------------
+    // Grouping follows the currency's own convention, not the page's: a
+    // dollar figure written 12,34,567 is a typo to everyone who reads
+    // dollars, and lakhs are equally wrong in euros.
+    case 'inr_compact':
+      // "₹1.2 Cr" rather than "₹1,20,00,000". Indian compact notation is
+      // lakh/crore, which `en-IN` already knows.
+      return `₹${new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 }).format(n)}`
+    case 'inr_lakh':
+      return `₹${(n / 100000).toLocaleString('en-IN', { maximumFractionDigits: 2 })} L`
+    case 'inr_crore':
+      return `₹${(n / 10000000).toLocaleString('en-IN', { maximumFractionDigits: 2 })} Cr`
+    case 'usd':
+      return `$${n.toLocaleString('en-US', { maximumFractionDigits: decimals })}`
+    case 'usd_compact':
+      return `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n)}`
+    case 'eur':
+      return `€${n.toLocaleString('en-US', { maximumFractionDigits: decimals })}`
+    case 'gbp':
+      return `£${n.toLocaleString('en-US', { maximumFractionDigits: decimals })}`
+
+    // --- shapes of a number, rather than units of one ------------------
+    case 'decimal1':
+      return n.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    case 'decimal2':
+      return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    case 'signed':
+      // A delta is only readable when the sign is always there: "+12" and
+      // "-12" are a pair, "12" and "-12" are a puzzle.
+      return `${n > 0 ? '+' : ''}${n.toLocaleString('en-IN', { maximumFractionDigits: decimals })}`
+    case 'signed_percent':
+      return `${n > 0 ? '+' : ''}${n.toFixed(n >= 10 || n <= -10 ? 0 : 1)}%`
+    case 'multiple':
+      return `${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}×`
+    case 'accounting':
+      // The convention every finance reader already knows: negatives in
+      // brackets, no minus sign to miss.
+      return n < 0
+        ? `(${Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: decimals })})`
+        : n.toLocaleString('en-IN', { maximumFractionDigits: decimals })
+    case 'ordinal': {
+      const abs = Math.abs(Math.round(n))
+      // 11th, 12th, 13th are the exceptions the naive rule gets wrong.
+      const teen = abs % 100 >= 11 && abs % 100 <= 13
+      const suffix = teen ? 'th' : ['th', 'st', 'nd', 'rd'][abs % 10] || 'th'
+      return `${Math.round(n)}${suffix}`
+    }
+
+    // --- units that are not really numbers -----------------------------
+    case 'duration_min':
+      return formatDuration(n * 60)
+    case 'duration_hr':
+      return formatDuration(n * 3600)
+    case 'duration_sec':
+      return formatDuration(n)
+    case 'days':
+      return `${n.toLocaleString('en-IN', { maximumFractionDigits: decimals })} ${Math.abs(n) === 1 ? 'day' : 'days'}`
+    case 'bytes':
+      return formatBytes(n)
+
     case 'comma':
     default:
       return n.toLocaleString('en-IN', { maximumFractionDigits: decimals })
   }
+}
+
+/**
+ * Seconds as the largest two units that say something.
+ *
+ * Two units, never three: "2h 14m" is a duration somebody can hold in their
+ * head, "2h 14m 09s" is a stopwatch reading, and on a dashboard the seconds
+ * are noise that costs the minutes their legibility.
+ */
+export function formatDuration(totalSeconds) {
+  const s = Number(totalSeconds)
+  if (!Number.isFinite(s)) return '—'
+  const sign = s < 0 ? '-' : ''
+  const abs = Math.abs(Math.round(s))
+
+  const days = Math.floor(abs / 86400)
+  const hours = Math.floor((abs % 86400) / 3600)
+  const minutes = Math.floor((abs % 3600) / 60)
+  const seconds = abs % 60
+
+  if (days > 0) return `${sign}${days}d ${hours}h`
+  if (hours > 0) return `${sign}${hours}h ${minutes}m`
+  if (minutes > 0) return `${sign}${minutes}m ${seconds}s`
+  return `${sign}${seconds}s`
+}
+
+/** Bytes at whichever scale keeps the number under four digits. */
+export function formatBytes(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '—'
+  const sign = n < 0 ? '-' : ''
+  let abs = Math.abs(n)
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  let unit = 0
+  while (abs >= 1024 && unit < units.length - 1) {
+    abs /= 1024
+    unit += 1
+  }
+  return `${sign}${abs.toFixed(unit === 0 ? 0 : abs >= 100 ? 0 : 1)} ${units[unit]}`
 }
 
 // ---------------------------------------------------------------------
@@ -212,7 +454,20 @@ export function formatNumber(value, format = 'comma', agg) {
  */
 export function groupRows(
   rows,
-  { groupBy, valueColumn, aggregation = 'count', limit = 12, sort = 'value_desc', includeBlank = false, bucket, dateOrder = 'DMY' }
+  {
+    groupBy,
+    valueColumn,
+    aggregation = 'count',
+    limit = 12,
+    sort = 'value_desc',
+    includeBlank = false,
+    bucket,
+    dateOrder = 'DMY',
+    // Sorting by a column that is neither the group nor the measure: the
+    // column, and how many rows are reduced to the one key. See groupSort.js.
+    sortColumn,
+    sortReducer = DEFAULT_REDUCER,
+  }
 ) {
   if (!groupBy) return []
   const buckets = new Map()
@@ -245,10 +500,19 @@ export function groupRows(
     if (Number.isFinite(x) && Number.isFinite(y) && x !== y) return x - y
     return collator.compare(a.name, b.name)
   }
-  if (sort === 'value_desc') out.sort((a, b) => b.value - a.value)
-  else if (sort === 'value_asc') out.sort((a, b) => a.value - b.value)
+  if (sortsByColumn(sort) && sortColumn) {
+    // The key is worked out from the group's own rows, which are still in
+    // hand here -- so sorting by a third column costs one pass and no
+    // second trip through the data.
+    const keyOf = (entry) => groupSortKey(buckets.get(entry.name), sortColumn, sortReducer, dateOrder)
+    const keys = new Map(out.map((entry) => [entry.name, keyOf(entry)]))
+    out.sort(byKey((entry) => keys.get(entry.name), sort))
+    // A column sort with no column named is a half-filled form, not an
+    // instruction to leave the list in whatever order it was built in.
+  } else if (sort === 'value_asc') out.sort((a, b) => a.value - b.value)
   else if (sort === 'name_asc') out.sort(byName)
   else if (sort === 'name_desc') out.sort((a, b) => byName(b, a))
+  else out.sort((a, b) => b.value - a.value)
 
   if (limit && out.length > limit) out = out.slice(0, limit)
   return out
@@ -275,6 +539,8 @@ export function groupStacked(rows, {
   limit = 12,
   maxSeries = 8,
   sort = 'value_desc',
+  sortColumn,
+  sortReducer = DEFAULT_REDUCER,
   bucket,
   stackBucket,
   dateOrder = 'DMY',
@@ -283,11 +549,16 @@ export function groupStacked(rows, {
 
   const groups = new Map()
   const seriesTotals = new Map()
+  // The whole bar's rows, kept beside the split ones: sorting by a third
+  // column asks about the GROUP, not about one of its segments.
+  const groupRowsByName = new Map()
 
   for (const row of rows || []) {
     const g = groupKey(row, groupBy, bucket, dateOrder) ?? '(blank)'
     const s = groupKey(row, stackBy, stackBucket, dateOrder) ?? '(blank)'
     if (!groups.has(g)) groups.set(g, new Map())
+    if (!groupRowsByName.has(g)) groupRowsByName.set(g, [])
+    groupRowsByName.get(g).push(row)
     const segments = groups.get(g)
     if (!segments.has(s)) segments.set(s, [])
     segments.get(s).push(row)
@@ -315,10 +586,18 @@ export function groupStacked(rows, {
   })
 
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
-  if (sort === 'value_desc') data.sort((a, b) => b.__total - a.__total)
-  else if (sort === 'value_asc') data.sort((a, b) => a.__total - b.__total)
+  if (sortsByColumn(sort) && sortColumn) {
+    const keys = new Map(
+      data.map((entry) => [
+        entry.name,
+        groupSortKey(groupRowsByName.get(entry.name), sortColumn, sortReducer, dateOrder),
+      ])
+    )
+    data.sort(byKey((entry) => keys.get(entry.name), sort))
+  } else if (sort === 'value_asc') data.sort((a, b) => a.__total - b.__total)
   else if (sort === 'name_asc') data.sort((a, b) => collator.compare(a.name, b.name))
   else if (sort === 'name_desc') data.sort((a, b) => collator.compare(b.name, a.name))
+  else data.sort((a, b) => b.__total - a.__total)
 
   if (limit && data.length > limit) data = data.slice(0, limit)
   return { data, series }
@@ -332,7 +611,15 @@ export function groupStacked(rows, {
  * `series` is `[{ key, column, aggregation }]`; each becomes a numeric field
  * on every returned entry.
  */
-export function groupSeries(rows, { groupBy, series = [], limit = 12, sort = 'value_desc' }) {
+export function groupSeries(rows, {
+  groupBy,
+  series = [],
+  limit = 12,
+  sort = 'value_desc',
+  sortColumn,
+  sortReducer = DEFAULT_REDUCER,
+  dateOrder = 'DMY',
+}) {
   if (!groupBy || series.length === 0) return []
 
   const buckets = new Map()
@@ -352,10 +639,15 @@ export function groupSeries(rows, { groupBy, series = [], limit = 12, sort = 'va
   // the one a reader takes as the chart's subject.
   const primary = series[0]?.key
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
-  if (sort === 'value_desc') out.sort((a, b) => (b[primary] || 0) - (a[primary] || 0))
-  else if (sort === 'value_asc') out.sort((a, b) => (a[primary] || 0) - (b[primary] || 0))
+  if (sortsByColumn(sort) && sortColumn) {
+    const keys = new Map(
+      out.map((entry) => [entry.name, groupSortKey(buckets.get(entry.name), sortColumn, sortReducer, dateOrder)])
+    )
+    out.sort(byKey((entry) => keys.get(entry.name), sort))
+  } else if (sort === 'value_asc') out.sort((a, b) => (a[primary] || 0) - (b[primary] || 0))
   else if (sort === 'name_asc') out.sort((a, b) => collator.compare(a.name, b.name))
   else if (sort === 'name_desc') out.sort((a, b) => collator.compare(b.name, a.name))
+  else out.sort((a, b) => (b[primary] || 0) - (a[primary] || 0))
 
   if (limit && out.length > limit) out = out.slice(0, limit)
   return out
@@ -1011,6 +1303,8 @@ export function pivotTree(rows, {
   valueColumn,
   aggregation = 'count',
   sort = 'value_desc',
+  sortColumn,
+  sortReducer = DEFAULT_REDUCER,
   maxGroups = 0,
   maxRows = 400,
   buckets,
@@ -1034,6 +1328,15 @@ export function pivotTree(rows, {
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
   function sortNodes(nodes) {
+    // A node keeps its own rows, so the third column can be read at every
+    // depth -- the branches in head-office order, and their stages in
+    // process order underneath.
+    if (sortsByColumn(sort) && sortColumn) {
+      const keys = new Map(
+        nodes.map((node) => [node, groupSortKey(node.source, sortColumn, sortReducer, dateOrder)])
+      )
+      return nodes.sort(byKey((node) => keys.get(node), sort))
+    }
     if (sort === 'value_asc') return nodes.sort((a, b) => a.value - b.value)
     if (sort === 'name_asc') return nodes.sort((a, b) => collator.compare(a.label, b.label))
     if (sort === 'name_desc') return nodes.sort((a, b) => collator.compare(b.label, a.label))

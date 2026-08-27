@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, ChevronUp, Palette, RefreshCw, RotateCcw } from 'lucide-react'
+import { ArrowUpDown, ChevronUp, Palette, Redo2, RefreshCw, RotateCcw, Undo2 } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
 import { usePageData, useLocalState } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
-import { useUserPrefs, orderWidgets } from '../hooks/useUserPrefs'
+import { useUserPrefs, usePagePrefs, orderWidgets } from '../hooks/useUserPrefs'
 import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
 import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from '../lib/filterEngine'
 import { applyRowConditions } from '../lib/rowConditions'
 import { mergeDraft } from '../lib/editMode'
+import { canDrop, dragPages, orderPages, personalOrder } from '../lib/pageOrder'
+import { valuesForRef } from '../lib/columnValues'
+import { canRedo, canUndo, commitHistory, emptyHistory, historyKeyAction, redoHistory, undoHistory } from '../lib/history'
 import { makeWidget, WIDGET_TYPES } from '../lib/newWidget'
 import EditSplit from '../components/EditSplit.jsx'
 import WidgetTypePreview from '../components/WidgetTypePreview.jsx'
@@ -29,6 +32,7 @@ import { normalizeKey } from '../lib/dataUtils'
 import { canViewPage, canvasFor, canvasLabelFor, emptyPage, newPageId, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
 import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
 import { DEFAULT_DESIGN, clampDesign, designClass, designVars, moveItem } from '../lib/pageDesign'
+import { mergeVisuals } from '../lib/chartVisuals'
 import { backgroundLayers, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
 import { fixedValues, initialValues, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
@@ -57,6 +61,14 @@ import {
   ScatterWidget,
   StackedWidget,
 } from '../components/widgets/ComparisonWidgets.jsx'
+import StatGridWidget, { BulletWidget, MoversWidget, WaffleWidget } from '../components/widgets/MetricWidgets.jsx'
+import CalendarHeatWidget, { CohortWidget, GanttWidget } from '../components/widgets/TimeWidgets.jsx'
+import BoxPlotWidget, {
+  ProfileWidget,
+  SankeyWidget,
+  WordCloudWidget,
+} from '../components/widgets/DistributionWidgets.jsx'
+import NoteWidget, { CountdownWidget, MediaWidget } from '../components/widgets/CanvasWidgets.jsx'
 
 // A rough, type-based height guess, used only to decide which MASONRY
 // COLUMN a widget belongs to on first layout (see MasonryGrid.jsx) --
@@ -68,6 +80,15 @@ function estimateWidgetHeight(type) {
   if (type === 'flow') return 300
   if (type === 'filters') return 340
   if (type === 'heatmap') return 320
+  // The canvas furniture is short by nature -- a heading given the same
+  // 380px guess as a table would open a hole under it on first paint.
+  if (type === 'note') return 90
+  if (type === 'countdown') return 150
+  if (type === 'media') return 220
+  if (type === 'stat' || type === 'bullet') return 210
+  if (type === 'waffle') return 300
+  if (type === 'calendar') return 200
+  if (type === 'cohort' || type === 'movers') return 300
   return 380
 }
 
@@ -80,7 +101,7 @@ function estimateWidgetHeight(type) {
  *
  * Refs are an internal address, never something a person should read, so
  * this component does the translation exactly once, at the boundary:
- * everything below it -- the filter engine, all fifteen widget types -- receives
+ * everything below it -- the filter engine, every widget type -- receives
  * the layout rewritten to short human labels, with the row maps keyed by the
  * same labels. That is what lets the entire widget layer stay untouched by
  * the move to many spreadsheets: it never learns that refs exist.
@@ -118,6 +139,13 @@ export default function Dashboard() {
   // Whether the page header has scrolled out of sight, and whether the
   // reader has asked for it back. A dashboard is long; the filters that
   // decide what it says are at the top of it.
+  // Every edit on the page is immediately real -- there is no Cancel,
+  // because there was no dialog. That is the right trade only if the way
+  // back is one keystroke. Snapshots of the widget list; see lib/history.js.
+  const [past, setPast] = useState(() => emptyHistory(null))
+  const pastRef = useRef(past)
+  pastRef.current = past
+
   const [headerGone, setHeaderGone] = useState(false)
   const [headerOpen, setHeaderOpen] = useState(false)
   const headerMark = useRef(null)
@@ -190,7 +218,14 @@ export default function Dashboard() {
 
   // ...of those, the ones the admin actually wants in the sidebar. A
   // sub-canvas is reached from its parent's tab strip instead.
-  const visiblePages = useMemo(() => sidebarPages(allowedPages), [allowedPages])
+  // The sidebar in THIS person's order: their own arrangement over the
+  // workspace default. See lib/pageOrder.js -- same two-level rule the
+  // widgets have had all along.
+  const { pageOrder, setPageOrder } = usePagePrefs(user?.uid)
+  const visiblePages = useMemo(
+    () => orderPages(sidebarPages(allowedPages), pageOrder),
+    [allowedPages, pageOrder]
+  )
 
   const savedPage = pages.find((p) => p.id === pageId) || null
   // The page as it should be DRAWN: saved, with whatever the settings form
@@ -368,7 +403,7 @@ export default function Dashboard() {
   // A column the sheet does not have -- margin, age in days, a status worked
   // out from three other fields -- defined once on the TAB and true from
   // here down. Everything below this line sees an ordinary column: the
-  // filters, the controls, all sixteen widget types, the drill-downs, the
+  // filters, the controls, every widget type, the drill-downs, the
   // flow, and the blend, which is what lets a calculated column on a parent
   // table be used in a widget that blends it with another one.
   //
@@ -517,8 +552,14 @@ export default function Dashboard() {
    * One pass per listing control over one tab, memoised on the filter state,
    * so it costs nothing until something actually changes.
    */
+  // The controls in label space, on their own. Taken from `pageControls`
+  // rather than from `view`, which also carries the widgets: a widget being
+  // typed into changed `view`'s identity, and every keystroke re-filtered
+  // every row of every tab to rebuild dropdowns that had not moved.
+  const viewControls = useMemo(() => mapTabFields(pageControls, labelFor), [pageControls, labelFor])
+
   const optionRowsByControl = useMemo(() => {
-    const { filters: viewFilters, buttons: viewButtons } = splitControls(view.controls)
+    const { filters: viewFilters, buttons: viewButtons } = splitControls(viewControls)
     const listing = viewFilters.filter((c) => ['select', 'multi', 'chips'].includes(c.kind))
     const out = {}
 
@@ -539,7 +580,7 @@ export default function Dashboard() {
       })
     }
     return out
-  }, [view.controls, dataByLabel, effectiveValues, effectiveButtonIds, crossFilters, search, dateOrder])
+  }, [viewControls, dataByLabel, effectiveValues, effectiveButtonIds, crossFilters, search, dateOrder])
 
   // --- Blending ----------------------------------------------------------
   // Per widget, and only for widgets that asked for it. The join runs on
@@ -787,8 +828,19 @@ export default function Dashboard() {
     await setDoc(doc(db, 'dashboards', page.id), stripUndefined(patch), { merge: true })
   }
 
-  async function writeWidgets(next) {
+  /**
+   * The widget list, written -- and remembered, so it can be taken back.
+   *
+   * The snapshot recorded is the list as it was BEFORE this write, and it
+   * is recorded here rather than in every caller because every caller
+   * eventually forgets. `fromHistory` is how undo itself writes without
+   * being recorded as a step, which would make Ctrl+Z a toggle.
+   */
+  async function writeWidgets(next, fromHistory = false) {
     if (!isAdmin || !page?.id) return
+    if (!fromHistory) {
+      setPast((h) => commitHistory(h.present === null ? emptyHistory(page.widgets || []) : h, next))
+    }
     setSavingLayout(true)
     try {
       await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets: next }), { merge: true })
@@ -847,6 +899,21 @@ export default function Dashboard() {
     // Straight into the thing you just made, rather than leaving it at the
     // bottom of the page for you to go and find.
     setEditTarget({ kind: 'widget', id: made.id })
+  }
+
+  /**
+   * One step back, or forward again.
+   *
+   * The state that comes out of the history is written the same way any
+   * other change is -- there is no second path into the document, so there
+   * is nothing for the two paths to disagree about.
+   */
+  async function stepHistory(direction) {
+    const at = pastRef.current
+    const next = direction === 'undo' ? undoHistory(at) : redoHistory(at)
+    if (next === at) return
+    setPast(next)
+    if (Array.isArray(next.present)) await writeWidgets(next.present, true)
   }
 
   const renameWidget = (id, title) =>
@@ -1001,8 +1068,11 @@ export default function Dashboard() {
       tabHeaders: tabColumns,
       sources: [],
       labelFor,
+      // The same value pickers the admin panel has: every condition written
+      // on the page gets the column's real values instead of a blank box.
+      valuesFor: (ref, column) => valuesForRef(sourcesById, ref, column),
     }),
-    [tabColumns, labelFor]
+    [tabColumns, labelFor, sourcesById]
   )
 
   // Drawn on the page and again in the editor's preview, so it is a
@@ -1049,8 +1119,49 @@ export default function Dashboard() {
     if (!headerGone && headerOpen) setHeaderOpen(false)
   }, [headerGone, headerOpen])
 
+  // Ctrl+Z / Ctrl+Y, and Ctrl+Shift+Z for the half of the world that learnt
+  // that one instead. Never while a field has focus: Ctrl+Z in a text box
+  // means "undo my typing", and stealing it to undo a widget instead is the
+  // kind of help nobody asks for twice.
+  useEffect(() => {
+    if (!isAdmin) return undefined
+    const onKey = (e) => {
+      const el = e.target
+      const tag = String(el?.tagName || '').toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable) return
+
+      const action = historyKeyAction(e)
+      if (!action) return
+      e.preventDefault()
+      stepHistory(action)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, page?.id])
+
   const headerActions = (
     <>
+      {isAdmin && editing && (
+        <>
+          <button
+            onClick={() => stepHistory('undo')}
+            disabled={!canUndo(past)}
+            title="Undo (Ctrl+Z)"
+            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-30"
+          >
+            <Undo2 size={15} />
+          </button>
+          <button
+            onClick={() => stepHistory('redo')}
+            disabled={!canRedo(past)}
+            title="Redo (Ctrl+Y)"
+            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-30"
+          >
+            <Redo2 size={15} />
+          </button>
+        </>
+      )}
       {isAdmin && (
         <button
           onClick={() => {
@@ -1175,7 +1286,23 @@ export default function Dashboard() {
                 // chart inside it just moves the empty space around.
                 const fillHeight = Number(widget.heightPx) > 0
 
-                const common = { widget, rows, unfilteredRows: unfiltered, tabError: tabData?.error, fillHeight }
+                // Almost all of a chart's appearance reaches it as CSS
+                // custom properties on the wrapper below, which no widget
+                // has to know about. Two settings cannot travel that way --
+                // a bar's corner radius is baked into its path data and a
+                // bar gap is a layout the chart computes -- so the resolved
+                // visuals ride along as a prop for those, merged in the
+                // same page-then-widget order the cascade would have used.
+                const chartVisuals = mergeVisuals(design.chartVisuals, themed?.chartVisuals)
+
+                const common = {
+                  widget,
+                  rows,
+                  unfilteredRows: unfiltered,
+                  tabError: tabData?.error,
+                  fillHeight,
+                  chartVisuals,
+                }
 
                 return {
                   id: widget.id,
@@ -1279,7 +1406,7 @@ export default function Dashboard() {
 
                       {/* This widget's own controls, above its card. Living
                           here rather than inside each widget is what lets
-                          all sixteen types have them. */}
+                          every type has them. */}
                       <WidgetControls
                         controls={myControls}
                         values={myValues}
@@ -1345,7 +1472,7 @@ export default function Dashboard() {
                         />
                       )}
                       {widget.type === 'combo' && (
-                        <ComboWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} />
+                        <ComboWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} dateOrder={dateOrder} />
                       )}
                       {widget.type === 'scatter' && <ScatterWidget {...common} />}
                       {widget.type === 'activity' && <ActivityFeedWidget {...common} dateOrder={dateOrder} />}
@@ -1421,6 +1548,39 @@ export default function Dashboard() {
                         />
                       )}
 
+                      {/* --- metrics ------------------------------------ */}
+                      {widget.type === 'stat' && <StatGridWidget {...common} dateOrder={dateOrder} />}
+                      {widget.type === 'bullet' && <BulletWidget {...common} dateOrder={dateOrder} />}
+                      {widget.type === 'movers' && (
+                        <MoversWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
+                      )}
+                      {widget.type === 'waffle' && <WaffleWidget {...common} onCrossFilter={drill} />}
+
+                      {/* --- time -------------------------------------- */}
+                      {widget.type === 'calendar' && (
+                        <CalendarHeatWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
+                      )}
+                      {widget.type === 'gantt' && <GanttWidget {...common} dateOrder={dateOrder} />}
+                      {widget.type === 'cohort' && (
+                        <CohortWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
+                      )}
+
+                      {/* --- distribution ------------------------------ */}
+                      {widget.type === 'boxplot' && <BoxPlotWidget {...common} onCrossFilter={drill} />}
+                      {widget.type === 'sankey' && <SankeyWidget {...common} onCrossFilter={drill} />}
+                      {widget.type === 'wordcloud' && <WordCloudWidget {...common} onCrossFilter={drill} />}
+                      {widget.type === 'profile' && (
+                        // The one widget whose subject is the SHEET rather
+                        // than the business, so it is handed the headers as
+                        // well as the rows.
+                        <ProfileWidget {...common} tabHeaders={headers} dateOrder={dateOrder} />
+                      )}
+
+                      {/* --- canvas furniture, which reads no rows ----- */}
+                      {widget.type === 'note' && <NoteWidget widget={widget} />}
+                      {widget.type === 'media' && <MediaWidget widget={widget} />}
+                      {widget.type === 'countdown' && <CountdownWidget widget={widget} />}
+
                       {/* Where the extra columns on a blended widget came
                           from, stated on the card itself so nobody has to
                           open the admin panel to find out. */}
@@ -1455,6 +1615,33 @@ export default function Dashboard() {
     await closeWidgetEditor()
     setEditTarget(null)
     setPageDraft(null)
+  }
+
+  /**
+   * One page picked up in the sidebar and dropped on another.
+   *
+   * Only the pages whose number actually changed are written -- dropping
+   * something back where it started should not be sixteen writes -- and the
+   * order is rewritten dense from zero so the next drag lands exactly where
+   * it looks like it will. See lib/pageOrder.js.
+   */
+  async function movePage(movedId, targetId) {
+    if (!canDrop(movedId, targetId)) return
+    const { pages: ordered, updates } = dragPages(visiblePages, movedId, targetId)
+
+    // An admin in EDIT mode is arranging the workspace: the order goes on
+    // the pages themselves, and everybody gets it. Anyone else -- including
+    // the same admin a moment later, just looking -- is arranging their own
+    // sidebar, which is a preference about their own eyes and changes
+    // nothing for anybody else.
+    if (isAdmin && editing) {
+      await Promise.all(
+        updates.map((u) => setDoc(doc(db, 'dashboards', u.id), stripUndefined(u), { merge: true }))
+      )
+      return
+    }
+
+    await setPageOrder(personalOrder(ordered))
   }
 
   /**
@@ -1506,6 +1693,10 @@ export default function Dashboard() {
         actions={headerActions}
         editing={editing && isAdmin}
         onAddPage={isAdmin ? addPageHere : undefined}
+        onMovePage={movePage}
+        // Whose order the drag is about to change. Two behaviours on one
+        // gesture is only fair if the sidebar says which one is running.
+        moveScope={isAdmin && editing ? 'everyone' : 'you'}
         onEditPage={
           isAdmin
             ? (id) => {

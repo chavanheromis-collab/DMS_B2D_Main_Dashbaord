@@ -17,7 +17,11 @@ import { DaysRange, DualRange, SingleRange, SteppedRange, sliderFormat } from '.
 
 const chip = 'rounded-lg border px-2.5 py-1 text-[11px] transition-all'
 const idle = 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-const live = 'border-indigo-300 bg-indigo-50 text-indigo-700'
+// `control-live` is the hook the widget's accent hangs on: indigo is what
+// a control that has been narrowed looks like by default, and an accent --
+// which is offered on every widget -- should be what it looks like instead.
+// See `.card-accented` in index.css.
+const live = 'control-live border-indigo-300 bg-indigo-50 text-indigo-700'
 
 /**
  * The controls attached to ONE widget. Rendered by the canvas wrapper above

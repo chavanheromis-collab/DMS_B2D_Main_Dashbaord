@@ -403,3 +403,135 @@ test('there is ONE list of what a widget can be', () => {
     assert.ok(t.hint, `${t.value} has no hint`)
   }
 })
+
+// --- the panel is a container, so the forms fit it ----------------------
+
+test('the forms measure the PANEL, not the window', () => {
+  // A `md:` breakpoint asks the window, and the window is wide even when a
+  // 340px panel is not -- so four-column grids and `w-64` fields stayed at
+  // full size inside it and pushed each other off the edge.
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  assert.ok(css.includes('.edit-shell {\n  container-type: inline-size;\n}'))
+  assert.ok(css.includes('@container (max-width: 560px)'))
+  assert.ok(css.includes('@container (max-width: 380px)'))
+})
+
+test('the container is the PANEL, not the scrolling body', () => {
+  // A container query only answers for descendants, and the header is a
+  // sibling of the body -- so a container on the body could never size the
+  // header.
+  assert.ok(split.includes('className="edit-shell absolute flex flex-col'))
+  assert.ok(split.includes('className="edit-panel min-h-0 flex-1 overflow-y-auto p-3"'))
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  assert.ok(css.includes('.edit-shell .edit-head-sub'), 'the header is inside the container')
+  // And the containment is on the shell, not the body -- putting it on the
+  // body is exactly the mistake this test is named after.
+  assert.ok(!/\.edit-panel\s*\{[^}]*container-type/.test(css))
+})
+
+test('a narrow panel steps down twice rather than collapsing at once', () => {
+  // A form is perfectly readable in two columns, and dropping straight to
+  // one at the first sign of narrowness wastes half of a 520px panel.
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  const two = css.indexOf('@container (max-width: 560px)')
+  const one = css.indexOf('@container (max-width: 380px)')
+  assert.ok(two > 0 && one > two)
+  assert.ok(css.slice(two, one).includes('repeat(2, minmax(0, 1fr))'))
+  assert.ok(css.slice(one).slice(0, 200).includes('minmax(0, 1fr)'))
+})
+
+test('only the WIDE fixed widths are overridden', () => {
+  // A colour swatch at `w-10` is that size for a reason.
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  const rule = css.slice(css.indexOf('.edit-shell .edit-panel :where(.w-72'))
+  const listed = rule.slice(0, rule.indexOf(')')).match(/\.w-\d+/g) || []
+  assert.ok(listed.length >= 8)
+  for (const w of listed) assert.ok(Number(w.slice(3)) >= 32, `${w} is not a wide field`)
+})
+
+test('the panel header wraps rather than squeezing', () => {
+  assert.ok(split.includes('edit-head flex flex-wrap items-center'))
+  assert.ok(split.includes('flex-1 basis-40'), 'the title takes the room and gives it back')
+})
+
+// --- typing at the speed of the keyboard --------------------------------
+
+const ui = read('pages/admin/ui.jsx')
+
+test('a text field owns what is in it', () => {
+  // It used to hand every keystroke straight up to whoever owned the value.
+  // Fine while that was a form; not fine now the owner is a page that
+  // redraws a canvas of charts, because every character waited for it.
+  assert.ok(ui.includes('const [text, setText] = useState(incoming)'))
+  assert.ok(ui.includes('value={text}'))
+  // Scoped to TextInput's own body: a <select> fires once per choice, so
+  // straight through is right there and always was.
+  const field = ui.slice(ui.indexOf('export function TextInput('), ui.indexOf('export const TYPING_PAUSE'))
+  assert.ok(!field.includes('onChange={(e) => onChange(e.target.value)}'), 'no longer straight through')
+})
+
+test('the page hears about it a beat later, not never', () => {
+  assert.ok(ui.includes('timer.current = setTimeout(() => send(next), TYPING_PAUSE)'))
+  const pause = Number((ui.match(/export const TYPING_PAUSE = (\d+)/) || [])[1])
+  assert.ok(pause >= 80 && pause <= 250, 'a word is one update, and it still reads as live')
+})
+
+test('a value changed from OUTSIDE still wins', () => {
+  // Switching to another widget must not leave the last one's title sitting
+  // in the box.
+  assert.ok(ui.includes('if (incoming === latest.current.sent) return'))
+  assert.ok(ui.includes('setText(incoming)'))
+})
+
+test('leaving the field, and closing the panel, both flush', () => {
+  // Nobody expects to lose the last thing they typed because they clicked
+  // Save within the timeout, and closing the panel is how people finish.
+  assert.ok(ui.includes('onBlur={() => send(latest.current.text)}'))
+  const teardown = ui.slice(ui.indexOf('() => () => {'))
+  assert.ok(teardown.slice(0, 400).includes('latest.current.onChange?.(latest.current.text)'))
+})
+
+test('a widget being typed into does not re-filter every tab', () => {
+  // `view` carries the widgets as well as the controls, so a keystroke in a
+  // widget changed its identity and every dropdown was rebuilt from a fresh
+  // pass over every row.
+  assert.ok(dashboard.includes('const viewControls = useMemo(() => mapTabFields(pageControls, labelFor), [pageControls, labelFor])'))
+  assert.ok(dashboard.includes('splitControls(viewControls)'))
+  assert.ok(!dashboard.includes('splitControls(view.controls)'))
+})
+
+// --- undo, and the thing after undo -------------------------------------
+
+test('every widget write is remembered, in one place', () => {
+  // Recorded in `writeWidgets` rather than in each caller, because every
+  // caller eventually forgets.
+  assert.ok(dashboard.includes('async function writeWidgets(next, fromHistory = false)'))
+  assert.ok(dashboard.includes('if (!fromHistory) {'))
+  assert.ok(dashboard.includes('commitHistory('))
+})
+
+test('undo writes the same way everything else does', () => {
+  // No second path into the document, so there is nothing for two paths to
+  // disagree about.
+  assert.ok(dashboard.includes('await writeWidgets(next.present, true)'))
+})
+
+test('undoing is not itself an undoable step', () => {
+  // Otherwise Ctrl+Z is a toggle between two states for ever.
+  const step = dashboard.slice(dashboard.indexOf('async function stepHistory'))
+  assert.ok(step.slice(0, 500).includes('writeWidgets(next.present, true)'))
+})
+
+test('Ctrl+Z in a text box still undoes your typing', () => {
+  // Stealing that to undo a widget instead is the kind of help nobody asks
+  // for twice.
+  const handler = dashboard.slice(dashboard.indexOf('const onKey = (e) => {'))
+  assert.ok(handler.slice(0, 400).includes("tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable"))
+})
+
+test('there are buttons as well as shortcuts, and they know when they are dead', () => {
+  assert.ok(dashboard.includes("title=\"Undo (Ctrl+Z)\""))
+  assert.ok(dashboard.includes("title=\"Redo (Ctrl+Y)\""))
+  assert.ok(dashboard.includes('disabled={!canUndo(past)}'))
+  assert.ok(dashboard.includes('disabled={!canRedo(past)}'))
+})

@@ -117,17 +117,26 @@ export default function EditSplit({
       />
 
       {/* --- the editor -------------------------------------------------- */}
+      {/* `edit-shell` is the CONTAINER everything inside measures itself
+          against -- the header as well as the form, which is why it is on
+          the panel rather than on the scrolling body: a query only answers
+          for descendants, and the header is a sibling of the body. */}
       <div
-        className="absolute flex flex-col border-slate-200 bg-white shadow-2xl"
+        className="edit-shell absolute flex flex-col border-slate-200 bg-white shadow-2xl"
         style={{ left: split.panel.left, top: split.panel.top, width: split.panel.width, height: split.panel.height }}
       >
-        <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-          <div className="min-w-0">
+        {/* The header has six things in it and the panel can be 340px
+            wide. It wraps rather than squeezing, and the parts that are
+            nice-to-know rather than need-to-know stand down first. */}
+        <div className="edit-head flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-100 px-3 py-2">
+          <div className="min-w-0 flex-1 basis-40">
             <p className="truncate text-sm font-semibold text-ink">{title}</p>
-            {subtitle && <p className="truncate text-[10px] text-slate-400">{subtitle}</p>}
+            {subtitle && <p className="edit-head-sub truncate text-[10px] text-slate-400">{subtitle}</p>}
           </div>
 
-          <span className={`ml-auto text-[11px] ${saving ? 'text-amber-600' : 'text-emerald-600'}`}>
+          <span
+            className={`edit-head-state ml-auto text-[11px] ${saving ? 'text-amber-600' : 'text-emerald-600'}`}
+          >
             {saving ? 'Saving…' : 'Saved'}
           </span>
 
@@ -164,7 +173,11 @@ export default function EditSplit({
 
         {toolbar && <div className="border-b border-slate-100 px-3 py-1.5">{toolbar}</div>}
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
+        {/* The forms answer "how much room have I got" with the panel's
+            width rather than the window's -- see index.css. A `md:`
+            breakpoint asks the window, and the window is wide even when
+            this is not. */}
+        <div className="edit-panel min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
       </div>
     </div>,
     document.body

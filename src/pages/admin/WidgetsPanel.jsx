@@ -13,6 +13,7 @@ import {
   aggNeedsColumn,
   presetForUnits,
   uid,
+  widgetNeedsData,
   widthUnitsFor,
   widthUnitsLabel,
 } from '../../lib/config'
@@ -45,6 +46,10 @@ import { makeWidget } from '../../lib/newWidget'
 import StyleEditor from './StyleEditor.jsx'
 import WidgetControlsEditor from './WidgetControlsEditor.jsx'
 import { ComboEditor, HeatmapEditor, ScatterEditor, StackedEditor } from './ComparisonEditors.jsx'
+import { BulletEditor, MoversEditor, StatGridEditor, WaffleEditor } from './MetricEditors.jsx'
+import { CalendarEditor, CohortEditor, GanttEditor } from './TimeEditors.jsx'
+import { BoxPlotEditor, ProfileEditor, SankeyEditor, WordCloudEditor } from './DistributionEditors.jsx'
+import { CountdownEditor, MediaEditor, NoteEditor } from './CanvasEditors.jsx'
 import {
   BucketPicker,
   ScrollEditor,
@@ -56,6 +61,7 @@ import {
   ColumnOrderEditor,
   ActivityFeedEditor,
   ScorecardEditor,
+  SortFields,
   ValueColorEditor,
 } from './WidgetEditors.jsx'
 
@@ -318,13 +324,18 @@ export default function WidgetsPanel({
                 onPick={(key) => pickSection(widget.id, key)}
                 sections={[
                   { key: 'setup', label: 'Setup', hint: 'What this widget reads and shows' },
-                  {
+                  // A note reads no rows, so a filter attached to it, a
+                  // rule about which of its rows count, and a second tab to
+                  // join into it are three settings that cannot do
+                  // anything. Offering them anyway is how an admin learns
+                  // that the panel does not mean what it says.
+                  widgetNeedsData(widget.type) && {
                     key: 'controls',
                     label: 'Controls',
                     badge: (widget.controls || []).length,
                     hint: 'Filters attached to this widget alone',
                   },
-                  {
+                  widgetNeedsData(widget.type) && {
                     key: 'conditions',
                     label: 'Conditions',
                     badge: conditionCount(widget),
@@ -337,7 +348,7 @@ export default function WidgetsPanel({
                     hint: 'Join a second tab into this one',
                   },
                   { key: 'look', label: 'Look', badge: hasCustomStyle(widget.style), hint: 'Colours, text, spacing' },
-                  {
+                  widgetNeedsData(widget.type) && {
                     key: 'behaviour',
                     label: 'Behaviour',
                     badge: Boolean(widget.ignoreFilters) || widget.allowExport === false,
@@ -346,7 +357,7 @@ export default function WidgetsPanel({
                 ]}
               />
 
-              {here === 'setup' && cols.length === 0 && (
+              {here === 'setup' && cols.length === 0 && widgetNeedsData(widget.type) && (
                 <p className="mb-2 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
                   No columns known for “{labelFor(widget.tab)}” yet — open <strong>Data Sources</strong> and hit
                   “Sync data” on that spreadsheet.
@@ -379,6 +390,34 @@ export default function WidgetsPanel({
               {widget.type === 'stacked' && <StackedEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'combo' && <ComboEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'scatter' && <ScatterEditor widget={widget} cols={cols} set={set} />}
+
+              {/* --- metrics --------------------------------------- */}
+              {widget.type === 'stat' && (
+                <StatGridEditor widget={widget} cols={cols} tabHeaders={tabHeaders} set={set} />
+              )}
+              {widget.type === 'bullet' && (
+                <BulletEditor widget={widget} cols={cols} tabHeaders={tabHeaders} set={set} />
+              )}
+              {widget.type === 'movers' && (
+                <MoversEditor widget={widget} cols={cols} tabHeaders={tabHeaders} set={set} />
+              )}
+              {widget.type === 'waffle' && <WaffleEditor widget={widget} cols={cols} set={set} />}
+
+              {/* --- time ------------------------------------------ */}
+              {widget.type === 'calendar' && <CalendarEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'gantt' && <GanttEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'cohort' && <CohortEditor widget={widget} cols={cols} set={set} />}
+
+              {/* --- distribution ---------------------------------- */}
+              {widget.type === 'boxplot' && <BoxPlotEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'sankey' && <SankeyEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'wordcloud' && <WordCloudEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'profile' && <ProfileEditor widget={widget} cols={cols} set={set} />}
+
+              {/* --- canvas furniture ------------------------------ */}
+              {widget.type === 'note' && <NoteEditor widget={widget} set={set} />}
+              {widget.type === 'media' && <MediaEditor widget={widget} set={set} />}
+              {widget.type === 'countdown' && <CountdownEditor widget={widget} set={set} />}
                 </>
               )}
 
@@ -1172,18 +1211,7 @@ function ChartEditor({ widget, cols, set }) {
       <Field label="Max bars/slices" hint="0 = every category; the chart scrolls.">
         <TextInput type="number" value={widget.limit} onChange={(v) => set({ limit: Math.max(0, Number(v) || 0) })} />
       </Field>
-      <Field label="Sort by">
-        <Select
-          value={widget.sort || 'value_desc'}
-          onChange={(v) => set({ sort: v })}
-          options={[
-            { value: 'value_desc', label: 'Value, highest first' },
-            { value: 'value_asc', label: 'Value, lowest first' },
-            { value: 'name_asc', label: 'Name, A→Z' },
-            { value: 'name_desc', label: 'Name, Z→A' },
-          ]}
-        />
-      </Field>
+      <SortFields widget={widget} cols={cols} set={set} className="" />
       <Field label="Height (px)">
         <TextInput type="number" value={widget.height || 260} onChange={(v) => set({ height: Number(v) || 260 })} />
       </Field>

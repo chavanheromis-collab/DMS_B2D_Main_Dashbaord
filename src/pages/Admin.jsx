@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { valuesForRef } from '../lib/columnValues'
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, setDoc } from 'firebase/firestore'
 import { ArrowLeft, Save, Undo2 } from 'lucide-react'
 import { db } from '../firebase'
@@ -123,9 +124,15 @@ export default function Admin() {
       .flatMap((s) => (s.tabs || []).map((t) => ({ value: makeRef(s.id, t), label: labelFor(makeRef(s.id, t)) })))
   }, [sources, page, labelFor])
 
+  // What is actually in each column, from the last sync. Every condition in
+  // this app ends in somebody typing a value into a box; this is what lets
+  // them pick it instead of spelling it from memory.
+  const sourcesById = useMemo(() => Object.fromEntries(sources.map((s) => [s.id, s])), [sources])
+  const valuesFor = useCallback((ref, column) => valuesForRef(sourcesById, ref, column), [sourcesById])
+
   const ctx = useMemo(
-    () => ({ tabOptions, tabHeaders, sources, labelFor }),
-    [tabOptions, tabHeaders, sources, labelFor]
+    () => ({ tabOptions, tabHeaders, sources, labelFor, valuesFor }),
+    [tabOptions, tabHeaders, sources, labelFor, valuesFor]
   )
 
   // --- Writes ------------------------------------------------------------

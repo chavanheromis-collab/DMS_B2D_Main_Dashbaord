@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { Bookmark, ChevronRight, Copy, Link as LinkIcon, Lock, Plus, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, SLIDER_FILTER_KINDS, uid } from '../../lib/config'
 import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUtils'
 import { controlCoverage } from '../../lib/filterEngine'
+import { DEFAULT_REDUCER, OPTION_SORTS, SORT_REDUCERS, sortsByColumn } from '../../lib/groupSort'
 import {
   CONTROL_GROUPS,
   CONTROL_MODES,
@@ -192,8 +193,39 @@ function conditionColumns(control) {
   return out
 }
 
+/**
+ * A value box that can be picked from as well as typed into.
+ *
+ * A `datalist`, not a `select`: a fixed value may legitimately name
+ * something the column does not hold today, and a select would make that
+ * impossible to express. The list is every value the last sync saw, narrowed
+ * by nothing -- an admin choosing a value is describing what the data CAN
+ * say, not what it happens to be saying while they choose.
+ */
+function ValueBox({ value, onChange, choices }) {
+  const listId = useId()
+  const list = Array.isArray(choices) && choices.length > 0 ? choices : null
+  return (
+    <>
+      <TextInput
+        value={value}
+        onChange={onChange}
+        placeholder={list ? `pick or type (${list.length})` : '—'}
+        list={list ? listId : undefined}
+      />
+      {list && (
+        <datalist id={listId}>
+          {list.map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+      )}
+    </>
+  )
+}
+
 export default function ControlsPanel({ tabs, tabHeaders, controls, setControls, views, setViews, hideSearch, setHideSearch }) {
-  const { labelFor } = useWorkspaceCtx()
+  const { labelFor, valuesFor } = useWorkspaceCtx()
   const ops = listOps(controls, setControls)
   const [adding, setAdding] = useState('select')
   const [openId, setOpenId] = useState(null)
@@ -428,6 +460,39 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                           options={DATE_BUCKETS}
                         />
                       </Field>
+                    )}
+                    {['select', 'multi', 'chips'].includes(control.kind) && (
+                      <Field label="Order values by" className="w-52">
+                        <Select
+                          value={control.optionSort || ''}
+                          onChange={(v) => set({ optionSort: v })}
+                          options={OPTION_SORTS}
+                        />
+                      </Field>
+                    )}
+                    {['select', 'multi', 'chips'].includes(control.kind) &&
+                      sortsByColumn(control.optionSort) && (
+                      <>
+                        <Field label="Order column" className="w-44">
+                          <Select
+                            value={control.sortColumn || ''}
+                            onChange={(v) => set({ sortColumn: v })}
+                            options={cols}
+                            placeholder="— column —"
+                          />
+                        </Field>
+                        <Field
+                          label="Read as"
+                          className="w-44"
+                          hint="A value covers many rows; this picks the one it sorts on."
+                        >
+                          <Select
+                            value={control.sortReducer || DEFAULT_REDUCER}
+                            onChange={(v) => set({ sortReducer: v })}
+                            options={SORT_REDUCERS}
+                          />
+                        </Field>
+                      </>
                     )}
                     {bucketNeeds(control.bucket) === 'size' && (
                       <Field
@@ -871,10 +936,10 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         className="w-48"
                         hint={mode === 'fixed' ? 'What the page always shows.' : 'Blank opens unfiltered.'}
                       >
-                        <TextInput
+                        <ValueBox
                           value={control.defaultValue ?? ''}
                           onChange={(v) => set({ defaultValue: v })}
-                          placeholder="—"
+                          choices={valuesFor(control.tab, control.column)}
                         />
                       </Field>
                     )}

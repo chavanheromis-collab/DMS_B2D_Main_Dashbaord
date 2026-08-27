@@ -155,6 +155,45 @@ Reload — the ⚙️ admin panel appears in the sidebar.
 
 ### The sidebar, and what goes in it
 
+#### Pages are sorted by picking them up
+
+Drag a page in the sidebar and drop it where it belongs. The sidebar is the
+only place the order of pages is visible, so it's the only place worth
+reordering them from. Dropping **on** a page takes its place; everything from
+there down shuffles along, which is what a gap opening under the cursor looks
+like.
+
+**Anybody can sort.** What the drag changes depends on who's doing it, and the
+sidebar says which while you're dragging:
+
+| Who | What moves |
+|---|---|
+| An **admin in edit mode** | The workspace order — everybody gets it |
+| **Anyone else**, including that same admin a moment later | Their own sidebar, and nobody else's |
+
+That's the same two-level rule widget order has always had: a personal
+arrangement beats the workspace default, because a person rearranging their
+own screen isn't overriding policy — it's a preference about their own eyes. A
+rep who lives in two of nine dashboards can put those two at the top without
+asking anybody.
+
+Personal orders live in `userPrefs/{uid}_pages` — the one collection an
+ordinary user may write to, and the rule matches on that id prefix, so nobody
+can write anybody else's. If it can't be read, the sidebar shows the workspace
+order: a preference is a convenience, never a gate.
+
+Three details:
+
+- **Only the pages whose number changed are written.** Dropping something back
+  where it started shouldn't be sixteen document writes.
+- **The order written back is dense, from zero.** Pages arrive with whatever
+  numbers history gave them — gaps, ties, nothing at all on anything created
+  before the field existed — and a drag that preserved those would land
+  somewhere that depended on data nobody can see.
+- **Dropped into another group's list, a page joins that group.** The list you
+  dropped it into *is* the group; leaving it out would send it straight back
+  the moment the sidebar redrew, which reads as the drag having failed.
+
 #### It comes when it's called
 
 A sidebar collapsed to its rail hands the width back to the dashboard — which
@@ -1420,6 +1459,345 @@ stacking two contradictory filters.
 | **Gauge / Target** | Progress toward a target, with zones and click-to-filter. |
 | **Activity Feed** | A chronological feed of the newest rows. |
 | **Scorecard** | Compares a metric between two condition sets, side by side. |
+| **Stat Grid** | Several KPIs in **one** card, each with its own rule, its own sparkline, and its own answer to *compared to what?* — the page's unfiltered figure, the period before, a second rule, or a target. |
+| **Bullet Chart** | Many targets on one shared axis. A bar for what happened, a tick for what was promised, and **poor / fair / good bands** behind both — eight of them scan in the time one gauge takes. |
+| **Top Movers** | What **changed**, not what is biggest. Two windows on a date column, or two rules you write. Ranked by absolute change by default, with a floor, so "1 became 3" cannot lead the list. |
+| **Waffle / Pictogram** | A share **counted** rather than judged: 38 squares out of 100, in squares, dots, or emoji. Largest-remainder apportionment, so the squares always add up to the grid. |
+| **Calendar Heat Map** | A year of days as a grid — one band of weeks, or twelve month blocks. Shows the rhythm and the **gaps**: the dead Sundays, and the fortnight nobody filled the sheet in. |
+| **Timeline / Gantt** | A bar per row, from a start date to an end date (or a duration, or a fixed length). **Overlap becomes a shape.** Open-ended rows run to today and say so rather than disappearing. |
+| **Cohort / Retention** | Entities pinned to the period they first appeared in, tracked across the periods after. The unlived bottom-right is **left blank**, not reported as a collapse. |
+| **Box Plot / Spread** | The whole distribution per group — median, quartiles, Tukey whiskers and **every outlier as its own dot**. Two branches with the same average stop looking identical. |
+| **Sankey / Flow** | How rows move from one column's values to another's, across two stages or several. Quantity is **width**, so nothing has to be read off an axis. |
+| **Word Cloud** | The one widget that can read *Remarks*. Counts words, pairs of words or whole phrases, with a stop-word list you can see and edit. Click a word to filter to the rows containing it. |
+| **Column Profile** | Not about the business — about the **sheet**. Fill rate, type, distinct values, top values, and the finding nothing else surfaces: values that differ only by case or spacing. |
+| **Note / Heading** | Text you write, on the canvas — a section heading, a caption, a callout, a banner or a quote. Markdown-lite, parsed to elements and **never** interpreted as HTML. |
+| **Image / Media** | A picture, logo or diagram from any image link, including a Google Drive share link. Optionally with no card around it. |
+| **Countdown / Clock** | Time left to a date, time since one, or the time now. Colours change as a deadline approaches, and it redraws only as often as a digit can change. |
+
+### Compared to what?
+
+The single most useful thing a dashboard can add to a number is a second
+number. **412 enquiries** is not information. *412, up 18% on the month
+before, against a target of 500* is.
+
+A **Stat Grid** puts several of those in one card — six small figures as six
+separate KPI cards is six borders, six titles and six shadows for a group
+that is read as a group. Each stat carries its own rule, its own format, its
+own sparkline, and its own baseline, because the honest baseline differs by
+metric:
+
+| Compared to | What it means | Use it for |
+|---|---|---|
+| *Nothing* | The number stands alone | A stock level, a headcount |
+| *Unfiltered* | The same rule, before the page's filters | Showing what a filter is hiding |
+| *Previous period* | The last N days against the N before | Anything with a date column |
+| *Another rule* | The same figure under a second condition set | Financed vs cash, this branch vs that |
+| *Target* | A number somebody committed to | Anything with a plan behind it |
+
+Three rules keep the comparison honest, and all three are tested:
+
+- **Growing from nothing has no percentage.** 0 → 5 is not "+500%" and it is
+  certainly not "+∞%". It shows the absolute change instead.
+- **Only a "previous period" stat is windowed.** A stat asking for no
+  comparison counts everything the page is showing. Silently narrowing it to
+  thirty days because a *sibling* stat wanted a trend would make the same
+  metric read differently depending on what sits next to it.
+- **Progress is drawn against a target and nothing else.** A bar creeping
+  across because last month was smaller says nothing anyone can act on.
+
+**Lower is better** is a per-stat switch, not cosmetic: it decides whether a
+fall is drawn green or red, and getting it backwards on *days to deliver*
+turns an improvement into an alarm.
+
+### Many targets, one axis
+
+A gauge answers "how far to the target" using a quarter of a card and a
+semicircle. That is fine for one metric and hopeless for eight — which is
+what a review meeting actually has, and the question is which of the eight is
+in trouble.
+
+A **Bullet Chart** answers that. One horizontal line per metric: a bar for
+what happened, a hard tick for what was promised, and shaded **poor / fair /
+good** bands behind both. Eight of them stack into the height of two gauges
+and scan in one pass, because every bar shares an axis and the ticks line up.
+
+The bands do the work. Without them, 84% of target is a number; with them it
+is *"comfortably inside fair, nowhere near good"*, which is a sentence a
+meeting can act on. Bands are percentages of the target by default — so
+moving the target moves them — or fixed numbers where the thresholds are the
+real decision. A target can itself be **measured** from the rows, which is
+what "beat last year" means.
+
+The axis always runs past the target (**headroom**, 15% by default), because
+a bar pinned to the right edge cannot be seen to have *overshot*, and
+overshooting is the outcome everyone most wants to see.
+
+### What changed, rather than what is big
+
+A leaderboard answers "who is biggest". After the first week nobody reads it,
+because the answer is the same every week and everybody already knows it.
+
+**Top Movers** answers the question that stays interesting: what is
+*different* from last time. Two windows on a date column (the last 30 days
+against the 30 before), or two condition sets you write.
+
+The trap is that percentage change is dominated by tiny numbers — a dealer
+who went from one car to three is up 200% and will out-rank the branch that
+went from 400 to 480 every single week. That is not a finding, it is
+arithmetic noise. Two defences, both on by default:
+
+- Ranked by **absolute change**, not percentage. +80 beats +2.
+- A **floor**, checked against the *larger* side. Checking the smaller one
+  would drop exactly the groups that collapsed to nothing, which are the most
+  important movers on the list.
+
+Risers and fallers are shown as two columns rather than one merged list: in a
+good week a merged list shows nothing but gains, and *"nothing fell"* is then
+a claim the widget never actually checked. Values that are **new** or that
+have **gone** are labelled as such rather than shown as a percentage from
+zero.
+
+### A share you can count
+
+A pie asks the reader to judge an angle, which people are famously bad at —
+38% and 42% are the same wedge to almost everybody. A **Waffle** asks them to
+count squares instead, and 38 out of 100 is not a judgement at all.
+
+The arithmetic that matters is the rounding. Naive rounding of five shares to
+a hundred squares routinely produces 99 or 101, and a waffle that does not
+fill its own grid is a waffle nobody trusts. This uses **largest-remainder
+apportionment** — the method parliaments use to turn vote shares into whole
+seats — so the total lands exactly, every time.
+
+Squares, rounded squares, dots, or emoji (❤️ ⭐ 🧍 🚗 ₹). Overflow **merges**
+into one block at full weight rather than being dropped, and the card says
+what one square is worth — a waffle without that is a proportion with its
+units filed off.
+
+### Three shapes a date column makes that a line chart cannot
+
+A trend line over a year says whether the number went up. It cannot say that
+nothing at all happens on Sundays, that one fortnight in June is missing
+entirely, or that four deliveries were promised for the same week.
+
+**Calendar Heat Map** — a span of days as a grid, either as one band of weeks
+(every row is one weekday all the way across, which is the whole point) or as
+twelve month blocks. Zero is drawn as *nothing*, never as the palest shade:
+a faint tint on an empty day is how a calendar ends up looking uniformly busy
+when half of it is nothing at all. Five countable steps rather than a smooth
+ramp, because a legend of five swatches is a legend somebody uses. Click a
+day to filter the page to it.
+
+**Timeline / Gantt** — one bar per row, from a start date to an end date, a
+duration column, or a fixed length. Overlap becomes a *shape*, which is how
+anybody spots a capacity problem without arithmetic. Rows with no end date
+are **not dropped** — an open job is usually the most interesting row on the
+chart, so it gets a bar that runs to today, fades out at its right edge and
+is counted as still open. A row whose end precedes its start is flagged
+rather than drawn backwards. Optional lanes, a today marker, and colour by
+any column.
+
+**Cohort / Retention** — a sales sheet answers "how many did we sell in
+March" easily and "did March's customers ever come back" not at all. Every
+entity is pinned to the period it *first* appeared in — that is its cohort,
+for good — and each column counts how many of that same cohort showed up
+again N periods later. Reading down a column compares like with like; reading
+across a row follows one group as it decays.
+
+Two things it is careful about:
+
+- **The bottom-right is not real.** A cohort from last month has not *had*
+  six months to come back, and a 0% there invents a collapse that has not
+  happened. Those cells are left blank, outlined in a dashed rule.
+- **Period 0 is 100% by construction.** It is shown because its *size*
+  matters, but the colour scale is never normalised on it — otherwise every
+  grid is one dark column and a wash of nothing.
+
+Periods are counted by stepping the calendar, not by dividing milliseconds:
+months are not a fixed length, and dividing by 30 puts the same pair of
+months three periods apart in one year and two in another.
+
+### The shape of a column, not its total
+
+Every other chart reduces a group of rows to **one** number. That is what a
+bar chart is, and it is why a bar chart can say two branches are identical
+when one sells forty steady cars a month and the other sells two and then
+thirty-eight.
+
+**Box Plot / Spread** shows the whole group at once: the middle half as a
+box, the typical range as whiskers, and every row outside that range as its
+own dot. The dots are not noise to be cleaned up — they are the deals worth
+asking about. Tukey's convention throughout: a whisker stops at the last
+*real* value within 1.5 interquartile ranges of the box, not at 1.5 IQR
+itself, which would be a whisker pointing at nothing. A group with fewer rows
+than the minimum is **listed rather than drawn**, because three numbers have
+no meaningful quartiles.
+
+**Sankey / Flow** — a pivot can tell you 340 enquiries came from Referral and
+210 were Lost. What it cannot tell you, without the reader tracing a finger
+across a grid, is how much of the Referral column *ended up* in the Lost row
+— and that is the only question anybody was asking. A Sankey answers it by
+making the quantity a **width**. Two stages, or as many as the story needs.
+Only additive measures are offered (count, sum, count-where-filled), because
+a node's height is the sum of the ribbons entering it and an average would
+make the picture arithmetic nonsense.
+
+**Word Cloud** — every sheet has one column nothing can chart: *Remarks*,
+*Feedback*, *Reason for loss*. It holds the most specific information in the
+file, and grouping by it produces four hundred bars of one. Counting **words**
+instead makes it tractable: "waiting for finance approval" and "finance not
+approved yet" are two distinct values and one recurring theme. Single words,
+pairs of words, or whole phrases. Sizes are **square-rooted**, because type
+is perceived by area and a linear map lets the top word swamp the card. The
+stop-word list is visible and editable — every business has its own noise
+words, and a hidden list would be a hidden edit to the finding. A word counts
+once per row however often that row repeats it, or a single ranting remark
+outvotes forty terse ones. Click a word to filter to the rows containing it.
+
+**Column Profile** — the one widget whose subject is the **sheet** rather
+than the business. Every dashboard here is downstream of a spreadsheet people
+type into by hand, so the interesting failure is never a bug in a chart; it
+is a column that is 40% blank, a date column with eleven values that are not
+dates, and a Status column with both `Delivered` and `delivered ` in it. None
+of those are visible from a chart — a bar chart of a column with a trailing
+space just quietly grows a second bar.
+
+Per column: fill rate, guessed type, distinct values, uniqueness, the
+commonest values, numeric or date statistics, and the finding that catches
+the most real problems — **values that differ only by case or whitespace**,
+reported as groups so you know which spellings to merge. Findings are
+sentences (*"Only 41% filled"*, *"Nothing newer than 94 days ago"*), each with
+a severity, and *Problems only* turns a wall of green into a short list of
+things to fix.
+
+Typing a column is stricter here than everywhere else in the app on purpose.
+The shared parsers are deliberately forgiving — they have to be, since one of
+them turns `₹1,20,000` into a figure — but that forgiveness reports the order
+reference `INV-4471` as the number 4471, and the amount `109` as a date in
+the year 109. The profiler checks the *shape* first, which is what tells an
+amount from an anniversary.
+
+### Text on the canvas
+
+A dashboard that cannot be annotated is a dashboard that gets explained in a
+separate email. *"These figures exclude the Nagpur branch until the 15th"* is
+the most important sentence on some pages.
+
+A **Note** is text you write, in five kinds: a *section heading* (a rule and a
+title, deliberately **not** a card — its whole job is to separate what is
+below from what is above), a plain caption, a tinted *callout* with a tone,
+a full-width *banner*, or a *quote*.
+
+It understands a small amount of Markdown — headings, `**bold**`, `*italic*`,
+`~~struck~~`, `` `code` ``, bullets, numbered lists, `- [ ]` checklists,
+`> quotes`, `---` rules and `[links](url)`.
+
+The obvious implementation — run the text through a Markdown library and hand
+the HTML to `dangerouslySetInnerHTML` — is the one thing this must not do.
+The text is written by an admin and read by everybody, so an admin who pasted
+something they did not write would be injecting script into every other
+user's session. Instead it parses to a **tree of tokens** which React renders
+as real elements. Nothing is ever interpreted as HTML at any point, and links
+are checked against a scheme allow-list, so a `javascript:` URL keeps its
+label and loses its href rather than becoming a live link.
+
+**Image / Media** puts a floor plan, a price list or a logo next to the
+figures about it, through the same Drive-link handling as every other
+admin-supplied image. Deliberately an *image* and not an embed: an `<iframe>`
+would let any admin run another site's JavaScript inside every reader's
+session, which is not a trade worth making for a widget that shows a
+diagram.
+
+**Countdown / Clock** — a month-end target is a different thing on the 3rd
+and on the 28th. *68% of target* is comfortable with three weeks to go and an
+emergency with two days. Counts down to a date, up from one ("days without an
+incident"), or shows the time now. Colours shift as the deadline approaches —
+the one place a colour change is information rather than decoration — and it
+redraws only as often as a digit can actually change: once a minute at a day
+out, once a day at a month out, rather than 86,400 times to change one digit.
+
+A bare date means the **end** of that day, because a deadline of "the 31st"
+is met by something done at five in the afternoon on the 31st — and it is
+parsed as local midnight rather than UTC, or everybody east of Greenwich gets
+a deadline that expires the evening before.
+
+### Widgets that read no rows
+
+A note, an image and a countdown carry no data of their own. They are still
+sized, styled, ordered and arranged like everything else — but their editor
+hides the tab picker, the blend, the per-widget controls and the row
+conditions, because a filter attached to a heading is a setting that cannot
+do anything, and offering it anyway is how somebody learns the panel does not
+mean what it says.
+
+They are also the only widgets that can be added to a page with **no
+spreadsheet connected yet**, so a page can be given its headings before it
+has its numbers.
+
+### More ways to measure
+
+Every widget that offers a calculation now offers the ones that describe a
+**distribution** as well as the ones that describe a total. An average is the
+wrong summary the moment a column has a tail — and in a sales sheet it always
+does, because one fleet order drags the "typical" invoice somewhere no
+invoice has ever been.
+
+| Group | Measures |
+|---|---|
+| **Counting** | Count of rows · where filled · where empty · distinct · % filled · % empty |
+| **Totals** | Sum · Average · Minimum · Maximum |
+| **The middle** | **Median** · Most common value |
+| **The tail** | 25th / 75th / 90th / 95th / 99th percentile |
+| **The spread** | Interquartile range · Range · Standard deviation · Variance |
+| **Position** | First value · Last value |
+
+Percentiles **interpolate** between the two neighbouring observations rather
+than snapping to the nearest: a p90 that leaps as one row is added reads as
+noise, where an interpolated one moves smoothly. Standard deviation and
+variance are population rather than sample, because a dashboard is describing
+the rows it has and not inferring a wider population from a sample of them.
+
+*Most common value* is deliberately numeric-only. Every aggregation has to
+return a number — that is what a KPI, a bar and a gauge all consume — so a
+column of names reports the same nothing that `sum` already reports for it,
+rather than a plausible-looking `0` that secretly means "West".
+
+### More ways to write a number
+
+| Group | Formats |
+|---|---|
+| **Plain** | Plain · Thousands separator · One decimal · Two decimals |
+| **Percent** | Percent · Percent to one decimal · Always-signed percent |
+| **Rupees** | ₹1,23,456 · ₹1.2 Cr · ₹12.5 L · ₹1.25 Cr |
+| **Other currencies** | $1,234 · $1.2M · €1,234 · £1,234 |
+| **Deltas** | Always signed (+12 / −12) · Multiple (1.4×) |
+| **Finance** | Accounting — negatives in brackets, no minus sign to miss |
+| **Rank** | Ordinal (1st, 2nd, 3rd — and 11th, 12th, 13th) |
+| **Duration** | From seconds / minutes / hours → `2h 14m`, `2d 6h` · Days |
+| **Size** | File size (1.4 MB) |
+
+Money is grouped the way its **own** currency groups it: a dollar figure
+written `12,34,567` is a typo to everyone who reads dollars, and lakhs are
+equally wrong in euros. Durations show **two units, never three** — `2h 14m`
+is something you can hold in your head, `2h 14m 09s` is a stopwatch reading,
+and the seconds cost the minutes their legibility.
+
+### More colour ramps
+
+Eighteen ramps for the heat map, the calendar and the cohort grid, which all
+read from the same list so the same number is never two different colours on
+one page. Thirteen stay inside one hue and move only in lightness — a ramp
+that also changes hue reads as *categories* rather than as a quantity, which
+is the opposite of what a heat map is for. Four long ones (*Sunset*, *Ocean*,
+*Forest*, *Magma*) pass through a second hue, which is worth having where the
+values span orders of magnitude and a single-hue ramp runs out of
+distinguishable steps long before the numbers do.
+
+Text on a shaded cell picks dark or light ink by **perceived** lightness, not
+by a channel average — the eye is far more sensitive to green than to blue,
+and an average calls pure blue "mid-bright" then puts dark text on something
+almost black. Every step of every ramp is tested for contrast against the ink
+it will be given.
 
 ### Controls
 
@@ -1641,7 +2019,7 @@ other controls, not the top 10 of the raw tab which the others then whittle
 down to three.
 
 Controls render in the canvas wrapper above each widget, which is why all
-sixteen widget types get them without any widget knowing controls exist.
+every widget type gets them without any widget knowing controls exist.
 
 ### Chart styles
 
@@ -1696,6 +2074,76 @@ three-letter prefix, `#` for "not a letter" — the drill selects those rows
 by identity instead, so a click works everywhere rather than only where the
 maths happens to be expressible. A test asserts the two halves agree: every
 row a bar grouped is a row its drill selects.
+
+### Sorting by a column that is neither the label nor the bar
+
+A chart grouped by branch sorts by its bars or by its labels. Neither is
+what you want when the order that matters lives in a **third column**: the
+branches in the order head office lists them, the stages in the order the
+process runs, the models by launch date.
+
+**Sort by → Another column** adds two more questions, and only once it's
+chosen — an unused option shouldn't put two dead boxes on every chart:
+
+| | |
+|---|---|
+| **Order column** | The column that holds the order |
+| **Read as** | A group is many rows, and many rows are many values. This says which one it sorts on: *its first row*, *the lowest / earliest*, *the highest / latest*, *the total*, *the average*. |
+
+*Its first row* is the default and the commonest answer, because the usual
+reason to sort by a column is that the column is **the same on every row of
+the group** — a branch's region, a model's launch date. A total of that
+would be nonsense; the first one is simply what it says.
+
+The column is read as a number if it holds numbers, as a **date** if it
+holds dates, and as text otherwise, so a date column orders by date without
+anybody being asked which it is. (The two parsers are kept off each other's
+values: `01/03/2020` is a date and not the number 1,032,020, and the
+quantity `42` is a number and not a day in 2041.)
+
+A group with **nothing** in that column sorts **last** — both ways round.
+It isn't the smallest or the largest; it's the one that didn't answer.
+
+It works on charts, stacked and grouped bars, combo charts and **every level
+of a pivot** — the regions in head-office order with each region's branches
+in their own. Choosing the mode and then leaving the column blank changes
+nothing: a half-filled form leaves the chart exactly as it was.
+
+**Controls order their values the same way**, with two differences. There is
+no "highest first", because a control's options are values and have no bar
+to be highest; and there is **the order they appear in the sheet**, which is
+the only order that exists for a column somebody arranged by hand and cannot
+be worked out from the values themselves. Left alone, a control keeps the
+order it has always had — a bucketed one stays chronological, which putting
+it through the alphabet would destroy.
+
+Both the page's controls and a **single widget's** controls have it.
+
+### A fixed value you can pick instead of type
+
+Every rule in this app ends in somebody typing a value into a box, which
+means knowing it, spelling it, and matching the case and the stray trailing
+space the sheet happens to have. Get any of those wrong and the rule matches
+nothing — silently, and looking exactly like a rule that matches nothing
+legitimately.
+
+So a **sync** now also collects the distinct values of every column it
+reads, and the value boxes offer them: the condition builder's, and a
+control's **fixed / default value**. It's a list you can pick from *or* type
+past — a rule may legitimately name a value the column hasn't got yet
+("Cancelled", on a sheet where nothing has been cancelled) and a dropdown
+would make that impossible to say.
+
+The list is the **whole column**, narrowed by nothing. Somebody writing a
+rule is describing what the data *can* say, not what it happens to be saying
+while they write it. It's collected during the sync that has just read every
+row, so it costs no extra call to Google, and it lasts until the next
+sync — the same lifetime as everything else on the screen.
+
+A column with more distinct values than the cap is left **out** rather than
+truncated: a list of the first two hundred VINs is worse than no list, since
+it looks complete and the one being looked for almost certainly isn't in it.
+Those boxes stay plain boxes.
 
 ### Long charts scroll; they don't squash
 
@@ -1768,11 +2216,23 @@ a rule of the page rather than something anyone is meant to press.
 ### Themes
 
 **Admin → Pages → Widget theme** restyles every widget on a page at once.
-Each theme is a surface, a corner radius and an accent that go together —
-*Report (olive)*, *Soft product*, *Glass*, *Paper*, *High contrast*,
-*Midnight*, plus the plainer *Outlined / Elevated / Flat / Dark*. The accent
-is what colours a filter panel's selected buttons, so the panel matches the
-page it sits on.
+Each theme is a surface, a corner radius and an accent that go together, so
+picking one is *one* decision rather than six. The accent is what colours a
+filter panel's selected buttons, so the panel matches the page it sits on.
+
+| | |
+|---|---|
+| **Surfaces** | Plain white · Soft tint · Outlined · Elevated · Flat |
+| **Light looks** | Report (olive) · Soft product · Glass · Paper · Linen · Porcelain · Mint · Lavender · Blush · Sand · Cool slate |
+| **Documents** | Newsprint — a rule and whitespace, no shadows · Blueprint |
+| **Dark** | Dark · Midnight · Graphite · Carbon · Deep ocean · Plum · Forest · Espresso · Terminal · Smoked glass |
+| **Accessibility** | High contrast — a hard 2px border and a near-black accent that survive a projector and a bright room |
+
+Every light theme keeps its text on the near-black the widgets already use,
+so contrast is never worse than the stock card. Every dark one sets `invert`,
+which switches on the neutral-text remapping in `index.css` — widgets
+hard-code Tailwind `slate-*` classes, and without the remapping they would be
+unreadable on a dark surface.
 
 It's a **default, not an override**: a widget you restyled by hand keeps its
 own look. One page setting silently undoing a dozen individual decisions is
@@ -1981,6 +2441,117 @@ The rules are aimed at Recharts' own class names, which are checked against
 the installed copy of Recharts by a test — an upgrade that renamed one would
 otherwise turn the whole feature off silently.
 
+
+### How the chart is drawn, not just what it says
+
+The text settings above cover the writing *around* a chart. This covers the
+chart itself — and one piece of writing the text settings deliberately never
+reached: the label sitting **on** a mark.
+
+That gap was real rather than theoretical. A value written inside a bar was
+hard-coded white in five places, and a pie's labels were hard-coded slate in
+a sixth, so an admin with a pale palette or a dark card had no way to make
+their own chart readable. A pie label was the worst of them: it is drawn by
+a custom renderer, so it arrived with no class at all and *no* rule could
+see it — every other piece of chart text obeyed the colour setting and the
+pie's quietly did not.
+
+Find it under **Look → Chart drawing** on any chart widget, and under
+**Design → Every chart on this page** for the whole page at once.
+
+#### Start with a preset
+
+Eight named looks, each a complete opinion rather than a tint. Most people
+click one and are finished:
+
+| | |
+|---|---|
+| **Clean** | Hairline horizontal rules, solid marks. The safe one. |
+| **Minimal** | No grid, no axis lines. The data and nothing else. |
+| **Bold** | Thick strokes, square corners, strong rules. For a wall screen. |
+| **Soft** | Translucent fills, round corners, a dotted grid. |
+| **Print** | Near-black axes, hairline rules, a square white tooltip. Survives a photocopier. |
+| **Graph paper** | A full graticule, for reading exact values off the chart. |
+| **On dark** | Pale rules, bright marks, and a **dark tooltip** — a preset that restyles only the bars leaves a white box floating over them. |
+
+A preset is a starting point, not a cage: change one thing afterwards and
+the rest of it stands.
+
+#### Then change the one thing you want different
+
+Four short tabs rather than one long form.
+
+| Tab | What is in it |
+|---|---|
+| **Marks** | Fill opacity · line thickness · corner radius · bar gap · point size · the hairline between two pie slices |
+| **Grid & axes** | Which rules are drawn (horizontal / vertical / both / none) · rule colour and style · axis colour · axis lines and tick marks |
+| **Labels on marks** | The colour, size and weight of writing that sits **on** a bar or a slice |
+| **Tooltip** | Background, text, border, corners, size, and the band that follows the pointer |
+
+Everything starts at **inherit** and says so. Clearing a control hands it
+back to the page, and clearing the page hands it back to the app — which is
+not the same as setting it to whatever that happens to be today. A chart
+nobody has touched stores nothing and emits no properties at all, so this
+feature cannot drift the look of an existing dashboard by existing.
+
+#### The label colour has a better default than a colour
+
+"Labels on marks" opens on **Automatic**, and that is the point of it. A
+fixed white is right on an indigo bar and invisible on a pale yellow one,
+and an admin who picks a palette has not agreed to check the contrast of
+every colour in it. Automatic works the ink out per mark from that mark's
+own fill — by *perceived* lightness, not a channel average, so a saturated
+blue is correctly treated as dark — and it keeps getting it right when the
+palette changes later.
+
+Pick **one colour I choose** when the chart needs to match something else
+and you would rather it were consistent than legible.
+
+#### A live preview, drawn by the real code
+
+The sample chart above the controls is not a mock-up. It is wrapped in
+exactly the class and the properties the page will put on the widget, and
+its bars get their radius and gap from exactly the functions the page calls.
+If the preview looks right, the chart looks right — and if the preview is
+wrong, the bug is in the thing being previewed rather than in the picture of
+it. The tooltip in the corner is a standing sample rather than something you
+have to hover for, because a setting you can only see by holding the mouse
+still in the right place is a setting nobody discovers.
+
+#### How it reaches the chart
+
+The same mechanism as the text settings, and for the same reason: Recharts
+writes `fill`, `stroke` and `stroke-width` as presentation **attributes**,
+which any CSS rule outranks. So the grid, the axes, the tooltip, the fills
+and the on-mark labels are all custom properties on a wrapper plus one rule
+per decision, and no chart component had to learn that theming exists.
+
+Two settings are props instead, because CSS genuinely cannot reach them: a
+bar's **corner radius** is baked into its path data, and a **bar gap** is a
+layout the chart computes from the width it was given. Those are merged
+page-then-widget in JavaScript so they behave the same way the cascade makes
+everything else behave, rather than being the two that mysteriously ignore
+the page.
+
+Three things this is careful about, all of them tested:
+
+- **A page and a widget merge field by field**, unlike a *theme*, which is
+  one decision and is kept entire. Twenty separate decisions should combine:
+  a page that set a grid colour and a widget that set a bar radius end up
+  with both.
+- **The hover band is excluded from the mark rules.** Recharts builds the
+  tooltip cursor from the same `Rectangle` the bars are, so it carries
+  `recharts-rectangle` too — and without the exclusion, turning a chart's
+  fill down to 60% quietly faded the highlight with it.
+- **A histogram never gets the bar gap.** Its bins are contiguous ranges,
+  and air between them says the values in the gap did not happen. That is a
+  different chart, not a restyled one.
+
+One thing it does *not* promise: point size applies to the dots on a line or
+an area, not to scatter marks. A scatter symbol is a `<path>` with its
+geometry baked into the path data, so there is no radius to reach — and a
+control that silently did nothing on the one chart made entirely of points
+would be worse than not offering it.
 
 ### A colour belongs to a value, not to a position
 
@@ -2569,6 +3140,7 @@ src/
   lib/editMode.js         The unsaved edit, merged over the saved widget
   lib/editLayout.js       The editor on one side, the thing itself on the other
   lib/sidebarPeek.js      Hover the edge, the sidebar comes; it never reflows
+  lib/pageOrder.js        Pick a page up, drop it where it belongs
   lib/newWidget.js        A new widget, from the page or the panel
   lib/valueColors.js      One colour per value, everywhere, filtered or not
   lib/typography.js       Text colour, typeface and size, admin-chosen
@@ -2599,9 +3171,40 @@ src/
   components/WidgetControls.jsx  Per-widget control bar
   components/Sliders.jsx      Slider primitives, shared by both bars
   components/PageIcon.jsx     Page mark: image, falling back to emoji
-  components/widgets/*        The sixteen widget types
+  components/widgets/*        The thirty widget types
   pages/Dashboard.jsx     One canvas; resolves refs to labels and blends
   pages/Admin.jsx         Admin shell + admin/*Panel.jsx
+```
+
+The later widget families each keep their arithmetic in `lib/` and their
+drawing in `components/widgets/`, so every decision below is testable
+without a browser:
+
+```
+  lib/statGrid.js         Several numbers in one card, each against its own baseline
+  lib/bullet.js           Actual against target, with poor / fair / good bands
+  lib/movers.js           What changed between two periods, and by how much
+  lib/waffleData.js       Largest-remainder apportionment into a grid of squares
+  lib/calendarHeat.js     A span of days as weeks x weekdays, or as month blocks
+  lib/ganttData.js        One bar per row, on a shared time axis
+  lib/cohortData.js       Entities pinned to when they arrived, tracked after
+  lib/boxplot.js          Five-number summaries, Tukey whiskers, outliers
+  lib/sankeyData.js       Nodes, ribbons and the geometry that threads them
+  lib/wordCloud.js        Word frequency, stop-words, area-true sizing
+  lib/columnProfile.js    Fill rate, types, near-duplicates - is the sheet sound?
+  lib/heatColor.js        One colour ramp, shared by every shaded cell
+  lib/chartVisuals.js     How a chart is drawn: grid, axes, marks, tooltip, on-mark text
+  components/ChartVisualFields.jsx  Its editor, with presets and a live preview
+  lib/richText.js         The small Markdown a note needs, parsed to tokens
+  lib/countdown.js        Time to a date, time since one, or the time now
+  components/widgets/MetricWidgets.jsx        Stat grid, bullet, movers, waffle
+  components/widgets/TimeWidgets.jsx          Calendar, timeline, cohort
+  components/widgets/DistributionWidgets.jsx  Box plot, Sankey, word cloud, profile
+  components/widgets/CanvasWidgets.jsx        Note, image, countdown
+  pages/admin/MetricEditors.jsx        Their editors, one file per family
+  pages/admin/TimeEditors.jsx
+  pages/admin/DistributionEditors.jsx
+  pages/admin/CanvasEditors.jsx
 ```
 
 ---

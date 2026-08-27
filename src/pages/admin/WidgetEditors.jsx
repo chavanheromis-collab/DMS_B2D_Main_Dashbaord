@@ -14,6 +14,7 @@ import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUt
 import { Btn, Field, RowControls, SectionTabs, Select, TextInput, Toggle, listOps } from './ui.jsx'
 import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
 import { clashingPins, nextPinColor } from '../../lib/valueColors'
+import { DEFAULT_REDUCER, GROUP_SORTS, SORT_REDUCERS, sortsByColumn } from '../../lib/groupSort'
 import { defaultMeasureLabel, emptyMeasure } from '../../lib/pivotMeasures'
 import ConditionBuilder from './ConditionBuilder.jsx'
 
@@ -901,6 +902,46 @@ export function ScrollEditor({ widget, set, horizontal = false, hasLegend = true
 }
 
 /**
+ * How a list of groups is ordered.
+ *
+ * Two of the options need a second answer -- WHICH column, and how a group's
+ * many rows become the one value it sorts on -- so those selects appear only
+ * once such an option is chosen. Showing them always would put two dead
+ * boxes on every chart in the app.
+ *
+ * See lib/groupSort.js for why a reducer has to be asked for at all.
+ */
+export function SortFields({ widget, cols, set, className = 'w-44', label = 'Sort by' }) {
+  const sort = widget.sort || 'value_desc'
+  return (
+    <>
+      <Field label={label} className={className}>
+        <Select value={sort} onChange={(v) => set({ sort: v })} options={GROUP_SORTS} />
+      </Field>
+      {sortsByColumn(sort) && (
+        <>
+          <Field label="Order column" className={className}>
+            <Select
+              value={widget.sortColumn || ''}
+              onChange={(v) => set({ sortColumn: v })}
+              options={cols}
+              placeholder="— column —"
+            />
+          </Field>
+          <Field label="Read as" className={className} hint="A group is many rows; this picks the one it sorts on.">
+            <Select
+              value={widget.sortReducer || DEFAULT_REDUCER}
+              onChange={(v) => set({ sortReducer: v })}
+              options={SORT_REDUCERS}
+            />
+          </Field>
+        </>
+      )}
+    </>
+  )
+}
+
+/**
  * Fixed colours for the values that have a meaning.
  *
  * Red for "Cancelled" is not decoration -- a reader who has learned the
@@ -1152,18 +1193,7 @@ export function PivotEditor({ widget, cols, set }) {
 
       {totalsOnly && (
         <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
-          <Field label="Sort each level by" className="w-52" hint="Applied at every depth, not just the leaves.">
-            <Select
-              value={widget.sort || 'value_desc'}
-              onChange={(v) => set({ sort: v })}
-              options={[
-                { value: 'value_desc', label: 'Value, highest first' },
-                { value: 'value_asc', label: 'Value, lowest first' },
-                { value: 'name_asc', label: 'Name, A→Z' },
-                { value: 'name_desc', label: 'Name, Z→A' },
-              ]}
-            />
-          </Field>
+          <SortFields widget={widget} cols={cols} set={set} className="w-52" label="Sort each level by" />
           <Field label="Heading for the value column" className="w-48">
             <TextInput value={widget.valueLabel || ''} onChange={(v) => set({ valueLabel: v })} placeholder="Total" />
           </Field>

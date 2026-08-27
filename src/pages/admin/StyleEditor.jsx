@@ -9,6 +9,7 @@ import {
 } from '../../lib/widgetStyle'
 import { Field, Select, TextInput } from './ui.jsx'
 import TypographyFields, { MarkTextFields } from '../../components/TypographyFields.jsx'
+import ChartVisualFields from '../../components/ChartVisualFields.jsx'
 import { hasChartText } from '../../lib/typography'
 
 /**
@@ -118,19 +119,28 @@ export default function StyleEditor({ widget, set }) {
           <div className="space-y-2 rounded-lg border border-violet-100 bg-white/60 p-2">
             <MarkTextFields
               label="Chart text"
-              hint="Axis ticks, axis titles and the labels on the marks."
+              hint="Axis ticks, axis titles, and a pie's labels."
               value={style.chartText}
               onChange={(v) => setStyle({ chartText: v })}
             />
             <MarkTextFields
               label="Legend"
-              hint="The key, on its own. Labels drawn inside a bar keep their own colour."
+              hint="The key, on its own — read once and deliberately, so almost never the same size as an axis."
               value={style.legendText}
               onChange={(v) => setStyle({ legendText: v })}
             />
           </div>
         )}
       </div>
+
+      {/* The text is one decision and the DRAWING is another: the grid, the
+          axes, the tooltip, how solid a bar is, and the writing that sits
+          on the marks rather than beside them. */}
+      {hasChartText(widget.type) && (
+        <div className="mt-2 rounded-lg border border-violet-100 bg-white/60 p-2">
+          <ChartVisualFields value={style.chartVisuals} onChange={(v) => setStyle({ chartVisuals: v })} />
+        </div>
+      )}
 
       {/* A live sample, because reading six numbers back as a card in your
           head is exactly the thing a preview should do for you. It is drawn

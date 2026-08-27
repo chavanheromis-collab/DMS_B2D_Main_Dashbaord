@@ -1,6 +1,7 @@
 import { uid } from './config.js'
-import { bucketedValues, shownValue } from './dataUtils.js'
+import { bucketedValues, groupKey, groupSortKey, shownValue } from './dataUtils.js'
 import { applyFilters, filterIsActive } from './filterEngine.js'
+import { DEFAULT_REDUCER, byKey, sortsByColumn } from './groupSort.js'
 
 // ---------------------------------------------------------------------
 // Page controls — one list, every kind
@@ -113,6 +114,8 @@ export function controlOptions(control, rows, dateOrder = 'DMY', selected) {
           .sort(new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare)
       : bucketedValues(rows, columns[0], control, dateOrder)
 
+  const ordered = orderOptions(options, control, rows, dateOrder)
+
   // A value that is CURRENTLY SELECTED always stays on the list, even after
   // the other filters have narrowed it out of existence. Without this rule,
   // picking two things that do not overlap makes one of them vanish while it
@@ -120,9 +123,77 @@ export function controlOptions(control, rows, dateOrder = 'DMY', selected) {
   // no way to undo what emptied it.
   const kept = (Array.isArray(selected) ? selected : selected ? [selected] : [])
     .map((v) => String(v).trim())
-    .filter((v) => v && !options.includes(v))
+    .filter((v) => v && !ordered.includes(v))
 
-  return kept.length ? [...options, ...kept] : options
+  return kept.length ? [...ordered, ...kept] : ordered
+}
+
+/**
+ * The order a control's values are offered in.
+ *
+ * Nothing chosen means nothing changes -- the list keeps the order it was
+ * built in, which for a bucketed control is chronological and for every
+ * other one is A to Z. That default is deliberate: it is the order this has
+ * always used, and re-sorting it here would put Jan 2026 before Mar 2025.
+ *
+ * `sheet` is the order the rows are in, which is the only order that exists
+ * for a column somebody has arranged by hand -- stages in process order,
+ * branches in head-office order -- and cannot be reconstructed from the
+ * values themselves.
+ */
+export function orderOptions(options, control, rows, dateOrder = 'DMY') {
+  const sort = control?.optionSort
+  if (!sort || !options.length) return options
+
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+  if (sort === 'name_asc') return [...options].sort((a, b) => collator.compare(a, b))
+  if (sort === 'name_desc') return [...options].sort((a, b) => collator.compare(b, a))
+
+  // Both remaining orders are read off the rows, so both need to know which
+  // rows produced which option.
+  const groups = optionGroups(options, control, rows, dateOrder)
+
+  if (sort === 'sheet') {
+    const seen = new Map()
+    options.forEach((value) => seen.set(value, Number.MAX_SAFE_INTEGER))
+    ;(rows || []).forEach((row, i) => {
+      const label = optionLabel(row, control, dateOrder)
+      if (label !== null && seen.has(label) && seen.get(label) === Number.MAX_SAFE_INTEGER) seen.set(label, i)
+    })
+    return [...options].sort((a, b) => seen.get(a) - seen.get(b))
+  }
+
+  if (sortsByColumn(sort) && control?.sortColumn) {
+    const keys = new Map(
+      options.map((value) => [
+        value,
+        groupSortKey(groups.get(value), control.sortColumn, control.sortReducer || DEFAULT_REDUCER, dateOrder),
+      ])
+    )
+    return [...options].sort(byKey((value) => keys.get(value), sort))
+  }
+
+  return options
+}
+
+/** The label one row contributes, matching how the list was built. */
+function optionLabel(row, control, dateOrder) {
+  const columns = controlColumns(control)
+  if (columns.length > 1) return shownValue(row, control, dateOrder) || null
+  return groupKey(row, columns[0], control, dateOrder)
+}
+
+/** Which rows are behind each offered value. */
+function optionGroups(options, control, rows, dateOrder) {
+  const wanted = new Set(options)
+  const out = new Map()
+  for (const row of rows || []) {
+    const label = optionLabel(row, control, dateOrder)
+    if (label === null || !wanted.has(label)) continue
+    if (!out.has(label)) out.set(label, [])
+    out.get(label).push(row)
+  }
+  return out
 }
 
 /**

@@ -1,5 +1,6 @@
 import { requireUser, getAccess, adminDb } from './_lib/firebaseAdmin.js'
 import { fetchManyTabs, listTabs, updateCell } from './_lib/googleSheets.js'
+import { valueIndexFor } from '../src/lib/columnValues.js'
 
 // ---------------------------------------------------------------------
 // The one API route
@@ -194,9 +195,19 @@ async function handleGet(req, res, uid) {
     const data = await fetchManyTabs(source.sheetId, tabs)
 
     const tabHeaders = {}
+    // What is actually IN each column, so a condition can be PICKED rather
+    // than typed from memory and spelled wrong. Collected here because the
+    // rows are already in hand -- this costs no extra call to Google -- and
+    // it lasts until the next sync, which is the right lifetime: it
+    // describes the data as it was last read, and so does everything else.
+    const tabValues = {}
     const summary = {}
     for (const [tab, result] of Object.entries(data)) {
       if (result?.headers?.length) tabHeaders[tab] = result.headers
+      if (result?.rows?.length) {
+        const index = valueIndexFor(result.rows, result.headers || [])
+        if (Object.keys(index).length > 0) tabValues[tab] = index
+      }
       summary[tab] = {
         rows: result?.rows?.length ?? 0,
         columns: result?.headers?.length ?? 0,
@@ -213,7 +224,9 @@ async function handleGet(req, res, uid) {
     const syncedAt = new Date().toISOString()
     // Awaited, unlike the fire-and-forget sync on a normal read: the panel
     // reports success, so it must not claim a write that never landed.
-    await adminDb.doc(`dataSources/${sourceId}`).set({ tabHeaders, lastSyncedAt: syncedAt }, { merge: true })
+    await adminDb
+      .doc(`dataSources/${sourceId}`)
+      .set({ tabHeaders, tabValues, lastSyncedAt: syncedAt }, { merge: true })
 
     return res.status(200).json({ tabs: summary, syncedAt })
   }

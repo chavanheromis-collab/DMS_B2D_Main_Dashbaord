@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { activeSection, sectionMark, visibleSections } from '../../lib/sectionTabs.js'
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 
@@ -17,6 +17,10 @@ export const WorkspaceCtx = createContext({
   tabHeaders: {},
   sources: [],
   labelFor: (ref) => ref,
+  // Every distinct value in one column, collected at the last sync. Null
+  // where nothing was indexed -- a column of fifty thousand VINs has no
+  // useful dropdown, and the caller falls back to a plain box.
+  valuesFor: () => null,
 })
 
 export function useWorkspaceCtx() {
@@ -90,18 +94,96 @@ export function Select({ value, onChange, options, placeholder, disabled, classN
   )
 }
 
-export function TextInput({ value, onChange, placeholder, type = 'text', className = '', disabled }) {
+/**
+ * A text field that types at the speed of the keyboard.
+ *
+ * It used to hand every keystroke straight up to whoever owned the value,
+ * which was fine while the only thing above it was a form. It is not fine
+ * now: the same fields drive the LIVE editor on the dashboard, where the
+ * owner is the page, and the page redraws a canvas of charts. Every
+ * character waited for that, and typing a widget title felt like typing
+ * through treacle.
+ *
+ * So the field owns what is in it, and tells the page a beat later. The
+ * character appears immediately because nothing outside this component has
+ * to render for it to; the page catches up ~140ms after you stop, which
+ * looks live and costs one render instead of thirty.
+ *
+ * Three things this has to get right, and each is a bug if it does not:
+ *
+ *   A VALUE CHANGED FROM OUTSIDE still wins -- switching to another widget
+ *   must not leave the last one's title sitting in the box.
+ *
+ *   LEAVING THE FIELD FLUSHES. Nobody expects to lose the last thing they
+ *   typed because they clicked Save within the timeout.
+ *
+ *   UNMOUNTING FLUSHES TOO, for the same reason: closing the panel is how
+ *   people finish.
+ */
+export function TextInput({ value, onChange, placeholder, type = 'text', className = '', disabled, list }) {
+  const incoming = value ?? ''
+  const [text, setText] = useState(incoming)
+  const timer = useRef(null)
+  // The latest of each, so the flush on the way out never fires a stale
+  // handler or an already-delivered value.
+  const latest = useRef({ text: incoming, onChange, sent: incoming })
+  latest.current.onChange = onChange
+
+  // Someone else changed it: a different widget, an undo, a reset. What is
+  // on screen is theirs, not the half-typed thing this field remembers.
+  useEffect(() => {
+    if (incoming === latest.current.sent) return
+    latest.current.sent = incoming
+    latest.current.text = incoming
+    setText(incoming)
+  }, [incoming])
+
+  const send = (next) => {
+    clearTimeout(timer.current)
+    if (next === latest.current.sent) return
+    latest.current.sent = next
+    latest.current.onChange?.(next)
+  }
+
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current)
+      // Closing the panel is how people finish, so it has to count.
+      if (latest.current.text !== latest.current.sent) {
+        latest.current.sent = latest.current.text
+        latest.current.onChange?.(latest.current.text)
+      }
+    },
+    []
+  )
+
   return (
     <input
       type={type}
-      value={value ?? ''}
+      value={text}
       disabled={disabled}
       placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
+      list={list}
+      onChange={(e) => {
+        const next = e.target.value
+        setText(next)
+        latest.current.text = next
+        clearTimeout(timer.current)
+        timer.current = setTimeout(() => send(next), TYPING_PAUSE)
+      }}
+      onBlur={() => send(latest.current.text)}
       className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50 ${className}`}
     />
   )
 }
+
+/**
+ * How long after the last keystroke the rest of the app hears about it.
+ *
+ * Long enough that a word is one update rather than five; short enough that
+ * a live preview still reads as live.
+ */
+export const TYPING_PAUSE = 140
 
 export function Toggle({ checked, onChange, label }) {
   return (

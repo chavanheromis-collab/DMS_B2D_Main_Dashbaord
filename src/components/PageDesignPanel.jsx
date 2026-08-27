@@ -11,6 +11,7 @@ import {
 } from '../lib/pageDesign'
 import { WIDGET_THEMES } from '../lib/widgetStyle'
 import TypographyFields, { MarkTextFields } from './TypographyFields.jsx'
+import ChartVisualFields from './ChartVisualFields.jsx'
 
 /**
  * A page's whole appearance, edited on the page.
@@ -235,6 +236,18 @@ export default function PageDesignPanel({ design, theme, onChange, onThemeChange
                 hint="The keys, on their own — usually the thing worth enlarging."
                 value={d.legendText}
                 onChange={(v) => set({ legendText: v })}
+              />
+            </div>
+
+            {/* And how every chart on the page is DRAWN. A widget that sets
+                its own still wins, field by field -- a page that chose a
+                grid colour and a widget that chose a bar radius end up with
+                both, which is what the cascade would do anyway. */}
+            <div className="border-t border-slate-100 pt-2">
+              <ChartVisualFields
+                value={d.chartVisuals}
+                onChange={(v) => set({ chartVisuals: v })}
+                title="Every chart on this page"
               />
             </div>
           </>

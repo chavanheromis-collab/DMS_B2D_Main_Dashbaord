@@ -250,9 +250,20 @@ function renderLabel({ labelled, labelStyle, fmt, percentBase = 'total' }) {
       percentBase
     )
 
+    // The class is what makes this label reachable at all. Recharts names
+    // its own pie labels `.recharts-pie-label-text`, and index.css already
+    // remaps that to the admin's chosen chart text colour, size, typeface
+    // and weight -- but this label is drawn by a custom renderer, so it
+    // arrived with no class and no rule could see it. Every other piece of
+    // chart text on the page obeyed the setting and the pie's did not.
+    //
+    // `fill` and `fontSize` stay as attributes: they are the default, and
+    // a CSS rule outranks an attribute, so they apply exactly when nobody
+    // has chosen otherwise.
     return (
       <text
         key={index}
+        className="recharts-pie-label-text"
         x={x}
         y={y}
         textAnchor={right ? 'start' : 'end'}

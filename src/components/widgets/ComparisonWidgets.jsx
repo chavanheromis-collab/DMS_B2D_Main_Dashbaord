@@ -20,6 +20,7 @@ import { HEAT_SCALES, PALETTE } from '../../lib/config'
 import { seriesColor } from '../../lib/seriesData.js'
 import { buildRoster, needsRoster } from '../../lib/valueColors.js'
 import { chartExtent, legendStyle } from '../../lib/chartScroll.js'
+import { barGapProps, barRadius, gridProps } from '../../lib/chartVisuals.js'
 
 const tooltipBox = { borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }
 
@@ -74,6 +75,7 @@ function Shell({ widget, icon, caption, tabError, children }) {
  */
 export function StackedWidget({
   widget,
+  chartVisuals = null,
   rows,
   unfilteredRows,
   tabError,
@@ -98,6 +100,9 @@ export function StackedWidget({
       },
       dateOrder,
       sort: widget.sort || 'value_desc',
+      // Sorting by a column that is neither the group nor the measure.
+      sortColumn: widget.sortColumn,
+      sortReducer: widget.sortReducer,
     })
 
   const { data, series } = useMemo(
@@ -156,6 +161,7 @@ export function StackedWidget({
           >
           <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 280}>
             <BarChart
+              {...(barGapProps(chartVisuals) || {})}
               // "Every bar the same height" is the question "what is the MIX
               // here", asked of categories whose totals are wildly different
               // -- a branch with 40 rows and one with 4,000 are the same
@@ -166,7 +172,14 @@ export function StackedWidget({
               onClick={onChartClick}
               {...cursorProp}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
+              {!gridProps(chartVisuals)?.hidden && (
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="#eef2f7"
+                  vertical={false}
+                  {...(gridProps(chartVisuals) || {})}
+                />
+              )}
               <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={54} />
               {/* A 100% chart's axis is a percentage. Recharts scales the
                   bars to 0-1, so the axis has to say so or it reads "0.4"
@@ -196,7 +209,9 @@ export function StackedWidget({
                   // and a grouped chart in recharts.
                   stackId={grouped ? undefined : 'a'}
                   fill={seriesColor(key, i, widget.seriesColors, widget.palette, roster)}
-                  radius={grouped || i === series.length - 1 ? [5, 5, 0, 0] : 0}
+                  radius={
+                    grouped || i === series.length - 1 ? barRadius(chartVisuals) ?? [5, 5, 0, 0] : 0
+                  }
                   onClick={(entry) => drill(entry?.name ?? entry?.payload?.name)}
                   cursor="pointer"
                 >
@@ -227,12 +242,14 @@ export function StackedWidget({
  */
 export function ComboWidget({
   widget,
+  chartVisuals = null,
   rows,
   unfilteredRows,
   tabError,
   crossFilters = [],
   onCrossFilter,
   fillHeight = false,
+  dateOrder = 'DMY',
 }) {
   const data = useMemo(
     () =>
@@ -244,8 +261,11 @@ export function ComboWidget({
         ],
         limit: widget.limit || 12,
         sort: widget.sort || 'value_desc',
+        sortColumn: widget.sortColumn,
+        sortReducer: widget.sortReducer,
+        dateOrder,
       }),
-    [widget, rows, unfilteredRows]
+    [widget, rows, unfilteredRows, dateOrder]
   )
 
   const activeName = crossFilters.find((cf) => cf.id === `combo_${widget.id}`)?.value
@@ -289,7 +309,14 @@ export function ComboWidget({
               onClick={onChartClick}
               {...cursorProp}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
+              {!gridProps(chartVisuals)?.hidden && (
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="#eef2f7"
+                  vertical={false}
+                  {...(gridProps(chartVisuals) || {})}
+                />
+              )}
               <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={54} />
               <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
@@ -309,7 +336,7 @@ export function ComboWidget({
                 dataKey="barValue"
                 name={widget.barLabel || 'Bars'}
                 fill={barColor}
-                radius={[5, 5, 0, 0]}
+                radius={barRadius(chartVisuals) ?? [5, 5, 0, 0]}
                 onClick={(entry) => drill(entry?.name ?? entry?.payload?.name)}
                 cursor="pointer"
               >
@@ -344,7 +371,7 @@ export function ComboWidget({
  * rather than aggregates -- useful for spotting outliers that any grouping
  * would average away.
  */
-export function ScatterWidget({ widget, rows, unfilteredRows, tabError, fillHeight = false }) {
+export function ScatterWidget({ widget, rows, unfilteredRows, tabError, fillHeight = false, chartVisuals = null }) {
   const shape = (input) =>
     scatterPoints(input, {
       xColumn: widget.xColumn,
@@ -384,7 +411,9 @@ export function ScatterWidget({ widget, rows, unfilteredRows, tabError, fillHeig
         <div className="min-h-[240px] flex-1">
           <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 280}>
             <ScatterChart margin={{ top: 8, right: 12, bottom: 5, left: -8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+              {!gridProps(chartVisuals)?.hidden && (
+                <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" {...(gridProps(chartVisuals) || {})} />
+              )}
               <XAxis
                 type="number"
                 dataKey="x"

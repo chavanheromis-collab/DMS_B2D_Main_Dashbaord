@@ -28,6 +28,7 @@ import {
   typographyClass,
   typographyVars,
 } from './typography.js'
+import { DEFAULT_CHART_VISUALS, chartVisualClass, chartVisualVars } from './chartVisuals.js'
 
 export const GAP_MIN = 0
 export const GAP_MAX = 64
@@ -43,6 +44,11 @@ export const DEFAULT_DESIGN = {
   // And the same two for every chart on the page.
   chartText: { ...DEFAULT_MARK_TEXT },
   legendText: { ...DEFAULT_MARK_TEXT },
+  // How every chart on the page is drawn. A widget that sets its own still
+  // wins -- the widget's properties are emitted on a wrapper INSIDE this
+  // one, so the cascade does the overriding without anything comparing the
+  // two. See lib/chartVisuals.js.
+  chartVisuals: { ...DEFAULT_CHART_VISUALS },
   // Two numbers, not one: the eye reads a row and a column differently, and
   // a dashboard that needs air between columns very often wants its rows
   // tighter than that, not looser.
@@ -92,7 +98,7 @@ export function clampDesign(design) {
 /**
  * The design, as CSS custom properties for the canvas wrapper.
  *
- * Custom properties rather than props threaded through fifteen widgets: the
+ * Custom properties rather than props threaded through every widget: the
  * card already reads `--card-*` (see index.css), so a page-wide surface is
  * one declaration on an ancestor and no widget learns anything new. Only
  * the properties actually set are emitted, so an untouched page inherits
@@ -114,6 +120,7 @@ export function designVars(design) {
     ...(typographyVars(d) || {}),
     ...(markTextVars(d.chartText, 'chart') || {}),
     ...(markTextVars(d.legendText, 'legend') || {}),
+    ...(chartVisualVars(d.chartVisuals) || {}),
   }
 }
 
@@ -126,7 +133,12 @@ export function designVars(design) {
  */
 export function designClass(design) {
   const d = clampDesign(design)
-  return [typographyClass(d), markTextClass(d.chartText, 'chart'), markTextClass(d.legendText, 'legend')]
+  return [
+    typographyClass(d),
+    markTextClass(d.chartText, 'chart'),
+    markTextClass(d.legendText, 'legend'),
+    chartVisualClass(d.chartVisuals),
+  ]
     .filter(Boolean)
     .join(' ')
 }

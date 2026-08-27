@@ -38,6 +38,7 @@ import {
   toNumber,
 } from '../../lib/dataUtils'
 import { matchesConditions } from '../../lib/filterEngine'
+import { gridProps } from '../../lib/chartVisuals.js'
 import { MousePointerClick } from 'lucide-react'
 
 // =====================================================================
@@ -51,6 +52,7 @@ import { MousePointerClick } from 'lucide-react'
  */
 export function TrendWidget({
   widget,
+  chartVisuals = null,
   rows,
   unfilteredRows,
   tabError,
@@ -385,7 +387,14 @@ export function TrendWidget({
                     <stop offset="100%" stopColor={widget.color || '#4F46E5'} stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
+                {!gridProps(chartVisuals)?.hidden && (
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#eef2f7"
+                    vertical={false}
+                    {...(gridProps(chartVisuals) || {})}
+                  />
+                )}
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                 <YAxis
                   tick={{ fontSize: 10 }}
@@ -585,6 +594,9 @@ export function PivotWidget({
             valueColumn: widget.column,
             aggregation: widget.aggregation || 'count',
             sort: widget.sort || 'value_desc',
+            // Sorting by a column that is neither the group nor the measure.
+            sortColumn: widget.sortColumn,
+            sortReducer: widget.sortReducer,
             maxGroups: widget.maxGroups || 0,
             maxRows: widget.maxRows || 400,
             buckets: widget.buckets,

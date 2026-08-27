@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  GripVertical,
   LayoutGrid,
   LogOut,
   Plus,
@@ -51,6 +52,11 @@ export default function Sidebar({
   editing = false,
   onAddPage,
   onEditPage,
+  // Pick a page up and drop it where it belongs. The sidebar is the only
+  // place the order of pages is visible, so it is the only place worth
+  // reordering them from.
+  onMovePage,
+  moveScope = 'you',
   // A transient hover-open, distinct from `collapsed`, which is the pinned
   // state a click set. Nothing the mouse does may undo a click.
   peeking = false,
@@ -60,6 +66,16 @@ export default function Sidebar({
   const { isAdmin, signOut, userDoc } = useAuth()
   const navigate = useNavigate()
   const [openGroups, setOpenGroups] = useLocalState('dash.openGroups', {})
+  // What is in the hand, and what it is hovering over. Held in state rather
+  // than only in the drag payload because the row being hovered has to draw
+  // itself differently -- a drag with no visible target is a guess.
+  const [dragId, setDragId] = useState(null)
+  const [overId, setOverId] = useState(null)
+
+  // Any signed-in person may arrange their own sidebar, so this is not
+  // gated on edit mode. What edit mode changes is WHOSE order it writes --
+  // see `moveScope`, and `movePage` in Dashboard.
+  const canDrag = Boolean(onMovePage) && !collapsed
 
   const filtered = useMemo(() => {
     const q = (query || '').trim().toLowerCase()
@@ -172,6 +188,34 @@ export default function Sidebar({
                 return (
                   <button
                     key={page.id}
+                    draggable={canDrag}
+                    onDragStart={(e) => {
+                      if (!canDrag) return
+                      setDragId(page.id)
+                      // Some browsers refuse to start a drag with no payload.
+                      e.dataTransfer.effectAllowed = 'move'
+                      e.dataTransfer.setData('text/plain', page.id)
+                    }}
+                    onDragOver={(e) => {
+                      if (!canDrag || !dragId || dragId === page.id) return
+                      // Without this the browser refuses the drop, and the
+                      // whole thing silently does nothing.
+                      e.preventDefault()
+                      setOverId(page.id)
+                    }}
+                    onDragLeave={() => setOverId((id) => (id === page.id ? null : id))}
+                    onDrop={(e) => {
+                      if (!canDrag) return
+                      e.preventDefault()
+                      const moved = dragId || e.dataTransfer.getData('text/plain')
+                      setDragId(null)
+                      setOverId(null)
+                      if (moved && moved !== page.id) onMovePage(moved, page.id)
+                    }}
+                    onDragEnd={() => {
+                      setDragId(null)
+                      setOverId(null)
+                    }}
                     onClick={() => go(page.id)}
                     // The tooltip carries the FULL page name whenever it
                     // differs from the short nav label, so shortening a
@@ -187,8 +231,13 @@ export default function Sidebar({
                       active
                         ? 'bg-gradient-to-r from-indigo-500 to-sky-400 font-semibold text-white shadow-sm'
                         : 'text-slate-600 hover:bg-slate-100'
-                    } ${collapsed ? 'justify-center px-0' : ''}`}
+                    } ${collapsed ? 'justify-center px-0' : ''} ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''} ${
+                      dragId === page.id ? 'opacity-40' : ''
+                    } ${overId === page.id ? 'ring-2 ring-indigo-400' : ''}`}
                   >
+                    {canDrag && (
+                      <GripVertical size={13} className={active ? 'text-white/70' : 'text-slate-300'} aria-hidden />
+                    )}
                     <PageIcon page={page} size={17} />
                     {!collapsed && <span className="truncate">{label}</span>}
                     {editing && onEditPage && !collapsed && (
@@ -221,6 +270,14 @@ export default function Sidebar({
               })}
           </div>
         ))}
+
+        {/* Which order a drag is about to change. Two behaviours on one
+            gesture is only fair if it says which one is running. */}
+        {canDrag && dragId && (
+          <p className="px-2 pb-1 text-[10px] font-medium text-indigo-600">
+            {moveScope === 'everyone' ? 'Setting the order for everyone' : 'Setting your own order'}
+          </p>
+        )}
 
         {editing && onAddPage && (
           <button

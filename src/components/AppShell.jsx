@@ -27,6 +27,8 @@ export default function AppShell({
   editing = false,
   onAddPage,
   onEditPage,
+  onMovePage,
+  moveScope,
 }) {
   const [collapsed, setCollapsed] = useLocalState('dash.sidebarCollapsed', false)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -100,6 +102,8 @@ export default function AppShell({
         editing={editing}
         onAddPage={onAddPage}
         onEditPage={onEditPage}
+        onMovePage={onMovePage}
+        moveScope={moveScope}
       />
 
       {/* The content offset has to depend on BOTH the viewport (only inset at

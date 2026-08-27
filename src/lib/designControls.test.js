@@ -278,7 +278,7 @@ test('every one of these is admin-only', () => {
   for (const action of ['onRename={isAdmin', 'onDuplicate={isAdmin', 'onDelete={isAdmin']) {
     assert.ok(dashboard.includes(action), action)
   }
-  assert.ok(dashboard.includes('async function writeWidgets(next) { if (!isAdmin || !page?.id) return'))
+  assert.ok(dashboard.includes('async function writeWidgets(next, fromHistory = false) { if (!isAdmin || !page?.id) return'))
 })
 
 // --- each row sorts itself, and the header comes when it is called -------

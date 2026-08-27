@@ -1,5 +1,6 @@
 import {
   AGGREGATIONS,
+  DATALESS_WIDGETS,
   WIDGET_TYPES,
   KPI_PALETTE,
   NUMBER_FORMATS,
@@ -18,6 +19,21 @@ export { WIDGET_TYPES }
 import { looksLikeDateColumn } from './dataUtils.js'
 import { DEFAULT_BLEND } from './blend.js'
 import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from './flow.js'
+// Every new widget type keeps its own defaults next to its own logic, and
+// this file only assembles them. The alternative -- a second copy of each
+// default here -- is how the two drift apart the first time one is tuned.
+import { DEFAULT_STAT, DEFAULT_STAT_GRID } from './statGrid.js'
+import { DEFAULT_BULLET, DEFAULT_BULLET_ROW } from './bullet.js'
+import { DEFAULT_MOVERS } from './movers.js'
+import { DEFAULT_WAFFLE } from './waffleData.js'
+import { DEFAULT_CALENDAR } from './calendarHeat.js'
+import { DEFAULT_GANTT } from './ganttData.js'
+import { DEFAULT_COHORT } from './cohortData.js'
+import { DEFAULT_BOXPLOT } from './boxplot.js'
+import { DEFAULT_SANKEY } from './sankeyData.js'
+import { DEFAULT_WORDCLOUD } from './wordCloud.js'
+import { DEFAULT_PROFILE } from './columnProfile.js'
+import { DEFAULT_COUNTDOWN } from './countdown.js'
 
 // ---------------------------------------------------------------------
 // A new widget, ready to look at
@@ -44,7 +60,11 @@ import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from './flow.js'
  * title, and never like the internal ref the widget actually stores.
  */
 export function makeWidget({ type = 'table', tab, name, cols = [], kpiCount = 0 } = {}) {
-  if (!tab) return null
+  // A note, an image and a countdown read no rows, so requiring a tab
+  // before one can be added would mean a page with no spreadsheet
+  // connected yet cannot even be given a heading. Everything else still
+  // needs to know where its numbers come from.
+  if (!tab && !DATALESS_WIDGETS.includes(type)) return null
 
   const base = {
     id: uid('w'),
@@ -304,6 +324,165 @@ export function makeWidget({ type = 'table', tab, name, cols = [], kpiCount = 0 
       conditionsA: [],
       conditionsB: [],
     })
+  } else if (type === 'stat') {
+    // Three stats rather than an empty grid: the whole point of this
+    // widget is that the numbers sit together, and one number in a
+    // three-column grid demonstrates nothing about what it is for.
+    const dateCol = cols.find(looksLikeDateColumn) || ''
+    Object.assign(base, {
+      ...DEFAULT_STAT_GRID,
+      title: `${name} at a glance`,
+      width: 'full',
+      dateColumn: dateCol,
+      stats: [
+        { ...DEFAULT_STAT, id: uid('st'), label: 'Total rows', color: PALETTE[0], compare: dateCol ? 'previous' : 'none' },
+        {
+          ...DEFAULT_STAT,
+          id: uid('st'),
+          label: cols[0] ? `${cols[0]} filled` : 'Filled',
+          color: PALETTE[1],
+          aggregation: 'count_filled',
+          column: cols[0] || null,
+        },
+        {
+          ...DEFAULT_STAT,
+          id: uid('st'),
+          label: cols[0] ? `Distinct ${cols[0]}` : 'Distinct',
+          color: PALETTE[2],
+          aggregation: 'count_distinct',
+          column: cols[0] || null,
+        },
+      ],
+    })
+  } else if (type === 'bullet') {
+    Object.assign(base, {
+      ...DEFAULT_BULLET,
+      title: `${name} against target`,
+      width: 'half',
+      rows: [
+        {
+          ...DEFAULT_BULLET_ROW,
+          id: uid('bl'),
+          label: name,
+          color: PALETTE[0],
+          target: 100,
+        },
+      ],
+    })
+  } else if (type === 'movers') {
+    const dateCol = cols.find(looksLikeDateColumn) || ''
+    Object.assign(base, {
+      ...DEFAULT_MOVERS,
+      title: `${name} — what changed`,
+      width: 'twothird',
+      groupBy: cols[0] || '',
+      dateColumn: dateCol,
+      // With no date column there is no "before", so the widget opens on
+      // the mode that at least has two sides to compare.
+      periodMode: dateCol ? 'date' : 'conditions',
+    })
+  } else if (type === 'waffle') {
+    Object.assign(base, {
+      ...DEFAULT_WAFFLE,
+      title: `${name} share`,
+      width: 'third',
+      groupBy: cols[0] || '',
+    })
+  } else if (type === 'calendar') {
+    Object.assign(base, {
+      ...DEFAULT_CALENDAR,
+      title: `${name} by day`,
+      width: 'full',
+      dateColumn: cols.find(looksLikeDateColumn) || '',
+    })
+  } else if (type === 'gantt') {
+    // Two date columns if the tab has them, which is what makes this draw
+    // something the moment it lands rather than after four more choices.
+    const dates = cols.filter(looksLikeDateColumn)
+    Object.assign(base, {
+      ...DEFAULT_GANTT,
+      title: `${name} timeline`,
+      width: 'full',
+      startColumn: dates[0] || '',
+      endColumn: dates[1] || '',
+      labelColumn: cols.find((c) => !looksLikeDateColumn(c)) || cols[0] || '',
+    })
+  } else if (type === 'cohort') {
+    Object.assign(base, {
+      ...DEFAULT_COHORT,
+      title: `${name} retention`,
+      width: 'full',
+      dateColumn: cols.find(looksLikeDateColumn) || '',
+      entityColumn: cols.find((c) => !looksLikeDateColumn(c)) || '',
+    })
+  } else if (type === 'boxplot') {
+    Object.assign(base, {
+      ...DEFAULT_BOXPLOT,
+      title: `${name} spread`,
+      width: 'half',
+      column: cols[1] || cols[0] || '',
+      groupBy: cols[0] || '',
+      color: PALETTE[0],
+    })
+  } else if (type === 'sankey') {
+    Object.assign(base, {
+      ...DEFAULT_SANKEY,
+      title: `${name} flow`,
+      width: 'full',
+      stages: [cols[0] || '', cols[1] || ''].filter(Boolean),
+    })
+  } else if (type === 'wordcloud') {
+    Object.assign(base, {
+      ...DEFAULT_WORDCLOUD,
+      title: `${name} in their words`,
+      width: 'half',
+      column: cols[0] || '',
+      color: PALETTE[0],
+    })
+  } else if (type === 'profile') {
+    Object.assign(base, {
+      ...DEFAULT_PROFILE,
+      title: `${name} data check`,
+      width: 'half',
+      // Every column by default. A profiler that starts with nothing to
+      // profile is a profiler nobody sees the point of.
+      columns: [],
+    })
+  } else if (type === 'note') {
+    Object.assign(base, {
+      title: 'Section',
+      noteStyle: 'section',
+      width: 'full',
+      text: '',
+      align: 'left',
+      icon: '',
+      tone: 'info',
+      color: PALETTE[0],
+    })
+  } else if (type === 'media') {
+    Object.assign(base, {
+      // Named rather than blank. A bare picture is a perfectly good
+      // outcome and one field away -- but a widget with no title is a
+      // blank row in the admin list, which is nobody's idea of a default.
+      title: 'Image',
+      width: 'third',
+      imageUrl: '',
+      caption: '',
+      alt: '',
+      fit: 'contain',
+      bare: false,
+      rounded: true,
+    })
+  } else if (type === 'countdown') {
+    Object.assign(base, {
+      ...DEFAULT_COUNTDOWN,
+      title: 'Countdown',
+      width: 'quarter',
+      // Defaults to the end of the current month, which is what almost
+      // every countdown on a sales dashboard is actually counting to.
+      target: endOfThisMonth(),
+      label: 'Left this month',
+    })
   } else {
     Object.assign(base, {
       chartType: 'bar',
@@ -319,4 +498,12 @@ export function makeWidget({ type = 'table', tab, name, cols = [], kpiCount = 0 
   }
 
   return base
+}
+
+/** `2026-08-31`, for a countdown that means something the moment it lands. */
+function endOfThisMonth() {
+  const now = new Date()
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${last.getFullYear()}-${pad(last.getMonth() + 1)}-${pad(last.getDate())}`
 }

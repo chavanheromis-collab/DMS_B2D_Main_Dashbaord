@@ -392,6 +392,30 @@ aside.fixed.right-0 {
 }
 
 /* ------------------------------------------------------------------ */
+/* The accent, on the widgets that were offered one                    */
+/* ------------------------------------------------------------------ */
+/* The Accent picker is on every widget's paint panel, and six of the named
+   themes set one. Exactly one widget type read it: the filter panel, whose
+   selected buttons are drawn with it. Everywhere else it was a colour you
+   could choose and never see.
+
+   What an accent means inside a widget is "the thing that is ON" -- a
+   control that is currently narrowing this widget. That is one constant in
+   WidgetControls used at eight call sites, so one rule covers all of them.
+
+   `color-mix` for the tint rather than a second and third custom property:
+   an admin picks ONE colour, and asking them for its 12%-on-white and
+   45%-on-white variants would be asking them to do arithmetic. Where
+   `color-mix` is not supported the declaration is dropped and the indigo
+   underneath it stands -- which is exactly the right thing to fall back to,
+   because it is what the control looked like before. */
+.card-accented :where(.control-live) {
+  border-color: color-mix(in srgb, var(--card-accent) 45%, transparent);
+  background-color: color-mix(in srgb, var(--card-accent) 12%, transparent);
+  color: var(--card-accent);
+}
+
+/* ------------------------------------------------------------------ */
 /* Typography an admin chose                                           */
 /* ------------------------------------------------------------------ */
 /* Widgets hard-code Tailwind greys -- `text-slate-500` for a caption,
@@ -437,6 +461,66 @@ aside.fixed.right-0 {
 }
 
 /* ------------------------------------------------------------------ */
+/* Forms in a panel, not on a screen                                   */
+/* ------------------------------------------------------------------ */
+/* The admin forms were laid out for a full-width screen: four-column
+   grids, and fields given exact widths like `w-64`. In the edit panel --
+   which can be 340px wide on a 2560px monitor -- every one of those is an
+   overflow, and an overflowing form is one where the control you want is
+   under the one you don't.
+
+   A `md:` breakpoint cannot help here, because it asks the WINDOW, and the
+   window is wide even when the panel is not. A container query asks the
+   panel. Same forms, same components, no second layout to maintain.
+
+   Two steps rather than one: a form is perfectly readable in two columns,
+   and dropping straight to one at the first sign of narrowness wastes half
+   the panel on a 520px screen. */
+.edit-shell {
+  container-type: inline-size;
+}
+
+@container (max-width: 560px) {
+  /* Four columns of form in 400 pixels is four columns of clipped label. */
+  .edit-shell .edit-panel :where(.grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* A width someone typed for a full-width screen. In here it is what
+     pushes the next field off the edge. Only the WIDE ones: a colour
+     swatch at `w-10` is that size for a reason. */
+  .edit-shell .edit-panel :where(.w-72, .w-64, .w-56, .w-52, .w-48, .w-44, .w-40, .w-36, .w-32) {
+    width: 100%;
+  }
+
+  /* A minimum width is a promise the panel cannot keep. */
+  .edit-shell .edit-panel :where([class*='min-w-[']) {
+    min-width: 0;
+  }
+
+  /* A row of fields that was meant to sit side by side now stacks, so it
+     needs its items to fill the line rather than hug their content. */
+  .edit-shell .edit-panel :where(.flex-wrap) > :where(.w-full, [class*='min-w-[']) {
+    flex: 1 1 100%;
+  }
+}
+
+@container (max-width: 380px) {
+  .edit-shell .edit-panel :where(.grid) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The panel's own header: six things, and the panel can be narrow. The
+   parts that are nice-to-know stand down before the parts that are not. */
+@container (max-width: 400px) {
+  .edit-shell .edit-head-sub,
+  .edit-shell .edit-head-state {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* The two kinds of writing inside a chart                             */
 /* ------------------------------------------------------------------ */
 /* Recharts sets `fill` and `font-size` as presentation ATTRIBUTES, which
@@ -476,10 +560,156 @@ aside.fixed.right-0 {
   font-weight: var(--chart-weight);
 }
 
-/* A label drawn INSIDE a bar is not chart text an admin is choosing the
-   colour of -- it is white because it sits on the bar's own fill, and a
-   colour picked against a white card would disappear into it. `.label-on-fill`
-   is how a chart says so. */
+/* A label drawn INSIDE a bar is not the same decision as the axis text
+   around it -- it sits on the mark's own fill, so a colour picked against a
+   white card would disappear into it. `.label-on-fill` is how a chart says
+   so, which is why the rules above exclude it.
+
+   It is still a decision somebody may want to make, though, and until now
+   there was no way to: it was hard-coded white in five places and hard-coded
+   slate in a sixth. It has its own property now, and its own default --
+   which is not a colour but "work it out from the fill", applied per mark by
+   the component (see lib/chartVisuals.js). This rule is the FIXED mode: one
+   colour, chosen deliberately, applied to every label whatever it sits on.
+
+   `!important` is the one place it is warranted in this file. The colour it
+   is overriding is an inline `fill` attribute the chart wrote per element,
+   and an inline style beats any selector however specific -- there is no
+   winning this on specificity alone. */
+.cv-fill-text :where(.label-on-fill) {
+  fill: var(--chartv-fill-text) !important;
+  color: var(--chartv-fill-text) !important;
+}
+.cv-fill-text-size :where(.label-on-fill) {
+  font-size: var(--chartv-fill-text-size) !important;
+}
+.cv-fill-text-weight :where(.label-on-fill) {
+  font-weight: var(--chartv-fill-text-weight) !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* How the chart is DRAWN                                              */
+/* ------------------------------------------------------------------ */
+/* The same trick the text rules use, for the same reason: Recharts writes
+   `fill`, `stroke` and `stroke-width` as presentation ATTRIBUTES, which any
+   CSS rule outranks. So a bar's opacity, a line's thickness and a grid's
+   colour are all reachable without a single chart component learning that
+   theming exists.
+
+   A class per DECISION, never one for the lot -- `stroke: var(--x, ...)`
+   under one class would reset every rule the moment somebody set only the
+   bar radius, which is a setting quietly breaking a setting nobody touched.
+
+   Corner radius and bar gap are deliberately absent: a radius is baked into
+   the bar's own path data and a gap is a layout the chart computes, so both
+   arrive as props instead. See barRadius() and barGapProps(). */
+
+/* --- the marks --- */
+/* `:not(.recharts-tooltip-cursor)` is not defensive tidying. The band that
+   follows the pointer is built from the same Rectangle the bars are, so it
+   carries `recharts-rectangle` too -- and without the exclusion, turning a
+   chart's fill down to 60% quietly faded the hover highlight with it. */
+.cv-fill :where(
+    .recharts-bar-rectangle path,
+    .recharts-rectangle:not(.recharts-tooltip-cursor),
+    .recharts-area-area,
+    .recharts-sector,
+    .recharts-radar-polygon,
+    .recharts-funnel-trapezoid path,
+    .recharts-scatter-symbol path
+  ) {
+  fill-opacity: var(--chartv-fill-opacity);
+}
+.cv-stroke :where(
+    .recharts-line-curve,
+    .recharts-area-curve,
+    .recharts-radar-polygon
+  ) {
+  stroke-width: var(--chartv-stroke-width);
+}
+/* `r` is a geometry property as well as an attribute, so a dot can be
+   resized without the chart being asked. Active dots are left alone: they
+   are a hover state and are meant to be bigger than the resting one.
+
+   Line and area dots only. A scatter mark is a `<path>` with its geometry
+   baked into the path data, so there is no radius for CSS to reach -- which
+   is why the control says "on a line" rather than promising something it
+   cannot deliver on the one chart made entirely of points. */
+.cv-point :where(.recharts-dot) {
+  r: var(--chartv-point-size);
+}
+
+/* --- the grid --- */
+.cv-grid-color :where(.recharts-cartesian-grid line, .recharts-polar-grid line, .recharts-polar-grid path) {
+  stroke: var(--chartv-grid-color);
+}
+.cv-grid-dash :where(.recharts-cartesian-grid line) {
+  stroke-dasharray: var(--chartv-grid-dash);
+}
+/* Hiding a set of rules is a class rather than a property, because "none"
+   is not a colour. The props in gridProps() stop the nodes being drawn at
+   all where they can; this catches the charts that build their own grid. */
+.cv-grid-off :where(.recharts-cartesian-grid, .recharts-polar-grid) {
+  display: none;
+}
+.cv-grid-h :where(.recharts-cartesian-grid-vertical) {
+  display: none;
+}
+.cv-grid-v :where(.recharts-cartesian-grid-horizontal) {
+  display: none;
+}
+
+/* --- the axes --- */
+.cv-axis-color :where(.recharts-cartesian-axis-line, .recharts-cartesian-axis-tick-line) {
+  stroke: var(--chartv-axis-color);
+}
+.cv-axis-off :where(.recharts-cartesian-axis-line) {
+  display: none;
+}
+.cv-ticks-off :where(.recharts-cartesian-axis-tick-line) {
+  display: none;
+}
+
+/* --- what separates one mark from the next --- */
+/* The hairline between two pie slices, or between two treemap cells. It is
+   a real design decision on a dark card, where the default white gap reads
+   as a set of cracks rather than as a separation. */
+.cv-sep-color :where(
+    .recharts-sector,
+    .recharts-rectangle:not(.recharts-tooltip-cursor),
+    .recharts-funnel-trapezoid path
+  ) {
+  stroke: var(--chartv-separator-color);
+}
+.cv-sep-width :where(
+    .recharts-sector,
+    .recharts-rectangle:not(.recharts-tooltip-cursor),
+    .recharts-funnel-trapezoid path
+  ) {
+  stroke-width: var(--chartv-separator-width);
+}
+
+/* --- the tooltip --- */
+/* HTML rather than SVG, so this is ordinary styling. Recharts writes the
+   surface as an inline style on the same element, which is why the
+   background and border need the same override the fill labels do. */
+.cv-tooltip :where(.recharts-default-tooltip) {
+  background-color: var(--chartv-tooltip-bg, #fff) !important;
+  border: 1px solid var(--chartv-tooltip-border, #e2e8f0) !important;
+  border-radius: var(--chartv-tooltip-radius, 10px) !important;
+  color: var(--chartv-tooltip-text, inherit);
+}
+.cv-tooltip :where(.recharts-tooltip-label, .recharts-tooltip-item, .recharts-tooltip-item-name, .recharts-tooltip-item-value) {
+  color: var(--chartv-tooltip-text, inherit) !important;
+}
+.cv-tooltip-size :where(.recharts-default-tooltip, .recharts-tooltip-label, .recharts-tooltip-item) {
+  font-size: var(--chartv-tooltip-size) !important;
+}
+/* The band that follows the pointer. Its default is a very pale grey that
+   vanishes on a dark card and shouts on a pale one. */
+.cv-cursor :where(.recharts-tooltip-cursor) {
+  fill: var(--chartv-cursor-color) !important;
+}
 
 /* The legend, last so it wins the ties: a legend is inside the card, so the
    card's own text rules match it too, and this is the more specific

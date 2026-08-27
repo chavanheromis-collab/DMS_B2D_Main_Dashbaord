@@ -186,11 +186,16 @@ export function canvasFor(pages, page) {
  * which the sidebar renders as a flat list above the collapsible groups.
  */
 export function groupPages(pages) {
-  const ordered = sortPages(pages)
+  // Grouping, and ONLY grouping. This used to sort by `page.order` first,
+  // which quietly threw away whatever order the caller had already worked
+  // out -- so a reader who dragged a page in the sidebar watched it move
+  // and then snap straight back to the workspace order. The caller knows
+  // whose order it is (see lib/pageOrder.js); this one does not, and
+  // deciding it here was the whole bug.
   const groups = []
   const byName = new Map()
 
-  for (const page of ordered) {
+  for (const page of pages || []) {
     const key = page.group || ''
     let bucket = byName.get(key)
     if (!bucket) {
