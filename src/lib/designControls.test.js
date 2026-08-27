@@ -230,7 +230,6 @@ test('the room under a short widget is offered too, not just the room beside it'
   assert.ok(pack.includes('line.shelves.push('))
   assert.ok(pack.includes('stacked: true'))
   assert.ok(pack.includes('under: true'))
-  assert.ok(pack.includes('if (!shelf.pinned) continue'))
 })
 
 // --- controls are part of the page's design ------------------------------

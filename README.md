@@ -475,27 +475,22 @@ height and decides something different, the page rearranges itself because a
 tab happened to be empty on a Monday — and nobody can tell whether they're
 looking at a design or at today's weather.
 
-So **placement never reads a measured height.** Three rules make that true:
+So **no widget can be pushed out of the row it was put in.** Two rules:
 
-- **A row you typed can't be vacated.** It wraps; it never evicts.
+- **A row you typed can't be vacated.** It wraps onto a second line inside
+  the same band; it never evicts.
 - **A height you typed is used as typed**, not measured back off the screen.
-- **A widget only stacks into room that typed numbers guarantee** — both the
-  widget above the space and the one dropping into it need a typed height,
-  and the depth is measured against the tallest *typed* height on the line.
-  Room that exists only because a neighbour happened to draw tall today is
-  not room; it's weather. Take it, and the day that neighbour has nothing to
-  show, the widget is somewhere else.
 
 There's a test that packs the same page against a hundred different sets of
-measurements and asserts every widget's row, x position and width came out
-identical each time. Only the vertical positions move, because a shorter row
-above genuinely is shorter.
+measurements and asserts every widget came out in the same **row** each time.
 
-The dotted "what fits here" box under a short widget follows the same rule —
-it only appears under a *typed* height, because a box offering room that
-nothing will ever be placed in is worse than no box at all. And the room at
-the end of a row is now offered **per line**: the end of the first line is a
-different rectangle from the end of the second.
+What a quiet day *may* do is let something use the space beside a widget that
+drew short — see below. That's the space being used, not the layout coming
+apart, and it's bounded: the most that can happen is a widget moving from
+beside its neighbour to underneath it, **inside the row it was put in**.
+
+The room at the end of a row is offered **per line**: the end of the first
+line is a different rectangle from the end of the second.
 
 **Blank means row 1**, and that isn't a special case: everything starts in
 row 1, row 1 spills into row 2, row 2 into row 3. A page where nobody has set
@@ -634,6 +629,11 @@ That's both kinds of room: the space **at the end of a row**, and the space
 A row is as tall as its tallest widget, so a short one beside a tall one
 leaves a rectangle underneath. If a later widget fits in that rectangle, it
 goes there instead of starting a new row.
+
+A rectangle of empty canvas is space whether the widget above it was sized by
+hand or by its own content — refusing to use it unless somebody typed a number
+would leave a hole on every page that was never sized in pixels, which is most
+of them.
 
 It's only tried **once the row is actually full**, so reading order still
 runs left to right — nothing jumps into a hole ahead of its turn while there

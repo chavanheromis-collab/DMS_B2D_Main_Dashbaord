@@ -352,16 +352,13 @@ export function packRowGroups(
     // packing, but it is not somebody saying "row 1", so a page nobody has
     // assigned rows to behaves exactly as it always did.
     const lines = []
-    // `typed` is the tallest TYPED height on the line, and it is the only
-    // depth stacking is allowed to use: room a measurement happens to leave
-    // today is not room, it is weather.
-    let line = { top: 0, height: 0, typed: 0, ids: [], shelves: [] }
+    let line = { top: 0, height: 0, ids: [], shelves: [] }
     let x = 0
 
     const breakLine = () => {
       if (line.ids.length === 0) return
       lines.push(line)
-      line = { top: line.top + line.height + gapY, height: 0, typed: 0, ids: [], shelves: [] }
+      line = { top: line.top + line.height + gapY, height: 0, ids: [], shelves: [] }
       x = 0
     }
 
@@ -400,16 +397,21 @@ export function packRowGroups(
         // Only tried when the line is full, so the reading order still runs
         // left to right -- nothing jumps into a hole ahead of its turn.
         //
-        // BOTH heights have to be TYPED. Measured, the rectangle is a fact
-        // about today's data: a widget with nothing to show is short, the
-        // hole under it opens, something drops into it, and tomorrow the
-        // data comes back and that widget is somewhere else. Stacking is a
-        // layout decision or it is not worth having.
+        // Measured heights, deliberately. A rectangle of empty canvas is
+        // space whether the widget above it was sized by hand or by its own
+        // content, and refusing to use it because nobody typed a number
+        // leaves a hole on every page that was never sized in pixels --
+        // which is most of them.
+        //
+        // What data can no longer do is move a widget OUT OF ITS ROW: a row
+        // an admin typed wraps rather than spilling (see `hasRow`), so the
+        // most a quiet day can do is move something from beside its
+        // neighbour to underneath it, inside the row it was put in.
         const shelf =
-          span > 1 || !pin
+          span > 1
             ? null
             : line.shelves.find(
-                (sh) => sh.pinned && sh.width >= width - 0.5 && line.typed - (sh.bottom - line.top) - gapY >= h - 0.5
+                (sh) => sh.width >= width - 0.5 && line.height - (sh.bottom - line.top) - gapY >= h - 0.5
               )
 
         if (shelf) {
@@ -471,7 +473,6 @@ export function packRowGroups(
 
       line.shelves.push({ left, width, bottom: atTop + h, pinned: Boolean(pin) })
       line.height = Math.max(line.height, h)
-      if (pin) line.typed = Math.max(line.typed, h)
     }
 
     if (line.ids.length > 0) lines.push(line)
@@ -580,13 +581,7 @@ export function rowGaps(rows, positions, canvasWidth, gapX = 12, minimum = MIN_W
     // And the space UNDER anything shorter than the row it is on. This is
     // the room a widget could actually be moved into, so it is worth as much
     // as the space at the end -- and it is invisible unless it is drawn.
-    //
-    // Only under a TYPED height. Under a measured one the rectangle is a
-    // fact about today's data, nothing will ever be placed in it (see the
-    // packer), and a dotted box offering room that cannot be taken is worse
-    // than no box at all.
     for (const shelf of row.shelves || []) {
-      if (!shelf.pinned) continue
       const free = Math.round(row.top + row.height - shelf.bottom - gapY)
       if (free < MIN_HEIGHT) continue
       out.push({
@@ -621,9 +616,14 @@ export function rowSlack(rows, positions, canvasWidth, gapX = 12) {
     const lines = row.lines?.length ? row.lines : [{ ids: row.ids }]
 
     for (const line of lines) {
+      // A widget that went UNDER another one takes no width along the line
+      // -- it is standing in space that was already counted. Adding it in
+      // was how a row with two visible holes in it could report nothing
+      // going spare.
+      const across = line.ids.filter((id) => !positions[id]?.stacked)
       const used =
-        line.ids.reduce((sum, id) => sum + (positions[id]?.width || 0), 0) +
-        gapX * Math.max(0, line.ids.length - 1) +
+        across.reduce((sum, id) => sum + (positions[id]?.width || 0), 0) +
+        gapX * Math.max(0, across.length - 1) +
         held
       const spare = Math.max(0, Math.round(canvasWidth - used))
       for (const id of line.ids) out[id] = spare

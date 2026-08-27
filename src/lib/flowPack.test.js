@@ -841,10 +841,10 @@ const layoutWith = (heights) =>
 const seats = (out) =>
   PAGE.map((i) => [i.id, out.positions[i.id].row, out.positions[i.id].left, out.positions[i.id].width])
 
-test('LESS DATA MOVES NOTHING', () => {
-  // The whole point. A widget with an empty sheet behind it draws short, and
-  // a layout that reads that height decides something different -- so a page
-  // rearranges itself because a tab was empty on a Monday.
+test('LESS DATA NEVER MOVES A WIDGET OUT OF ITS ROW', () => {
+  // A widget with an empty sheet behind it draws short. What that may do is
+  // let something use the space beside it; what it may NOT do is push
+  // anything into a row an admin did not put it in.
   const busy = layoutWith({ table: 640, wide: 480, chart: 320 })
   const quiet = layoutWith({ table: 60, wide: 60, chart: 320 })
   const empty = layoutWith({})
@@ -853,10 +853,11 @@ test('LESS DATA MOVES NOTHING', () => {
   assert.deepEqual(seats(empty), seats(busy))
 })
 
-test('nothing the data can do changes a seat', () => {
-  // A sweep rather than one example: every widget's row, x and width against
-  // a hundred different sets of measurements.
-  const base = seats(layoutWith({}))
+test('nothing the data can do changes a ROW', () => {
+  // A sweep rather than one example: every widget's row against a hundred
+  // different sets of measurements. Its x may change -- that is the space
+  // being used -- but the row it was put in may not.
+  const base = seats(layoutWith({})).map(([id, row]) => [id, row])
   let seed = 7
   const next = () => {
     seed = (seed * 1103515245 + 12345) % 2147483648
@@ -866,7 +867,11 @@ test('nothing the data can do changes a seat', () => {
   for (let run = 0; run < 100; run += 1) {
     const heights = {}
     for (const item of PAGE) heights[item.id] = Math.round(40 + next() * 900)
-    assert.deepEqual(seats(layoutWith(heights)), base, `run ${run}`)
+    assert.deepEqual(
+      seats(layoutWith(heights)).map(([id, row]) => [id, row]),
+      base,
+      `run ${run}`
+    )
   }
 })
 
@@ -879,15 +884,17 @@ test('a row keeps every widget put in it, whatever the heights are', () => {
   }
 })
 
-test('a widget can only stack into room that TYPED numbers guarantee', () => {
-  // Room a measurement happens to leave today is not room, it is weather:
-  // something drops into it, the data comes back tomorrow, and the widget
-  // is somewhere else.
+test('SPACE THAT IS THERE GETS USED, however the height was arrived at', () => {
+  // A rectangle of empty canvas is space whether the widget above it was
+  // sized by hand or by its own content. Refusing to use it unless somebody
+  // typed a number leaves a hole on every page that was never sized in
+  // pixels, which is most of them.
   const measured = packRowGroups(
     [item('short', 400, 100), item('tall', 400, 300), item('next', 400, 120)],
     { canvasWidth: 900, gapX: 12, gapY: 20 }
   )
-  assert.equal(measured.positions.next.stacked, undefined, 'no measured height stacks')
+  assert.equal(measured.positions.next.stacked, true)
+  assert.equal(measured.positions.next.left, 0, 'under the short one')
 
   const typed = packRowGroups(
     [pinned('short', 400, 100), pinned('tall', 400, 300), pinned('next', 400, 120)],
@@ -896,41 +903,31 @@ test('a widget can only stack into room that TYPED numbers guarantee', () => {
   assert.equal(typed.positions.next.stacked, true)
 })
 
-test('room that only exists because a NEIGHBOUR drew tall is not room', () => {
-  // The subtle half of it. Both the shelf and the candidate have typed
-  // heights, so stacking looks safe -- but the depth under the shelf comes
-  // from an unpinned neighbour, and that is a fact about today's data. Take
-  // it, and the day the neighbour has nothing to show the widget is gone.
-  const { positions } = packRowGroups(
-    [pinned('short', 400, 100), item('tall', 400, 300), pinned('next', 400, 120)],
-    { canvasWidth: 900, gapX: 12, gapY: 20 }
-  )
-  assert.equal(positions.next.stacked, undefined)
-
-  // Pin the neighbour and the room becomes a promise, so it can be taken.
-  const firm = packRowGroups(
-    [pinned('short', 400, 100), pinned('tall', 400, 300), pinned('next', 400, 120)],
-    { canvasWidth: 900, gapX: 12, gapY: 20 }
-  )
-  assert.equal(firm.positions.next.stacked, true)
+test('a widget still never leaves its row to find space', () => {
+  // The bound on what a quiet day can do. Something may move from beside
+  // its neighbour to underneath it -- that is the space being used -- but
+  // it cannot be pushed into a row an admin did not put it in.
+  const items = [rowItem('a', 400, 1, 300), rowItem('b', 400, 1, 100), rowItem('c', 400, 1, 120)]
+  for (const heights of [{}, { a: 60 }, { a: 900, b: 60 }, { b: 900 }]) {
+    const { positions } = packRowGroups(items, { canvasWidth: 900, gapX: 12, gapY: 20, heights })
+    for (const i of items) assert.equal(positions[i.id].row, 1, `${i.id} with ${JSON.stringify(heights)}`)
+  }
 })
 
-test('the room under a short widget is only shown where something could take it', () => {
-  // A dotted box offering room that nothing will ever be placed in is worse
-  // than no box at all.
-  const loose = packRowGroups([item('short', 400, 100), item('tall', 400, 300)], {
-    canvasWidth: 900,
-    gapX: 12,
-    gapY: 20,
-  })
-  assert.deepEqual(rowGaps(loose.rows, loose.positions, 900, 12, MIN_WIDTH, 20).filter((g) => g.under), [])
-
-  const firm = packRowGroups([pinned('short', 400, 100), pinned('tall', 400, 300)], {
-    canvasWidth: 900,
-    gapX: 12,
-    gapY: 20,
-  })
-  assert.equal(rowGaps(firm.rows, firm.positions, 900, 12, MIN_WIDTH, 20).filter((g) => g.under).length, 1)
+test('the dotted box is offered wherever something could actually go', () => {
+  // It has to agree with the packer: a box promising room the packer would
+  // not use is worse than no box, and a hole the packer WOULD fill with no
+  // box over it is room nobody can see.
+  for (const items of [
+    [item('short', 400, 100), item('tall', 400, 300)],
+    [pinned('short', 400, 100), pinned('tall', 400, 300)],
+  ]) {
+    const out = packRowGroups(items, { canvasWidth: 900, gapX: 12, gapY: 20 })
+    const under = rowGaps(out.rows, out.positions, 900, 12, MIN_WIDTH, 20).filter((g) => g.under)
+    assert.equal(under.length, 1)
+    assert.equal(under[0].left, 0)
+    assert.equal(under[0].width, 400)
+  }
 })
 
 test('a wrapped row reports every line it has', () => {
@@ -966,4 +963,31 @@ test('slack is counted per line too', () => {
   const slack = rowSlack(rows, positions, 900, 12)
   assert.equal(slack.a, 900 - (400 + 12 + 400))
   assert.equal(slack.c, 900 - 400, 'its own line has far more room left')
+})
+
+test('a stacked widget takes no width along the line', () => {
+  // It is standing in space that was already counted. Adding it in was how
+  // a row with two visible holes could report nothing going spare.
+  const items = [item('chart', 520, 320), item('kpi', 240, 120), item('kpi2', 240, 120), item('note', 240, 150)]
+  const out = packRowGroups(items, { canvasWidth: 1040, gapX: 12, gapY: 12 })
+
+  assert.equal(out.positions.note.stacked, true, 'it went under the first KPI')
+  const slack = rowSlack(out.rows, out.positions, 1040, 12)
+  // 520 + 240 + 240 across, two gaps: 1024 of 1040.
+  assert.equal(slack.chart, 16)
+})
+
+test('the spare figure is the width actually left on the line', () => {
+  // Whatever else is true of a row, this has to add up.
+  const items = [item('a', 300, 200), item('b', 200, 80), item('c', 200, 90)]
+  const out = packRowGroups(items, { canvasWidth: 1000, gapX: 10, gapY: 10 })
+  const slack = rowSlack(out.rows, out.positions, 1000, 10)
+
+  for (const row of out.rows) {
+    for (const line of row.lines) {
+      const across = line.ids.filter((id) => !out.positions[id].stacked)
+      const used = across.reduce((n, id) => n + out.positions[id].width, 0) + 10 * (across.length - 1)
+      for (const id of line.ids) assert.equal(slack[id], 1000 - used, id)
+    }
+  }
 })
