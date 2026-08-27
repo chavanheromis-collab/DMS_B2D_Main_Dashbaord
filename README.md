@@ -1444,7 +1444,7 @@ stacking two contradictory filters.
 | Type | What it does |
 |---|---|
 | **KPI Card** | One number from a tab + column + calculation. Counts up on change; with filters active it shows the unfiltered total underneath. Can express a conversion between two tabs. Its mark can be an emoji **or an image URL**. |
-| **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and a pop-up of KPIs, a pivot and a leaderboard. Click a stage, a KPI, a leaderboard row or a pivot cell to drill in. |
+| **Workflow Pipeline** | A funnel of stages, each a label + colour + its own condition set, with optional trend line and a pop-up of KPIs, a pivot and a leaderboard. Click a stage, a KPI, a leaderboard row or a pivot cell to drill in — or, where a stage has stages of its own, to open them. |
 | **Flow (drill-down tree)** | One or more trees on a shared canvas. Each opens level by level — by column, by conditions, into named numbers, by a list on a reference tab, across a **key into another tab**, or into other tabs outright — and each can blend a second table into its rows first. Full screen, pan and zoom. See below. |
 | **Filter Panel** | The page's filters as a column of labelled button groups, on the canvas — the right-hand panel of a classic report. |
 | **Leaderboard** | Ranks any column by any metrics you define. Click a row to drill in. |
@@ -2074,6 +2074,61 @@ three-letter prefix, `#` for "not a letter" — the drill selects those rows
 by identity instead, so a click works everywhere rather than only where the
 maths happens to be expressible. A test asserts the two halves agree: every
 row a bar grouped is a row its drill selects.
+
+### A pipeline inside a pipeline
+
+A real process is not one row of boxes. **Booked** is a stage of the sale
+*and* a process of its own — documents, finance, insurance, RTO — and drawing
+those four beside the six stages of the sale makes ten boxes that are not the
+same kind of thing.
+
+So a stage can own stages. **Add sub-stage** inside any stage in the editor,
+up to four levels deep; it's the same form as a top-level stage, because a
+sub-pipeline *is* a pipeline.
+
+On the page, a stage with stages inside it says so — a count badge and
+"3 inside" along the bottom — and clicking it **opens** them. The level you
+came from steps aside and becomes a trail: `All stages › Booked › RTO`, every
+crumb clickable. This is navigation, not filtering, so nothing on the
+dashboard moves; the trail carries a **Filter** button for when you do want
+the level you're standing in applied to the page.
+
+**A sub-stage divides the rows its parent matched.** That's what makes it one
+pipeline rather than two drawn in the same card: the numbers inside always add
+up to the number you clicked to get there. "Finance done" under **Booked**
+counts booked rows that are financed — not every financed row in the sheet.
+Percentages follow the same rule, so *each stage's own tab total* means the
+rows its level starts from.
+
+Clicking a sub-stage filters the dashboard to the **whole chain**, because
+that's the set the box counted. Where the chain can be written as one AND —
+the usual case — it's one chip on the page and one thing to clear. Where a
+link matches *any* of several conditions it can't be: `(booked or delivered)
+and financed` is not one flat condition list, and flattening it anyway would
+widen the filter to rows the stage never counted. Those links travel as their
+own chips and stack, appearing and clearing together.
+
+Two consequences worth knowing:
+
+- **Sub-stages win the click.** A stage that has both sub-stages and KPIs is
+  asking two things of one press, so the editor stops offering KPIs once a
+  stage has stages inside it — they'd be a pop-up nobody could reach.
+- **A sub-stage stays on its parent's tab**, and the editor pins it there.
+  Rows from another sheet cannot be divided by these ones; that's a separate
+  pipeline widget, not a sub-stage.
+
+Deleting a stage while somebody has it open doesn't strand them — the trail
+resolves as far as it can and puts them back at the last real level.
+
+### Stage boxes are sized by the admin
+
+**Stage box width** and **stage box height** are on the pipeline editor. Width
+is bounded 80–520px and height is optional — leave it blank and a box is as
+tall as its contents, exactly as it always was.
+
+The number inside steps down a size in a narrow box rather than being clipped,
+and the trend sparkline is drawn to fit the width it's given. A box at the
+default width looks exactly as it did before the setting existed.
 
 ### Sorting by a column that is neither the label nor the bar
 

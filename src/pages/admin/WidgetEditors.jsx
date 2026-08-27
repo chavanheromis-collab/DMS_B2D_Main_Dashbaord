@@ -1,4 +1,4 @@
-import { Plus, ChevronDown, ChevronUp, X, GripVertical } from 'lucide-react'
+import { Plus, ChevronDown, ChevronUp, Layers, X, GripVertical } from 'lucide-react'
 import { useState } from 'react'
 import {
   AGGREGATIONS,
@@ -11,7 +11,15 @@ import {
   uid,
 } from '../../lib/config'
 import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUtils'
-import { Btn, Field, RowControls, SectionTabs, Select, TextInput, Toggle, listOps } from './ui.jsx'
+import {
+  DEFAULT_STAGE_WIDTH,
+  MAX_DEPTH,
+  MAX_STAGE_HEIGHT,
+  MAX_STAGE_WIDTH,
+  MIN_STAGE_WIDTH,
+  subStages,
+} from '../../lib/pipelineNav'
+import { Btn, Field, RowControls, SectionTabs, Select, TextInput, Toggle, listOps, optValue } from './ui.jsx'
 import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
 import { clashingPins, nextPinColor } from '../../lib/valueColors'
 import { DEFAULT_REDUCER, GROUP_SORTS, SORT_REDUCERS, sortsByColumn } from '../../lib/groupSort'
@@ -23,36 +31,178 @@ import ConditionBuilder from './ConditionBuilder.jsx'
  * the funnel matches whatever your sheet actually records rather than a
  * process baked into the code.
  */
+/**
+ * A stage, ready to be added -- at the top level or inside another.
+ *
+ * A sub-stage inherits its parent's tab because it divides its parent's
+ * rows, and rows from another sheet cannot be divided by these ones. It also
+ * starts with no KPIs: a stage that owns stages opens them instead of a
+ * pop-up, so KPIs on it would be configuration nobody can reach.
+ */
+function newStage({ tab, index, nested }) {
+  return {
+    id: uid('s'),
+    label: nested ? `Sub-stage ${index + 1}` : `Stage ${index + 1}`,
+    icon: '',
+    color: STAGE_PALETTE[index % STAGE_PALETTE.length],
+    tab,
+    match: 'all',
+    conditions: [{ tab, column: '', operator: 'is_not_empty', value: '', value2: '' }],
+    dateColumn: '',
+    kpis: nested
+      ? []
+      : [
+          {
+            id: uid('sk'),
+            label: 'Rows in stage',
+            icon: '',
+            color: KPI_PALETTE[0],
+            aggregation: 'count',
+            column: null,
+            format: 'comma',
+            match: 'all',
+            conditions: [],
+          },
+        ],
+  }
+}
+
+/**
+ * One level of stages, and -- through itself -- every level below it.
+ *
+ * Recursive because the thing being edited is: a sub-pipeline is a pipeline,
+ * with the same fields, the same conditions and the same KPIs. Writing the
+ * nested form out separately would mean two forms to keep in step, and the
+ * second one always ends up missing whatever the first one gained.
+ */
+function StageList({ stages, onChange, widget, tabs, tabHeaders, depth = 0, parentTab }) {
+  const ops = listOps(stages, onChange)
+
+  return (
+    <div className="space-y-2">
+      {stages.map((stage, i) => {
+        const setStage = (patch) => ops.update(stage.id, patch)
+        const dateCols = (tabHeaders?.[stage.tab] || []).filter(looksLikeDateColumn)
+        const kids = subStages(stage)
+
+        return (
+          <div key={stage.id} className="rounded-lg border border-slate-200 bg-slate-50/50 p-2">
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <span className="w-5 text-center text-[11px] font-bold text-slate-400">
+                {depth > 0 && '↳'}
+                {i + 1}
+              </span>
+              <TextInput
+                value={stage.label}
+                onChange={(v) => setStage({ label: v })}
+                placeholder="Stage name"
+                className="w-40"
+              />
+              <TextInput value={stage.icon} onChange={(v) => setStage({ icon: v })} placeholder="🏍️" className="w-16" />
+              <input
+                type="color"
+                value={stage.color}
+                onChange={(e) => setStage({ color: e.target.value })}
+                className="h-[30px] w-10 rounded-lg border border-slate-200"
+              />
+              <Select
+                value={stage.match || 'all'}
+                onChange={(v) => setStage({ match: v })}
+                options={[
+                  { value: 'all', label: 'ALL (AND)' },
+                  { value: 'any', label: 'ANY (OR)' },
+                ]}
+                className="w-28"
+              />
+              {widget.showSparkline && (
+                <Select
+                  value={stage.dateColumn || ''}
+                  onChange={(v) => setStage({ dateColumn: v })}
+                  options={dateCols}
+                  placeholder="— trend date column —"
+                  className="w-52"
+                />
+              )}
+              <div className="ml-auto">
+                <RowControls
+                  onUp={() => ops.move(i, -1)}
+                  onDown={() => ops.move(i, 1)}
+                  onDelete={() => ops.remove(stage.id)}
+                  isFirst={i === 0}
+                  isLast={i === stages.length - 1}
+                />
+              </div>
+            </div>
+
+            <ConditionBuilder
+              compact
+              conditions={stage.conditions || []}
+              match={stage.match || 'all'}
+              tabs={depth > 0 ? tabs.filter((t) => optValue(t) === parentTab) : tabs}
+              tabHeaders={tabHeaders}
+              onChange={(next) =>
+                setStage({ conditions: next, tab: depth > 0 ? parentTab : next[0]?.tab || stage.tab })
+              }
+            />
+
+            {/* A stage that owns stages opens them; its KPIs would be a
+                pop-up nobody can get to, so they are not offered. */}
+            {kids.length === 0 && (
+              <StageKpiEditor stage={stage} tabs={tabs} tabHeaders={tabHeaders} setStage={setStage} />
+            )}
+
+            {(kids.length > 0 || depth + 1 < MAX_DEPTH) && (
+              <div className="mt-2 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 p-2">
+                <p className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-indigo-700">
+                  <Layers size={11} /> Stages inside {stage.label || 'this stage'}
+                  {kids.length > 0 && <span className="text-indigo-400">({kids.length})</span>}
+                </p>
+
+                {kids.length > 0 && (
+                  <StageList
+                    stages={kids}
+                    onChange={(next) => setStage({ stages: next })}
+                    widget={widget}
+                    tabs={tabs}
+                    tabHeaders={tabHeaders}
+                    depth={depth + 1}
+                    parentTab={stage.tab}
+                  />
+                )}
+
+                {depth + 1 < MAX_DEPTH ? (
+                  <Btn
+                    className="mt-1.5"
+                    onClick={() =>
+                      setStage({
+                        stages: [...kids, newStage({ tab: stage.tab, index: kids.length, nested: true })],
+                      })
+                    }
+                  >
+                    <Plus size={12} /> Add sub-stage
+                  </Btn>
+                ) : (
+                  <p className="text-[10px] text-indigo-400">As deep as it goes.</p>
+                )}
+
+                {kids.length > 0 && (
+                  <p className="mt-1.5 text-[10px] text-indigo-500/80">
+                    Clicking {stage.label || 'this stage'} on the page opens these instead of filtering — the other
+                    stages step aside and a trail appears. Each one counts only rows already inside{' '}
+                    {stage.label || 'it'}, so they add up to the number that was clicked.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function PipelineEditor({ widget, tabs, tabHeaders, set }) {
   const stages = widget.stages || []
-  const ops = listOps(stages, (next) => set({ stages: next }))
-
-  function addStage() {
-    const tab = widget.tab || tabs[0]
-    ops.add({
-      id: uid('s'),
-      label: `Stage ${stages.length + 1}`,
-      icon: '',
-      color: STAGE_PALETTE[stages.length % STAGE_PALETTE.length],
-      tab,
-      match: 'all',
-      conditions: [{ tab, column: '', operator: 'is_not_empty', value: '', value2: '' }],
-      dateColumn: '',
-      kpis: [
-        {
-          id: uid('sk'),
-          label: 'Rows in stage',
-          icon: '',
-          color: KPI_PALETTE[0],
-          aggregation: 'count',
-          column: null,
-          format: 'comma',
-          match: 'all',
-          conditions: [],
-        },
-      ],
-    })
-  }
 
   return (
     <div className="space-y-2">
@@ -67,6 +217,26 @@ export function PipelineEditor({ widget, tabs, tabHeaders, set }) {
             ]}
           />
         </Field>
+        <Field
+          label="Stage box width (px)"
+          className="w-36"
+          hint={`${MIN_STAGE_WIDTH}–${MAX_STAGE_WIDTH}. Blank is ${DEFAULT_STAGE_WIDTH}.`}
+        >
+          <TextInput
+            type="number"
+            value={widget.stageWidth ?? ''}
+            onChange={(v) => set({ stageWidth: Number(v) || null })}
+            placeholder={String(DEFAULT_STAGE_WIDTH)}
+          />
+        </Field>
+        <Field label="Stage box height (px)" className="w-36" hint="Blank fits the contents.">
+          <TextInput
+            type="number"
+            value={widget.stageHeight ?? ''}
+            onChange={(v) => set({ stageHeight: Number(v) || null })}
+            placeholder="auto"
+          />
+        </Field>
         <div className="pb-1.5">
           <Toggle
             checked={widget.showSparkline}
@@ -76,79 +246,22 @@ export function PipelineEditor({ widget, tabs, tabHeaders, set }) {
         </div>
       </div>
 
-      <div className="space-y-2">
-        {stages.map((stage, i) => {
-          const setStage = (patch) => ops.update(stage.id, patch)
-          const dateCols = (tabHeaders?.[stage.tab] || []).filter(looksLikeDateColumn)
+      <StageList
+        stages={stages}
+        onChange={(next) => set({ stages: next })}
+        widget={widget}
+        tabs={tabs}
+        tabHeaders={tabHeaders}
+      />
 
-          return (
-            <div key={stage.id} className="rounded-lg border border-slate-200 bg-slate-50/50 p-2">
-              <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                <span className="w-5 text-center text-[11px] font-bold text-slate-400">{i + 1}</span>
-                <TextInput
-                  value={stage.label}
-                  onChange={(v) => setStage({ label: v })}
-                  placeholder="Stage name"
-                  className="w-40"
-                />
-                <TextInput value={stage.icon} onChange={(v) => setStage({ icon: v })} placeholder="🏍️" className="w-16" />
-                <input
-                  type="color"
-                  value={stage.color}
-                  onChange={(e) => setStage({ color: e.target.value })}
-                  className="h-[30px] w-10 rounded-lg border border-slate-200"
-                />
-                <Select
-                  value={stage.match || 'all'}
-                  onChange={(v) => setStage({ match: v })}
-                  options={[
-                    { value: 'all', label: 'ALL (AND)' },
-                    { value: 'any', label: 'ANY (OR)' },
-                  ]}
-                  className="w-28"
-                />
-                {widget.showSparkline && (
-                  <Select
-                    value={stage.dateColumn || ''}
-                    onChange={(v) => setStage({ dateColumn: v })}
-                    options={dateCols}
-                    placeholder="— trend date column —"
-                    className="w-52"
-                  />
-                )}
-                <div className="ml-auto">
-                  <RowControls
-                    onUp={() => ops.move(i, -1)}
-                    onDown={() => ops.move(i, 1)}
-                    onDelete={() => ops.remove(stage.id)}
-                    isFirst={i === 0}
-                    isLast={i === stages.length - 1}
-                  />
-                </div>
-              </div>
-
-              <ConditionBuilder
-                compact
-                conditions={stage.conditions || []}
-                match={stage.match || 'all'}
-                tabs={tabs}
-                tabHeaders={tabHeaders}
-                onChange={(next) => setStage({ conditions: next, tab: next[0]?.tab || stage.tab })}
-              />
-
-              <StageKpiEditor stage={stage} tabs={tabs} tabHeaders={tabHeaders} setStage={setStage} />
-            </div>
-          )
-        })}
-      </div>
-
-      <Btn onClick={addStage}>
+      <Btn onClick={() => set({ stages: [...stages, newStage({ tab: widget.tab || optValue(tabs[0]), index: stages.length })] })}>
         <Plus size={12} /> Add stage
       </Btn>
 
       <p className="text-[10px] text-slate-400">
         A stage counts every row matching its conditions — stages are independent, so a row can appear in several.
-        Clicking a stage on the dashboard filters everything to those rows.
+        Clicking a stage on the dashboard filters everything to those rows, unless it has stages of its own, in which
+        case it opens them.
       </p>
     </div>
   )
