@@ -51,6 +51,11 @@ export default function Sidebar({
   editing = false,
   onAddPage,
   onEditPage,
+  // A transient hover-open, distinct from `collapsed`, which is the pinned
+  // state a click set. Nothing the mouse does may undo a click.
+  peeking = false,
+  onPeekEnter,
+  onPeekLeave,
 }) {
   const { isAdmin, signOut, userDoc } = useAuth()
   const navigate = useNavigate()
@@ -95,12 +100,14 @@ export default function Sidebar({
         {!collapsed && (
           <>
             <span className="truncate text-sm font-semibold text-ink">Dashboards</span>
+            {/* While peeking, this button is how you make it STAY -- which
+                is the whole reason it is still here. */}
             <button
               onClick={onToggleCollapsed}
               className="ml-auto hidden rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 lg:block"
-              title="Collapse sidebar"
+              title={peeking ? 'Keep the sidebar open' : 'Collapse sidebar'}
             >
-              <ChevronLeft size={15} />
+              <ChevronLeft size={15} className={peeking ? 'rotate-180' : ''} />
             </button>
             <button
               onClick={onCloseMobile}
@@ -272,10 +279,16 @@ export default function Sidebar({
     <>
       {/* --- Desktop: in-flow, width animates between rail and full ------ */}
       <aside
-        className="fixed inset-y-0 left-0 z-30 hidden border-r border-slate-200/70 bg-white/85 backdrop-blur-xl transition-[width] duration-200 lg:block"
-        style={{ width: collapsed ? SIDEBAR_RAIL : SIDEBAR_WIDTH }}
+        onPointerEnter={onPeekEnter}
+        onPointerLeave={onPeekLeave}
+        className={`fixed inset-y-0 left-0 z-30 hidden border-r border-slate-200/70 bg-white/85 backdrop-blur-xl transition-[width] duration-200 lg:block ${
+          peeking ? 'shadow-2xl' : ''
+        }`}
+        // A peek draws at full width without changing the content offset --
+        // it sits OVER the canvas rather than pushing it.
+        style={{ width: collapsed && !peeking ? SIDEBAR_RAIL : SIDEBAR_WIDTH }}
       >
-        {renderBody(collapsed)}
+        {renderBody(collapsed && !peeking)}
       </aside>
 
       {/* --- Mobile / tablet: off-canvas drawer -------------------------- */}

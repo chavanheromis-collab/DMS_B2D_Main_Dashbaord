@@ -155,6 +155,38 @@ Reload — the ⚙️ admin panel appears in the sidebar.
 
 ### The sidebar, and what goes in it
 
+#### It comes when it's called
+
+A sidebar collapsed to its rail hands the width back to the dashboard — which
+is what you came for — and then costs a click every time you want to go
+somewhere. **Hover the extreme left edge and it opens; move away and it goes
+back.** The chevron is still there, because a hover is a nice thing to have
+and a terrible thing to depend on.
+
+Three rules stop it being the kind of hover menu people turn off:
+
+- **It never fights the button.** Pinned open is pinned open; the peek only
+  exists while the sidebar is collapsed. Nothing you did with a click is
+  undone by where you moved the mouse. While it's peeking, the chevron is how
+  you make it *stay* — which is the whole reason it's still there.
+- **It never moves the page.** A peek *overlays* the canvas rather than
+  pushing it, so a page of charts doesn't reflow every time the pointer
+  crosses the left edge. The function that computes the content offset isn't
+  even told about the peek — it can't use what it can't see, and there's a
+  test that reads the source to keep it that way.
+- **It has to be meant.** ~110ms of intent before it opens, so crossing the
+  edge on the way somewhere else doesn't; ~280ms of grace before it closes,
+  so a diagonal path to the third page in the list doesn't lose it halfway.
+  Leaving by accident is the more expensive mistake, so it gets the longer
+  fuse.
+
+The hot strip is a real element that only exists when a peek is *possible* —
+not a `mousemove` listener running on every frame of every dashboard. There's
+none of it at all on a touch screen, where there is no hover and a strip down
+the left edge would just swallow taps, or while the mobile drawer is the
+navigation.
+
+
 Every page you can see, in one collapsible list. Pages sharing a **group**
 name nest under one heading. The sidebar collapses to a 64px icon rail on
 desktop and becomes a drawer below `lg`; both the collapsed state and which
@@ -2503,6 +2535,7 @@ src/
   lib/rowConditions.js    "Only the rows where...", every widget and control
   lib/editMode.js         The unsaved edit, merged over the saved widget
   lib/editLayout.js       The editor on one side, the thing itself on the other
+  lib/sidebarPeek.js      Hover the edge, the sidebar comes; it never reflows
   lib/newWidget.js        A new widget, from the page or the panel
   lib/valueColors.js      One colour per value, everywhere, filtered or not
   lib/typography.js       Text colour, typeface and size, admin-chosen
