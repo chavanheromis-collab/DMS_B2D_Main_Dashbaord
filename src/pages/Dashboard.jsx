@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, Palette, RefreshCw, RotateCcw } from 'lucide-react'
+import { ArrowUpDown, ChevronUp, Palette, RefreshCw, RotateCcw } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
 import { usePageData, useLocalState } from '../hooks/usePageData'
@@ -115,6 +115,12 @@ export default function Dashboard() {
   // plus the id where the kind needs one. One target, one panel, one place
   // the form appears -- rather than a different panel per kind of thing.
   const [editTarget, setEditTarget] = useState(null)
+  // Whether the page header has scrolled out of sight, and whether the
+  // reader has asked for it back. A dashboard is long; the filters that
+  // decide what it says are at the top of it.
+  const [headerGone, setHeaderGone] = useState(false)
+  const [headerOpen, setHeaderOpen] = useState(false)
+  const headerMark = useRef(null)
   // The page's own settings, edited live the same way a widget's are.
   const [pageDraft, setPageDraft] = useState(null)
   // Which side the form sits on, and how much of the screen it takes. Per
@@ -880,6 +886,12 @@ export default function Dashboard() {
         clean.row = Number.isFinite(n) && n >= 1 ? Math.round(n) : null
         continue
       }
+      // Nor is a position within a row. Unset is a real answer -- "leave
+      // it where the page order put it" -- so it is stored as nothing.
+      if (key === 'rowOrder') {
+        clean.rowOrder = Number.isFinite(n) ? Math.round(n) : null
+        continue
+      }
       // Nor is a span. One row is what everything does, so it is written as
       // nothing at all rather than as a 1 on every widget on the page.
       if (key === 'rowSpan') {
@@ -1020,6 +1032,23 @@ export default function Dashboard() {
             />
     ) : null
 
+  // An observer on a one-pixel sentinel rather than a scroll listener: the
+  // browser answers "is this on screen" without waking React on every frame
+  // of every scroll.
+  useEffect(() => {
+    const mark = headerMark.current
+    if (!mark || typeof IntersectionObserver === 'undefined') return undefined
+    const io = new IntersectionObserver(([entry]) => setHeaderGone(!entry.isIntersecting), { threshold: 0 })
+    io.observe(mark)
+    return () => io.disconnect()
+  }, [pageId])
+
+  // Scrolling back up to the header answers the question, so the panel that
+  // stood in for it should not still be sitting there.
+  useEffect(() => {
+    if (!headerGone && headerOpen) setHeaderOpen(false)
+  }, [headerGone, headerOpen])
+
   const headerActions = (
     <>
       {isAdmin && (
@@ -1156,6 +1185,8 @@ export default function Dashboard() {
                   // ...unless the admin chose pixels, which overrides both.
                   widthPx: widgetUsesPx(widget) ? widgetWidthPx(widget) : null,
                   row: widget.row,
+                  // Where in that row, if anybody has said. See lib/flowPack.js.
+                  rowOrder: widget.rowOrder,
                   // How many rows it covers. See lib/flowPack.js -- it holds
                   // its width in each of them, and is as tall as they are.
                   rowSpan: widget.rowSpan,
@@ -1217,6 +1248,8 @@ export default function Dashboard() {
                           row={widget.row ?? ''}
                           onRow={(v) => saveWidgetSize(widget.id, { row: v })}
                           widgetType={widget.type}
+                          rowOrder={widget.rowOrder ?? ''}
+                          onRowOrder={(v) => saveWidgetSize(widget.id, { rowOrder: v })}
                           rowSpan={widget.rowSpan ?? ''}
                           onRowSpan={(v) => saveWidgetSize(widget.id, { rowSpan: v })}
                           // Only what is actually IN FORCE. A pixel width
@@ -1615,6 +1648,10 @@ export default function Dashboard() {
           <>
             {controlBar}
 
+            {/* One pixel, at the bottom of the header. While it is on
+                screen the header is; when it is not, it is not. */}
+            <div ref={headerMark} aria-hidden className="h-px w-full" />
+
             <CrossFilterChips
               crossFilters={crossFilters}
               onRemove={(id) => setCrossFilters((c) => c.filter((x) => x.id !== id))}
@@ -1668,6 +1705,19 @@ export default function Dashboard() {
                 >
                   Page settings
                 </button>
+                {/* The backdrop, the card look and the text colour every
+                    widget on the page inherits. It has always been one
+                    click away behind the palette; in edit mode it belongs
+                    with the other things you are here to change. */}
+                <button
+                  onClick={() => {
+                    setEditTarget(null)
+                    setDesigning(true)
+                  }}
+                  className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
+                >
+                  Background &amp; text
+                </button>
 
                 <p className="ml-auto max-w-md text-[10px] leading-relaxed text-indigo-700/70">
                   Everything opens as a split: the form on one side, what it changes on the other, live. Move the
@@ -1690,6 +1740,37 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {/* --- The header, from wherever you have scrolled to -------------
+          A dashboard is long and the controls that decide what it says are
+          at the top of it. Rather than scrolling back -- which loses the
+          row you were reading -- the header comes to you. */}
+      {headerGone && canView && !error && controlBar && (
+        <button
+          onClick={() => setHeaderOpen((v) => !v)}
+          title={headerOpen ? 'Hide the filters' : 'Filters and buttons, without scrolling back up'}
+          className="page-chrome fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-lg backdrop-blur transition-all hover:border-indigo-300 hover:text-indigo-600"
+        >
+          <ChevronUp size={13} className={headerOpen ? 'rotate-180' : ''} />
+          {headerOpen ? 'Hide filters' : 'Filters'}
+          {activeButtonIds.length > 0 && (
+            <span className="rounded-full bg-indigo-100 px-1.5 text-[10px] font-semibold text-indigo-700">
+              {activeButtonIds.length}
+            </span>
+          )}
+        </button>
+      )}
+
+      {headerGone && headerOpen && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setHeaderOpen(false)} />
+          <div className="page-chrome fixed inset-x-2 bottom-16 z-40 max-h-[60vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white/97 p-2.5 shadow-2xl backdrop-blur md:inset-x-auto md:left-1/2 md:w-[44rem] md:-translate-x-1/2">
+            {/* The real control bar, not a copy of it: a second one would
+                drift, and the one that drifted would be this one. */}
+            {controlBar}
+          </div>
+        </>
+      )}
 
       {/* --- The editor ------------------------------------------------
           One split for every kind of thing: the form on one side, what it

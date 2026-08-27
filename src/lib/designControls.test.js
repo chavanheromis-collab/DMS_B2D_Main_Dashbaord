@@ -280,3 +280,37 @@ test('every one of these is admin-only', () => {
   }
   assert.ok(dashboard.includes('async function writeWidgets(next) { if (!isAdmin || !page?.id) return'))
 })
+
+// --- each row sorts itself, and the header comes when it is called -------
+
+test('a widget can be placed within its row, not just in it', () => {
+  assert.ok(bar.includes('onCommit={(raw) => onRowOrder?.(raw)}'))
+  assert.ok(dashboard.includes("onRowOrder={(v) => saveWidgetSize(widget.id, { rowOrder: v })}"))
+  assert.ok(dashboard.includes("if (key === 'rowOrder') {"), 'a position takes no pixel floor')
+  assert.ok(dashboard.includes('rowOrder: widget.rowOrder'), 'and the canvas is told')
+  assert.ok(canvas.includes('${i.rowOrder ?? \'\'}'), 'a re-order re-measures')
+})
+
+test('the header can be reached from wherever you scrolled to', () => {
+  // A dashboard is long and the controls that decide what it says are at
+  // the top of it. Scrolling back loses the row you were reading.
+  assert.ok(dashboard.includes('const [headerGone, setHeaderGone] = useState(false)'))
+  assert.ok(dashboard.includes('ref={headerMark}'))
+  assert.ok(dashboard.includes('new IntersectionObserver(([entry]) => setHeaderGone(!entry.isIntersecting)'))
+  assert.ok(!dashboard.includes("addEventListener('scroll'"), 'no scroll listener')
+})
+
+test('the sheet holds the REAL control bar', () => {
+  // A second one would drift, and the one that drifted would be this one.
+  const sheet = dashboard.slice(dashboard.indexOf('{headerGone && headerOpen && ('))
+  assert.ok(sheet.slice(0, 900).includes('{controlBar}'))
+})
+
+test('scrolling back to the header puts the stand-in away', () => {
+  assert.ok(dashboard.includes('if (!headerGone && headerOpen) setHeaderOpen(false)'))
+})
+
+test('the backdrop and the page-wide text are reachable from edit mode', () => {
+  assert.ok(dashboard.includes('Background &amp; text'))
+  assert.ok(dashboard.includes('setDesigning(true)'))
+})

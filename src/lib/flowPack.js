@@ -225,6 +225,23 @@ export function rowOf(item) {
 }
 
 /**
+ * A widget's position WITHIN its row, if it has been given one.
+ *
+ * The page's own order decides which row things land in and how the page
+ * reads overall. This is the second question -- "and where in that row" --
+ * and it deserves its own answer, because renumbering a whole page to move
+ * the third KPI in front of the second is not an edit anybody should have
+ * to make.
+ *
+ * Unset sorts after everything numbered, in the order the page already has,
+ * so numbering ONE widget in a row moves that one and disturbs nothing else.
+ */
+export function rowOrderOf(item) {
+  const n = Number(item?.rowOrder)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
  * Whether a row is something somebody CHOSE, or just where this ended up.
  *
  * Blank means row 1 for the purposes of packing, but it does not mean an
@@ -302,11 +319,27 @@ export function packRowGroups(
 
   // What each row has been asked to hold, in the admin's own order.
   const queued = new Map()
-  for (const item of list) {
+  list.forEach((item, at) => {
     const row = rowOf(item)
     if (!queued.has(row)) queued.set(row, [])
-    queued.get(row).push(item)
+    queued.get(row).push({ item, at })
+  })
+
+  // Each row sorts itself. A numbered widget goes where its number says; an
+  // unnumbered one keeps the place the page's own order gave it, after the
+  // numbered ones -- so numbering a single widget in a row moves that one
+  // and leaves the rest exactly where they were.
+  for (const bucket of queued.values()) {
+    bucket.sort((a, b) => {
+      const x = rowOrderOf(a.item)
+      const y = rowOrderOf(b.item)
+      if (x === null && y === null) return a.at - b.at
+      if (x === null) return 1
+      if (y === null) return -1
+      return x - y || a.at - b.at
+    })
   }
+  for (const [row, bucket] of queued) queued.set(row, bucket.map((b) => b.item))
 
   const positions = {}
   const rows = []

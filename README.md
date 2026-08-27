@@ -419,6 +419,12 @@ The new widget then **opens straight into its own editor**, and the defaults
 are chosen so it *draws* the moment it lands: a widget that renders as an
 empty box until three more fields are picked is a widget nobody finishes.
 
+**Background and page-wide text** are on the edit bar too, under
+*Background & text* — the backdrop, the card look and the text colour every
+widget on the page inherits. It has always been one click away behind the
+palette; in edit mode it belongs with the other things you are there to
+change.
+
 **Adding a page happens in the sidebar**, where pages are. It's created empty
 and opened immediately rather than after a form is filled in — a page with no
 name is a page you can see and rename, and a form in front of an empty canvas
@@ -467,6 +473,16 @@ The rule is the one anybody would guess:
   always did, ahead of whatever was already assigned there.
 
 A row is as tall as its tallest widget, so rows line up.
+
+**Each row sorts itself.** The **#R** box is a widget's position *within* its
+row — the page's own order decides which row things land in and how the page
+reads overall; this is the second question. Renumbering a whole page to move
+the third KPI in front of the second is not an edit anybody should have to
+make.
+
+Blank is a real answer: an unnumbered widget keeps the place the page order
+gave it, **after** the numbered ones. So numbering a single widget moves that
+one and disturbs nothing else in the row.
 
 #### Less data moves nothing
 
@@ -611,6 +627,23 @@ for. The **W** and **H** boxes still hold the design numbers, and the dotted
 "what fits here" boxes report in those same design numbers — the point of
 that label is that it tells you what to type, and a number you can't type is
 worse than no number.
+
+#### The header comes to you
+
+A dashboard is long, and the controls that decide what it says are at the top
+of it. Scroll past the header and a small **Filters** pill appears at the
+bottom of the screen; press it and the control bar opens where you are —
+without losing the row you were reading. It carries a count when buttons are
+active, so it says whether the page is narrowed as well as offering to change
+it.
+
+It holds the **real** control bar, not a copy: a second one would drift, and
+the one that drifted would be this one. Scrolling back up to the actual header
+puts the stand-in away by itself.
+
+Whether the header is on screen is answered by an observer on a one-pixel
+sentinel at the bottom of it — the browser answers "is this visible" without
+waking React on every frame of every scroll.
 
 #### The empty space tells you what fits in it
 

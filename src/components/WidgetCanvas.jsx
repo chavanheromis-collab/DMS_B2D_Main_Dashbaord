@@ -63,7 +63,7 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
   // One observer per widget, so a table that grows a row pushes what is
   // below it down without anything else being recomputed.
   const key = items
-    .map((i) => `${i.id}:${i.widthPx ?? ''}:${i.width ?? ''}:${i.row ?? ''}:${i.rowSpan ?? ''}`)
+    .map((i) => `${i.id}:${i.widthPx ?? ''}:${i.width ?? ''}:${i.row ?? ''}:${i.rowOrder ?? ''}:${i.rowSpan ?? ''}`)
     .join('|')
   useEffect(() => {
     const observers = []

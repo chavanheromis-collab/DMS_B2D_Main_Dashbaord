@@ -17,6 +17,7 @@ import {
   rowOf,
   rowSlack,
   rowSpanOf,
+  rowOrderOf,
   pinnedHeight,
 } from './flowPack.js'
 
@@ -990,4 +991,58 @@ test('the spare figure is the width actually left on the line', () => {
       for (const id of line.ids) assert.equal(slack[id], 1000 - used, id)
     }
   }
+})
+
+// --- each row sorts itself ------------------------------------------------
+
+test('a row can be ordered without renumbering the page', () => {
+  // Renumbering a whole page to move the third KPI in front of the second
+  // is not an edit anybody should have to make.
+  const items = [
+    { id: 'a', row: 1, widthPx: 200 },
+    { id: 'b', row: 1, widthPx: 200 },
+    { id: 'x', row: 2, widthPx: 200 },
+    { id: 'y', row: 2, widthPx: 200, rowOrder: 1 },
+  ]
+  const { positions } = packRowGroups(items, { canvasWidth: 1000, gapX: 12 })
+  assert.equal(positions.y.left, 0, 'numbered first in its row')
+  assert.equal(positions.x.left, 212)
+  assert.equal(positions.a.left, 0, 'and row 1 is untouched')
+  assert.equal(positions.b.left, 212)
+})
+
+test('numbering ONE widget disturbs nothing else in the row', () => {
+  // The unnumbered ones keep the place the page order gave them, after the
+  // numbered ones.
+  const items = [
+    { id: 'a', row: 1, widthPx: 200 },
+    { id: 'b', row: 1, widthPx: 200 },
+    { id: 'c', row: 1, widthPx: 200, rowOrder: 1 },
+    { id: 'd', row: 1, widthPx: 200 },
+  ]
+  const { positions } = packRowGroups(items, { canvasWidth: 1000, gapX: 12 })
+  const order = ['a', 'b', 'c', 'd'].sort((p, q) => positions[p].left - positions[q].left)
+  assert.deepEqual(order, ['c', 'a', 'b', 'd'])
+})
+
+test('two numbers in one row are read as numbers, not as text', () => {
+  const items = [
+    { id: 'ten', row: 1, widthPx: 200, rowOrder: 10 },
+    { id: 'two', row: 1, widthPx: 200, rowOrder: 2 },
+  ]
+  const { positions } = packRowGroups(items, { canvasWidth: 1000, gapX: 12 })
+  assert.ok(positions.two.left < positions.ten.left)
+})
+
+test('a nonsense position is no position rather than a crash', () => {
+  assert.equal(rowOrderOf({ rowOrder: 'first' }), null)
+  assert.equal(rowOrderOf({}), null)
+  assert.equal(rowOrderOf({ rowOrder: 0 }), 0, 'and zero is a real position')
+  assert.equal(rowOrderOf({ rowOrder: -1 }), -1, 'so is a negative one')
+})
+
+test('a page nobody has ordered by row is in the order it always was', () => {
+  const items = [item('a', 200), item('b', 200), item('c', 200)]
+  const { positions } = packRowGroups(items, { canvasWidth: 1000, gapX: 12 })
+  assert.deepEqual([positions.a.left, positions.b.left, positions.c.left], [0, 212, 424])
 })

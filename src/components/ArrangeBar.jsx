@@ -134,6 +134,8 @@ export default function ArrangeBar({
   heightPx,
   row,
   onRow,
+  rowOrder,
+  onRowOrder,
   rowSpan,
   onRowSpan,
   widgetType,
@@ -268,6 +270,18 @@ export default function ArrangeBar({
         placeholder={measured?.row ?? 1}
         onCommit={(raw) => onRow(raw)}
         title={`Which row ${title} sits in`}
+      />
+      <NumberBox
+        label="#R"
+        value={rowOrder ?? ''}
+        // Where in THAT row. The page's own order decides which row things
+        // land in; this is the second question, and renumbering a whole
+        // page to move the third KPI in front of the second is not an edit
+        // anybody should have to make. Blank keeps the place the page order
+        // already gave it.
+        placeholder="—"
+        onCommit={(raw) => onRowOrder?.(raw)}
+        title={`Where ${title} sits within its row`}
       />
       <NumberBox
         label="↕R"
