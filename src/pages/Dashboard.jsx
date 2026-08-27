@@ -13,6 +13,7 @@ import { applyRowConditions } from '../lib/rowConditions'
 import { mergeDraft } from '../lib/editMode'
 import { makeWidget, WIDGET_TYPES } from '../lib/newWidget'
 import EditSplit from '../components/EditSplit.jsx'
+import WidgetTypePreview from '../components/WidgetTypePreview.jsx'
 import { DEFAULT_FRACTION, DEFAULT_SIDE, previewKind, targetTitle } from '../lib/editLayout'
 import { PageSettings } from './admin/PagesPanel.jsx'
 import { WorkspaceCtx } from './admin/ui.jsx'
@@ -1183,6 +1184,31 @@ export default function Dashboard() {
                         ...(heightStyle(widget.heightPx) || {}),
                       }}
                     >
+                      {/* In edit mode the widget IS the way in. A pill
+                          somebody has to find first is a pill somebody has
+                          to be told about; a card that lights up and says
+                          Edit is not. Above the card so a click lands here
+                          rather than drilling the chart -- in edit mode you
+                          are editing, not reading. */}
+                      {editing && isAdmin && (
+                        <button
+                          onClick={() => {
+                            setEditDraft(null)
+                            setEditTarget({ kind: 'widget', id: widget.id })
+                          }}
+                          title={`Edit ${widget.title || 'this widget'}`}
+                          className={`absolute inset-0 z-10 flex items-start justify-end rounded-2xl p-2 transition-all ${
+                            editTarget?.id === widget.id
+                              ? 'bg-indigo-500/10 ring-2 ring-indigo-400'
+                              : 'bg-transparent opacity-0 hover:bg-indigo-500/10 hover:opacity-100 hover:ring-2 hover:ring-indigo-300'
+                          }`}
+                        >
+                          <span className="rounded-lg bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow">
+                            Edit
+                          </span>
+                        </button>
+                      )}
+
                       {arranging && (
                         <ArrangeBar
                           index={index + 1}
@@ -1193,7 +1219,11 @@ export default function Dashboard() {
                           widgetType={widget.type}
                           rowSpan={widget.rowSpan ?? ''}
                           onRowSpan={(v) => saveWidgetSize(widget.id, { rowSpan: v })}
-                          widthPx={widget.widthPx ?? ''}
+                          // Only what is actually IN FORCE. A pixel width
+                          // is ignored unless the widget is in pixel mode,
+                          // and a number that is being ignored has no
+                          // business sitting in the box that sets it.
+                          widthPx={widgetUsesPx(widget) ? widget.widthPx : ''}
                           heightPx={widget.heightPx ?? ''}
                           style={widget.style}
                           measured={sizes[widget.id]}
@@ -1374,9 +1404,13 @@ export default function Dashboard() {
   // The widget the editor is pointed at, and the canvas item that draws it
   // -- both taken from what the page is ALREADY rendering, so the preview
   // cannot be a different render from the page's own.
+  // From the SAVED widgets, not from `view`: `view` is label space, with
+  // every tab field rewritten to its human name for rendering. Editing one
+  // of those would write labels where refs belong and leave the tab picker
+  // matching nothing.
   const editedWidget = useMemo(
-    () => (editTarget?.kind === 'widget' ? view.widgets.find((w) => w.id === editTarget.id) : null),
-    [editTarget, view.widgets]
+    () => (editTarget?.kind === 'widget' ? (page?.widgets || []).find((w) => w.id === editTarget.id) : null),
+    [editTarget, page?.widgets]
   )
   const editedItem = useMemo(
     () => (editTarget?.kind === 'widget' ? widgetItems.find((i) => i.id === editTarget.id) : null),
@@ -1596,29 +1630,29 @@ export default function Dashboard() {
             {editing && isAdmin && (
               <div className="page-chrome page-chrome-surface flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-2.5 py-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">Add</span>
-                {/* The types worth one click. Everything else is one more,
-                    under "More", rather than sixteen buttons across a bar. */}
-                {WIDGET_TYPES.slice(0, 6).map((t) => (
-                  <button
-                    key={t.value}
-                    onClick={() => addWidgetHere(t.value)}
-                    className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
-                  >
-                    {t.label}
-                  </button>
-                ))}
-                <select
-                  value=""
-                  onChange={(e) => e.target.value && addWidgetHere(e.target.value)}
-                  className="rounded-lg border border-indigo-200 bg-white px-1.5 py-1 text-[11px] text-indigo-700"
-                >
-                  <option value="">More…</option>
-                  {WIDGET_TYPES.slice(6).map((t) => (
-                    <option key={t.value} value={t.value}>
+
+                {/* Sixteen names tell you nothing about the difference
+                    between a combo chart and a stacked one, and the way
+                    anybody finds out is by adding both and deleting one. The
+                    sketch answers it in the time it takes to move the mouse. */}
+                {WIDGET_TYPES.map((t) => (
+                  <div key={t.value} className="group relative">
+                    <button
+                      onClick={() => addWidgetHere(t.value)}
+                      className="flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:border-indigo-400 hover:bg-indigo-50"
+                    >
+                      <span aria-hidden>{t.icon}</span>
                       {t.label}
-                    </option>
-                  ))}
-                </select>
+                    </button>
+
+                    <div className="pointer-events-none absolute left-0 top-full z-30 hidden pt-1.5 group-hover:block">
+                      <div className="w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                        <WidgetTypePreview type={t.value} />
+                        <p className="mt-1.5 text-[10px] leading-snug text-slate-500">{t.hint}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
 
                 <span className="mx-1 h-4 w-px bg-indigo-200" />
 

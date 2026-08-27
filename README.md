@@ -334,7 +334,8 @@ place every time and you had to find it again.
 
 | Click | You get |
 |---|---|
-| **⇄** on a widget's pill | That widget's whole editor — the same form the admin panel shows |
+| **The widget itself** | Its whole editor — the same form the admin panel shows |
+| **⇄** on a widget's pill | The same thing, for when the pill is already under your hand |
 | **Controls & buttons** | The page's filter bar, previewed as the page |
 | **Page settings** | Title, icon, placement, backdrop, spreadsheets |
 | **⚙ on a sidebar entry** | That page's settings, from anywhere |
@@ -358,11 +359,33 @@ previews as itself.
   keystroke is not a save strategy; an edit still sitting in a timer when the
   panel closes is an edit lost. The header says *Saved* or *Saving…*.
 
-**Adding a widget happens on the page** — six common types as one click, the
-rest under *More* — and it **opens straight into its own editor**. The
-defaults are chosen so it *draws* the moment it lands: a widget that renders
-as an empty box until three more fields are picked is a widget nobody
-finishes.
+In edit mode **the widget is the way in**: hover it and it lights up with an
+**Edit** chip, click anywhere on it and its editor opens. A pill somebody has
+to find first is a pill somebody has to be told about. The click layer sits
+*under* the arrange pill, so the pill's own buttons keep working.
+
+**Adding a widget happens on the page**, and **hovering a type shows you what
+it is**:
+
+```
+┌──────────────┐
+│ ▁▃▅█▆▃       │   Chart
+│              │   Group a tab by a column
+└──────────────┘   and plot it — 11 styles
+```
+
+Sixteen names tell you nothing about the difference between a combo chart and
+a stacked one, and the way anybody finds out is by adding both and deleting
+one. The sketch answers it in the time it takes to move the mouse.
+
+It is deliberately a **sketch, not a live render**. A real one would need a
+tab, columns, an aggregation and rows — none of which exist before the widget
+does — so it would either be empty or be a lie about your data. Shapes and
+proportions are the honest thing to promise.
+
+The new widget then **opens straight into its own editor**, and the defaults
+are chosen so it *draws* the moment it lands: a widget that renders as an
+empty box until three more fields are picked is a widget nobody finishes.
 
 **Adding a page happens in the sidebar**, where pages are. It's created empty
 and opened immediately rather than after a form is filled in — a page with no
@@ -549,6 +572,11 @@ stacks instead. Three widgets across 360 pixels is three widgets nobody can
 read, which is worse than three screens of one widget each. Stacked, a widget
 that is now *wider* than it was does **not** grow taller: its height was a
 decision, not a ratio waiting to be scaled up.
+
+The **W** box shows the width that is actually **in force**. A pixel width
+only applies in pixel mode, so a number left behind by switching back to a
+preset used to sit in the box looking like it was doing something — the box
+is blank there now, and typing in it switches the mode back.
 
 While arranging, the pill shows **what is drawn**, not what was typed, with a
 `78%` or `stacked` chip when this screen isn't the one the page was arranged

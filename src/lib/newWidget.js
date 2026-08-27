@@ -1,5 +1,6 @@
 import {
   AGGREGATIONS,
+  WIDGET_TYPES,
   KPI_PALETTE,
   NUMBER_FORMATS,
   PALETTE,
@@ -9,6 +10,11 @@ import {
   aggNeedsColumn,
   uid,
 } from './config.js'
+
+// One list of what a widget can be, not two. The types, their icons and
+// their one-line descriptions have always lived in config; re-exporting is
+// how this file offers them without becoming a second opinion about them.
+export { WIDGET_TYPES }
 import { looksLikeDateColumn } from './dataUtils.js'
 import { DEFAULT_BLEND } from './blend.js'
 import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from './flow.js'
@@ -30,26 +36,6 @@ import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from './flow.js'
 // empty box until somebody picks three more fields is a widget nobody
 // finishes; every one of these is chosen so the thing DRAWS the moment it
 // lands on the page.
-
-/** Every type the page can add, in the order they are offered. */
-export const WIDGET_TYPES = [
-  { value: 'kpi', label: 'KPI card' },
-  { value: 'chart', label: 'Chart' },
-  { value: 'table', label: 'Table' },
-  { value: 'trend', label: 'Trend over time' },
-  { value: 'leaderboard', label: 'Leaderboard' },
-  { value: 'pivot', label: 'Pivot table' },
-  { value: 'stacked', label: 'Stacked / grouped bars' },
-  { value: 'combo', label: 'Bars + line' },
-  { value: 'scatter', label: 'Scatter / bubble' },
-  { value: 'heatmap', label: 'Heat map' },
-  { value: 'gauge', label: 'Gauge / target' },
-  { value: 'scorecard', label: 'Scorecard' },
-  { value: 'activity', label: 'Activity feed' },
-  { value: 'pipeline', label: 'Pipeline' },
-  { value: 'flow', label: 'Flow diagram' },
-  { value: 'filters', label: 'Filter panel' },
-]
 
 /**
  * A new widget of `type`, pinned to `tab`.

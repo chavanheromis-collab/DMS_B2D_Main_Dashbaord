@@ -338,3 +338,68 @@ test('the sidebar’s edit affordance is not a button inside a button', () => {
   assert.ok(sidebar.includes('<span role="button"'))
   assert.ok(sidebar.includes('e.stopPropagation()'))
 })
+
+// --- the four things that were wrong ------------------------------------
+
+test('the form edits the widget as it is STORED, not as it is drawn', () => {
+  // `view` is label space: every tab field rewritten to its human name for
+  // rendering. Editing one of those writes labels where refs belong and
+  // leaves the widget's own tab picker matching nothing.
+  assert.ok(dashboard.includes("(page?.widgets || []).find((w) => w.id === editTarget.id)"))
+  assert.ok(!dashboard.includes('view.widgets.find((w) => w.id === editTarget.id)'))
+})
+
+test('the W box shows the width that is actually in force', () => {
+  // A pixel width is ignored unless the widget is in pixel mode, and a
+  // number that is being ignored has no business sitting in the box that
+  // sets it -- that is "it shows one thing and does another".
+  assert.ok(dashboard.includes("widthPx={widgetUsesPx(widget) ? widget.widthPx : ''}"))
+})
+
+test('in edit mode the widget itself is the way in', () => {
+  // A pill somebody has to find first is a pill somebody has to be told
+  // about; a card that lights up and says Edit is not.
+  assert.ok(dashboard.includes('{editing && isAdmin && ('))
+  assert.ok(dashboard.includes('absolute inset-0 z-10 flex items-start justify-end'))
+  assert.ok(dashboard.includes("title={`Edit ${widget.title || 'this widget'}`}"))
+})
+
+test('the click target sits UNDER the arrange pill', () => {
+  // Otherwise the pill's own buttons stop answering.
+  const bar = read('components/ArrangeBar.jsx')
+  assert.ok(bar.includes('z-20 inline-flex'))
+  assert.ok(dashboard.includes('inset-0 z-10'))
+})
+
+test('every widget type has a sketch of what it is', () => {
+  const preview = read('components/WidgetTypePreview.jsx')
+  for (const t of WIDGET_TYPES) {
+    assert.ok(preview.includes(`${t.value}: () => (`), `${t.value} has no sketch`)
+  }
+})
+
+test('the add bar shows the sketch and says what the type is for', () => {
+  assert.ok(dashboard.includes('<WidgetTypePreview type={t.value} />'))
+  assert.ok(dashboard.includes('{t.hint}'))
+  assert.ok(dashboard.includes('group-hover:block'))
+})
+
+test('the sketch is a sketch, and does not pretend to be your data', () => {
+  // A real render would need a tab, columns and rows -- none of which exist
+  // before the widget does -- so it would be empty or a lie.
+  const preview = read('components/WidgetTypePreview.jsx')
+  // No data, no props but the type, no imports at all.
+  assert.ok(!/^import /m.test(preview))
+  assert.ok(preview.includes('export default function WidgetTypePreview({ type })'))
+})
+
+test('there is ONE list of what a widget can be', () => {
+  // The icons and the one-line descriptions have always lived in config.
+  const factory = fs.readFileSync(path.join(SRC, 'lib/newWidget.js'), 'utf8')
+  assert.ok(factory.includes('export { WIDGET_TYPES }'))
+  assert.ok(!/export const WIDGET_TYPES = \[/.test(factory))
+  for (const t of WIDGET_TYPES) {
+    assert.ok(t.icon, `${t.value} has no icon`)
+    assert.ok(t.hint, `${t.value} has no hint`)
+  }
+})
