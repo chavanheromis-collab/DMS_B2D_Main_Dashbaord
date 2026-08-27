@@ -10,6 +10,7 @@ import {
   stageBox,
   stageNumberClass,
   stagePath,
+  stagePercent,
   stagesAt,
   subStages,
 } from '../../lib/pipelineNav.js'
@@ -251,10 +252,152 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
     setOpenStageId(stage.id)
   }
 
+  /**
+   * The stage whose insides are on screen, as a box of its own.
+   *
+   * Descending used to leave it in the breadcrumb as a word. But the whole
+   * point of a sub-pipeline is that its parts add up to a whole, and a whole
+   * you cannot see is a sum with nothing to check it against -- so the stage
+   * stays on the row, with the parts drawn after it.
+   *
+   * Measured the way its OWN level measured it: same percentage rule, same
+   * siblings, same step number. It is the same box the reader clicked, not a
+   * summary of it, and a number that changed on the way in would say the
+   * descent had done something to the data.
+   */
+  const parentInfo = useMemo(() => {
+    if (!chain.length) return null
+    const stage = chain[chain.length - 1]
+    const ancestors = chain.slice(0, -1)
+    const siblings = stagesAt(stages, path.slice(0, -1))
+    const rowsOf = (s) => getStageRows({ stage: s, ancestors, widget, rowsByTab, rawRowsByTab, dateOrder })
+
+    const own = rowsOf(stage)
+    const ownBase = widget.percentBase === 'total' ? null : rowsOf(siblings[0]).count
+    return {
+      stage,
+      count: own.count,
+      pct: stagePercent(own.count, { base: ownBase, total: own.total }),
+      index: Math.max(0, siblings.findIndex((s) => s.id === stage.id)),
+      trend:
+        widget.showSparkline && stage.dateColumn
+          ? dailyCounts(own.matchedRows, stage.dateColumn, 30, dateOrder)
+          : [],
+    }
+  }, [chain, path.join('>'), stages, rowsByTab, rawRowsByTab, widget, dateOrder])
+
   const openStage = level.find((s) => s.id === openStageId) || null
   const openStageRows = openStage
     ? getStagePopupRows({ stage: openStage, ancestors: chain, widget, rowsByTab, rawRowsByTab, dateOrder })
     : []
+
+  /**
+   * One stage box.
+   *
+   * A function rather than a component, so it keeps the closure it is
+   * written in -- and so React is not handed a brand-new component type on
+   * every render, which would throw the boxes away and rebuild them.
+   *
+   * `isParent` is the stage whose insides are being shown. It is already
+   * open, so its click cannot descend again; it filters instead, which is
+   * the one thing descending took away.
+   */
+  function renderStage({ stage, count, trend, index, pct, isParent = false }) {
+    const active = isActive(stage)
+    const color = stage.color || '#4F46E5'
+    const children = subStages(stage).length
+
+    return (
+      <button
+        onClick={(e) => (isParent ? drill(stage, chain.slice(0, -1)) : handleClick(stage, e))}
+        title={
+          isParent
+            ? `Click to filter the dashboard to ${stage.label}`
+            : children
+              ? `Click to open the ${children} stages inside ${stage.label}`
+              : (stage.kpis || []).length > 0
+                ? `Click to see KPIs for ${stage.label}`
+                : `Click to filter the dashboard to ${stage.label}`
+        }
+        className={`group relative flex shrink-0 flex-col overflow-hidden rounded-2xl border p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
+          active ? 'border-transparent ring-2 ring-offset-1' : isParent ? 'border-dashed' : 'border-slate-200/70'
+        }`}
+        style={{
+          width: box.width,
+          ...(box.height ? { height: box.height } : {}),
+          backgroundColor: `${color}${isParent ? '1f' : '12'}`,
+          ...(active ? { '--tw-ring-color': color } : {}),
+          ...(isParent && !active ? { borderColor: `${color}66` } : {}),
+        }}
+      >
+        <span className="absolute left-0 top-0 h-full w-1" style={{ backgroundColor: color }} />
+
+        <div className="flex items-start justify-between gap-2">
+          <span className="flex items-center gap-1.5">
+            {/* The step number: a funnel is an ordered thing, and numbering
+                it is what lets someone say "we lose them at three" instead
+                of pointing at the screen. The parent keeps the number it
+                had at its own level. */}
+            <span className="text-[13px] font-black leading-none tabular-nums opacity-30" style={{ color }}>
+              {String(index + 1).padStart(2, '0')}
+            </span>
+            <span className="text-base leading-none">{stage.icon || '•'}</span>
+          </span>
+          <span className="flex items-center gap-1">
+            {/* A box that leads somewhere says so, or its click does
+                something different from its neighbours' for no visible
+                reason. */}
+            {children > 0 && (
+              <span
+                className="flex items-center gap-0.5 rounded-full px-1 py-0.5 text-[9px] font-bold"
+                style={{ backgroundColor: `${color}22`, color }}
+              >
+                <Layers size={9} />
+                {children}
+              </span>
+            )}
+            <span
+              className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+              style={{ backgroundColor: `${color}22`, color }}
+            >
+              {pct}%
+            </span>
+          </span>
+        </div>
+
+        <p className="mt-2 truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">{stage.label}</p>
+        <p className={`font-bold leading-tight text-slate-800 ${stageNumberClass(box.width)}`}>
+          {count.toLocaleString('en-IN')}
+        </p>
+
+        <div className="mt-1 h-6">
+          {widget.showSparkline &&
+            (trend.length ? (
+              <Sparkline values={trend} color={color} width={Math.max(40, box.width - 28)} height={22} />
+            ) : (
+              <span className="text-[9px] text-slate-300">no trend column set</span>
+            ))}
+        </div>
+
+        {children > 0 && (
+          <span
+            className="mt-auto flex items-center gap-1 pt-1 text-[9px] font-medium"
+            style={{ color: isParent ? color : undefined }}
+          >
+            {isParent ? (
+              <>
+                <Filter size={9} /> click to filter
+              </>
+            ) : (
+              <span className="flex items-center gap-1 text-slate-400">
+                <CornerDownRight size={9} /> {children} inside
+              </span>
+            )}
+          </span>
+        )}
+      </button>
+    )
+  }
 
   return (
     <div className="card">
@@ -291,21 +434,6 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
               </button>
             </span>
           ))}
-
-          {/* Descending is navigation, not filtering -- so the one thing
-              the reader loses by descending is offered back here. */}
-          <button
-            onClick={() => drill(chain[chain.length - 1], chain.slice(0, -1))}
-            title={`Filter the dashboard to ${chain[chain.length - 1].label}`}
-            className={`ml-auto flex items-center gap-1 rounded-full px-2 py-0.5 font-medium transition-colors ${
-              isActive(chain[chain.length - 1])
-                ? 'bg-indigo-100 text-indigo-700'
-                : 'text-slate-400 hover:bg-white hover:text-slate-600'
-            }`}
-          >
-            <Filter size={10} />
-            {isActive(chain[chain.length - 1]) ? 'Filtering' : 'Filter'}
-          </button>
         </div>
       )}
 
@@ -315,98 +443,25 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
         </p>
       ) : (
         <div className="flex items-stretch gap-1 overflow-x-auto pb-1">
-          {computed.map(({ stage, count, total, trend }, i) => {
-            const denom = base === null ? total : base
-            const pct = denom > 0 ? Math.round((count / denom) * 100) : 0
-            const active = isActive(stage)
-            const color = stage.color || '#4F46E5'
-            const children = subStages(stage).length
+          {/* The stage that was opened, and then what is inside it. One
+              renderer for both, so the parent is recognisably the same box
+              it was a click ago rather than a second design of it. */}
+          {parentInfo && (
+            <div className="flex items-center">
+              {renderStage({ ...parentInfo, isParent: true })}
+              <span className="mx-1 flex shrink-0 flex-col items-center justify-center gap-0.5 text-slate-300">
+                <CornerDownRight size={14} />
+                <span className="text-[8px] font-semibold uppercase tracking-wide">inside</span>
+              </span>
+            </div>
+          )}
 
-            return (
-              <div key={stage.id} className="flex items-center">
-                <button
-                  onClick={(e) => handleClick(stage, e)}
-                  title={
-                    children
-                      ? `Click to open the ${children} stages inside ${stage.label}`
-                      : (stage.kpis || []).length > 0
-                        ? `Click to see KPIs for ${stage.label}`
-                        : `Click to filter the dashboard to ${stage.label}`
-                  }
-                  className={`group relative flex shrink-0 flex-col overflow-hidden rounded-2xl border p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${active ? 'border-transparent ring-2 ring-offset-1' : 'border-slate-200/70'
-                    }`}
-                  style={{
-                    width: box.width,
-                    ...(box.height ? { height: box.height } : {}),
-                    backgroundColor: `${color}12`,
-                    ...(active ? { '--tw-ring-color': color } : {}),
-                  }}
-                >
-                  <span className="absolute left-0 top-0 h-full w-1" style={{ backgroundColor: color }} />
-
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="flex items-center gap-1.5">
-                      {/* The step number: a funnel is an ordered thing, and
-                          numbering it is what lets someone say "we lose them
-                          at three" instead of pointing at the screen. */}
-                      <span
-                        className="text-[13px] font-black leading-none tabular-nums opacity-30"
-                        style={{ color }}
-                      >
-                        {String(i + 1).padStart(2, '0')}
-                      </span>
-                      <span className="text-base leading-none">{stage.icon || '•'}</span>
-                    </span>
-                    <span className="flex items-center gap-1">
-                      {/* A box that leads somewhere says so, or its click
-                          does something different from its neighbours' for
-                          no visible reason. */}
-                      {children > 0 && (
-                        <span
-                          className="flex items-center gap-0.5 rounded-full px-1 py-0.5 text-[9px] font-bold"
-                          style={{ backgroundColor: `${color}22`, color }}
-                        >
-                          <Layers size={9} />
-                          {children}
-                        </span>
-                      )}
-                      <span
-                        className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-                        style={{ backgroundColor: `${color}22`, color }}
-                      >
-                        {pct}%
-                      </span>
-                    </span>
-                  </div>
-
-                  <p className="mt-2 truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    {stage.label}
-                  </p>
-                  <p className={`font-bold leading-tight text-slate-800 ${stageNumberClass(box.width)}`}>
-                    {count.toLocaleString('en-IN')}
-                  </p>
-
-                  <div className="mt-1 h-6">
-                    {widget.showSparkline && (
-                      trend.length ? (
-                        <Sparkline values={trend} color={color} width={Math.max(40, box.width - 28)} height={22} />
-                      ) : (
-                        <span className="text-[9px] text-slate-300">no trend column set</span>
-                      )
-                    )}
-                  </div>
-
-                  {children > 0 && (
-                    <span className="mt-auto flex items-center gap-1 pt-1 text-[9px] font-medium text-slate-400">
-                      <CornerDownRight size={9} /> {children} inside
-                    </span>
-                  )}
-                </button>
-
-                {i < computed.length - 1 && <ChevronRight size={14} className="mx-0.5 shrink-0 text-slate-300" />}
-              </div>
-            )
-          })}
+          {computed.map(({ stage, count, total, trend }, i) => (
+            <div key={stage.id} className="flex items-center">
+              {renderStage({ stage, count, trend, index: i, pct: stagePercent(count, { base, total }) })}
+              {i < computed.length - 1 && <ChevronRight size={14} className="mx-0.5 shrink-0 text-slate-300" />}
+            </div>
+          ))}
         </div>
       )}
 

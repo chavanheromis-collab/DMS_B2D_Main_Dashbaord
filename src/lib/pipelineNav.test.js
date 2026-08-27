@@ -16,6 +16,7 @@ import {
   stageBox,
   stageNumberClass,
   stagePath,
+  stagePercent,
   stagesAt,
   subStages,
 } from './pipelineNav.js'
@@ -146,6 +147,22 @@ test('a narrow box steps the number down rather than clipping it', () => {
   assert.equal(stageNumberClass(300), 'text-2xl')
   assert.equal(stageNumberClass(120), 'text-xl')
   assert.equal(stageNumberClass(90), 'text-lg')
+})
+
+test('one percentage rule, so a stage reads the same on both sides of a click', () => {
+  // A parent that says 40% in the row and 100% once you are inside it would
+  // be telling the reader the descent had done something to the data.
+  assert.equal(stagePercent(25, { base: 100, total: 50 }), 25, 'a funnel measures against the first stage')
+  assert.equal(stagePercent(25, { base: null, total: 50 }), 50, 'null means measure against its own rows')
+  assert.equal(stagePercent(25, { base: undefined, total: 50 }), 50)
+  assert.equal(stagePercent(3, { base: 0, total: 0 }), 0, 'and nothing is not a division by zero')
+  assert.equal(
+    stagePercent(5, { base: 0, total: 50 }),
+    0,
+    'a funnel whose first stage is empty has no percentage -- it does not quietly switch to the other rule'
+  )
+  assert.equal(stagePercent(1, { base: 3, total: 9 }), 33, 'rounded, not truncated')
+  assert.equal(stagePercent(2, { base: 3, total: 9 }), 67)
 })
 
 // ---------------------------------------------------------------------
@@ -309,6 +326,50 @@ test('the level on screen is the level that is counted', () => {
     2,
     'the boxes AND the pop-up behind them are both scoped to the chain'
   )
+})
+
+test('the stage you opened stays on the row, in front of its parts', () => {
+  // A whole you cannot see is a sum with nothing to check it against.
+  assert.ok(widget.includes('const parentInfo = useMemo('))
+  assert.ok(widget.includes('{renderStage({ ...parentInfo, isParent: true })}'))
+  const at = widget.indexOf('{parentInfo && (')
+  const subs = widget.indexOf('{computed.map(')
+  assert.ok(at > 0 && at < subs, 'and it is drawn BEFORE them')
+})
+
+test('the parent is the same box it was a click ago, not a second design of one', () => {
+  assert.equal((widget.match(/function renderStage\(/g) || []).length, 1, 'one renderer')
+  assert.ok(widget.includes('{renderStage({ ...parentInfo, isParent: true })}'), 'the parent goes through it')
+  assert.ok(
+    widget.includes('{renderStage({ stage, count, trend, index: i, pct: stagePercent(count, { base, total }) })}'),
+    'and so does every stage of the level'
+  )
+  assert.ok(!widget.includes('min-w-[132px]'))
+  assert.equal(
+    (widget.match(/className=\{`group relative flex shrink-0 flex-col/g) || []).length,
+    1,
+    'and there is exactly one box in the file, not two that must be kept in step'
+  )
+})
+
+test('the parent is measured at its OWN level, siblings and all', () => {
+  const at = widget.indexOf('const parentInfo = useMemo(')
+  const body = widget.slice(at, at + 1200)
+  assert.ok(body.includes('const ancestors = chain.slice(0, -1)'))
+  assert.ok(body.includes('const siblings = stagesAt(stages, path.slice(0, -1))'))
+  assert.ok(body.includes('rowsOf(siblings[0]).count'), 'the funnel base is its own level’s first stage')
+  assert.ok(body.includes('stagePercent(own.count,'), 'through the same rule the row uses')
+  assert.equal((widget.match(/stagePercent\(/g) || []).length, 2, 'and nobody writes the formula out by hand')
+})
+
+test('the parent filters, because it cannot open what is already open', () => {
+  assert.ok(widget.includes('onClick={(e) => (isParent ? drill(stage, chain.slice(0, -1)) : handleClick(stage, e))}'))
+})
+
+test('and the trail does not offer a second button for the same thing', () => {
+  const at = widget.indexOf('All stages')
+  const crumbs = widget.slice(at, at + 900)
+  assert.ok(!crumbs.includes('Filtering'), 'the parent box IS the filter control now')
 })
 
 test('the box is sized by the admin, not by a hard-coded class', () => {

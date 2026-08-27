@@ -2087,11 +2087,23 @@ up to four levels deep; it's the same form as a top-level stage, because a
 sub-pipeline *is* a pipeline.
 
 On the page, a stage with stages inside it says so — a count badge and
-"3 inside" along the bottom — and clicking it **opens** them. The level you
-came from steps aside and becomes a trail: `All stages › Booked › RTO`, every
-crumb clickable. This is navigation, not filtering, so nothing on the
-dashboard moves; the trail carries a **Filter** button for when you do want
-the level you're standing in applied to the page.
+"3 inside" along the bottom — and clicking it **opens** them. Its *siblings*
+step aside; **the stage itself stays on the row**, drawn first, with an
+`↳ inside` divider and then its parts. A whole you cannot see is a sum with
+nothing to check it against.
+
+The parent keeps its own box: the same step number, the same percentage, the
+same count it had a click ago — measured against *its* level, not the one you
+are now looking at. A number that changed on the way in would be saying the
+descent had done something to the data. It is drawn by the same renderer as
+every other box, with a dashed border to mark it as the one that is open.
+
+Above it runs the trail — `All stages › Booked › RTO`, every crumb clickable —
+for getting back, or for jumping several levels at once.
+
+Opening a stage is navigation, not filtering, so nothing on the dashboard
+moves. **Clicking the parent box filters**, which is the one thing descending
+takes away (it cannot open what is already open).
 
 **A sub-stage divides the rows its parent matched.** That's what makes it one
 pipeline rather than two drawn in the same card: the numbers inside always add

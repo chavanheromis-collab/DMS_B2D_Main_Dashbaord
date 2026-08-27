@@ -114,6 +114,19 @@ function clamp(value, fallback, min, max) {
 }
 
 /**
+ * The percentage a stage box shows.
+ *
+ * `base` is the level's shared denominator -- the first stage's count, for a
+ * funnel -- or null where each stage is measured against its own rows. Both
+ * the row of stages and the parent drawn beside them ask this, so a parent
+ * cannot read 40% on the way in and 100% once you are inside it.
+ */
+export function stagePercent(count, { base, total }) {
+  const denom = base === null || base === undefined ? total : base
+  return denom > 0 ? Math.round((count / denom) * 100) : 0
+}
+
+/**
  * How big the number in a stage box is allowed to be.
  *
  * A narrow box and a five-figure count cannot both have their way, and the
