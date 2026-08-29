@@ -169,14 +169,23 @@ test('a table’s setup is five buttons, columns among them', () => {
   assert.ok(widgets.includes("badge: (widget.badgeColumns || []).length"))
 })
 
-test('a trend and a pivot are split too', () => {
+test('a trend, a pivot and a pipeline stage are split too', () => {
   for (const key of ['data', 'series', 'size', 'readings']) {
     assert.ok(editors.includes(`key: '${key}'`), `trend ${key}`)
   }
   for (const key of ['layout', 'axes']) {
     assert.ok(editors.includes(`key: '${key}'`), `pivot ${key}`)
   }
-  assert.equal((editors.match(/<SectionTabs/g) || []).length, 2)
+  // A pipeline stage carries conditions, a pop-up and a whole pipeline of
+  // its own -- the longest form of the lot, and its pop-up is three things
+  // again, so that splits as well.
+  for (const key of ['rules', 'popup', 'inside']) {
+    assert.ok(editors.includes(`key: '${key}'`), `stage ${key}`)
+  }
+  for (const key of ['kpis', 'pivot', 'board']) {
+    assert.ok(editors.includes(`key: '${key}'`), `stage pop-up ${key}`)
+  }
+  assert.equal((editors.match(/<SectionTabs/g) || []).length, 4)
 })
 
 test('a style with no options of its own says so', () => {
@@ -187,7 +196,7 @@ test('a style with no options of its own says so', () => {
 
 test('a short editor is left alone', () => {
   // A row of buttons over a sixty-line form is noise: it costs a line to
-  // save none. Only the four long ones are split.
+  // save none. Only the long ones are split.
   const short = editors.slice(editors.indexOf('export function LeaderboardEditor'), editors.indexOf('export function StageKpiEditor'))
   assert.ok(!short.includes('<SectionTabs'))
 })

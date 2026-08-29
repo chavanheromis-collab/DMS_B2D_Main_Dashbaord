@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, ChevronUp, Palette, Redo2, RefreshCw, RotateCcw, Undo2 } from 'lucide-react'
+import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Layers, Palette, Redo2, RefreshCw, RotateCcw, Undo2 } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
 import { usePageData, useLocalState } from '../hooks/usePageData'
@@ -17,6 +17,7 @@ import { canRedo, canUndo, commitHistory, emptyHistory, historyKeyAction, redoHi
 import { makeWidget, WIDGET_TYPES } from '../lib/newWidget'
 import EditSplit from '../components/EditSplit.jsx'
 import WidgetTypePreview from '../components/WidgetTypePreview.jsx'
+import { hasVariants, variantHint, variantPatch, variantTitle, variantsFor } from '../lib/widgetVariants'
 import { DEFAULT_FRACTION, DEFAULT_SIDE, previewKind, targetTitle } from '../lib/editLayout'
 import { PageSettings } from './admin/PagesPanel.jsx'
 import { WorkspaceCtx } from './admin/ui.jsx'
@@ -26,6 +27,19 @@ import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
 import { MAX_ROW_SPAN } from '../lib/flowPack'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
+import {
+  MAX_WIDGET_DEPTH,
+  ascendWidget,
+  childWidgets,
+  descendWidget,
+  editLevel,
+  findWidget,
+  hasChildren,
+  insideLabel,
+  liveWidgetPath,
+  widgetPath,
+  widgetsAt,
+} from '../lib/widgetNest'
 import { applyComputed, computedFor, computedHeaders } from '../lib/computed'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
 import { normalizeKey } from '../lib/dataUtils'
@@ -280,6 +294,32 @@ export default function Dashboard() {
 
   const widgets = useMemo(() => (page?.widgets || []), [page])
 
+  // Which widget's insides are on screen, as the ids leading to it. Ids
+  // rather than indexes: reordering the page while somebody is inside one
+  // should not swap what they are looking at. See lib/widgetNest.js.
+  const [openWidgets, setOpenWidgets] = useState([])
+  const { insidePath, insideChain, levelWidgets } = useMemo(() => {
+    const live = liveWidgetPath(widgets, openWidgets)
+    return { insidePath: live, insideChain: widgetPath(widgets, live), levelWidgets: widgetsAt(widgets, live) }
+  }, [widgets, openWidgets])
+
+  /**
+   * Every edit on the page writes ONE array back: the page's widgets. Inside
+   * a widget the array being edited is several levels down, so it is rebuilt
+   * on the way out -- which is the only reason anything below this line can
+   * go on treating the level it can see as if it were the page.
+   */
+  const atLevel = useCallback((fn) => editLevel(widgets, insidePath, fn), [widgets, insidePath])
+
+  /** Leaving a page cannot leave the reader inside one of its widgets. */
+  useEffect(() => {
+    setOpenWidgets([])
+  }, [page?.id])
+
+  // Which type's shapes the Add palette is showing, if any. "Chart" is one
+  // button and twenty-one drawings -- see lib/widgetVariants.js.
+  const [addFamily, setAddFamily] = useState(null)
+
   // One ordered list of controls, however the page happens to be stored.
   // The engine still wants them split, because a filter and a button
   // evaluate differently -- see lib/pageControls.js.
@@ -312,11 +352,18 @@ export default function Dashboard() {
         // widgets -- so the blend, the filters, the canvas and the widget
         // itself all see the change at once. Merging it further down would
         // make a chart redraw while its own caption did not.
-        mergeDraft(visibleWidgetsFor(page, access, isAdmin), editDraft?.id, editDraft?.patch),
+        // The level that is open, not the page's own list -- and ordered
+        // and hidden by the same rules at every depth, because a child is
+        // an ordinary widget.
+        mergeDraft(
+          visibleWidgetsFor({ ...page, widgets: levelWidgets }, access, isAdmin),
+          editDraft?.id,
+          editDraft?.patch
+        ),
         widgetOrder,
         access?.widgetOrder
       ),
-    [page, access, isAdmin, widgetOrder, editDraft]
+    [page, levelWidgets, access, isAdmin, widgetOrder, editDraft]
   )
 
   // Controls that the admin gave a default value open already applied.
@@ -782,7 +829,7 @@ export default function Dashboard() {
    */
   async function saveWidgetStyle(widgetId, style) {
     if (!isAdmin || !page?.id) return
-    const widgets = (page.widgets || []).map((w) => (w.id === widgetId ? { ...w, style } : w))
+    const widgets = atLevel((list) => list.map((w) => (w.id === widgetId ? { ...w, style } : w)))
     setSavingLayout(true)
     try {
       await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets }), { merge: true })
@@ -864,7 +911,7 @@ export default function Dashboard() {
 
     clearTimeout(editTimer.current)
     editTimer.current = setTimeout(async () => {
-      await writeWidgets((page.widgets || []).map((w) => (w.id === next.id ? { ...w, ...next } : w)))
+      await writeWidgets(atLevel((list) => list.map((w) => (w.id === next.id ? { ...w, ...next } : w))))
       setSavingEdit(false)
     }, 600)
   }
@@ -876,7 +923,7 @@ export default function Dashboard() {
     setEditTarget(null)
     if (pending?.patch?.id) {
       await writeWidgets(
-        (page.widgets || []).map((w) => (w.id === pending.patch.id ? { ...w, ...pending.patch } : w))
+        atLevel((list) => list.map((w) => (w.id === pending.patch.id ? { ...w, ...pending.patch } : w)))
       )
     }
     setSavingEdit(false)
@@ -884,7 +931,7 @@ export default function Dashboard() {
   }
 
   /** A new widget, added from the page, opened straight into its editor. */
-  async function addWidgetHere(type) {
+  async function addWidgetHere(type, patch = null) {
     const tab = allowedWidgets[0]?.tab || Object.keys(tabColumns)[0]
     if (!tab) return
     const made = makeWidget({
@@ -892,13 +939,23 @@ export default function Dashboard() {
       tab,
       name: labelFor(tab),
       cols: tabColumns[tab] || [],
-      kpiCount: (page.widgets || []).filter((w) => w.type === 'kpi').length,
+      // The level's own count, so two KPIs added in two places are not
+      // both called the same thing.
+      kpiCount: levelWidgets.filter((w) => w.type === 'kpi').length,
     })
     if (!made) return
-    await writeWidgets([...(page.widgets || []), made])
+    // A variant is a type PLUS A PATCH -- picking "Donut" adds a chart
+    // whose chartType is donut, which is exactly what picking Chart and
+    // then changing the dropdown has always produced. Nothing new is
+    // stored and no widget learns a second identity.
+    const born = patch ? { ...made, ...patch } : made
+    setAddFamily(null)
+    // Added where you are standing: on the page, or inside whichever
+    // widget is open. "Add" has always meant "add here".
+    await writeWidgets(atLevel((list) => [...list, born]))
     // Straight into the thing you just made, rather than leaving it at the
     // bottom of the page for you to go and find.
-    setEditTarget({ kind: 'widget', id: made.id })
+    setEditTarget({ kind: 'widget', id: born.id })
   }
 
   /**
@@ -917,7 +974,7 @@ export default function Dashboard() {
   }
 
   const renameWidget = (id, title) =>
-    writeWidgets((page.widgets || []).map((w) => (w.id === id ? { ...w, title } : w)))
+    writeWidgets(atLevel((list) => list.map((w) => (w.id === id ? { ...w, title } : w))))
 
   /**
    * A copy of a widget, right after it.
@@ -927,18 +984,21 @@ export default function Dashboard() {
    * admin panel is the slowest possible route to that.
    */
   function duplicateWidget(id) {
-    const widgets = page.widgets || []
-    const at = widgets.findIndex((w) => w.id === id)
-    if (at === -1) return
-    const copy = {
-      ...widgets[at],
-      id: `w_${Math.random().toString(36).slice(2, 9)}`,
-      title: `${widgets[at].title || 'Widget'} copy`,
-    }
-    writeWidgets([...widgets.slice(0, at + 1), copy, ...widgets.slice(at + 1)])
+    writeWidgets(
+      atLevel((list) => {
+        const at = list.findIndex((w) => w.id === id)
+        if (at === -1) return list
+        const copy = {
+          ...list[at],
+          id: `w_${Math.random().toString(36).slice(2, 9)}`,
+          title: `${list[at].title || 'Widget'} copy`,
+        }
+        return [...list.slice(0, at + 1), copy, ...list.slice(at + 1)]
+      })
+    )
   }
 
-  const deleteWidget = (id) => writeWidgets((page.widgets || []).filter((w) => w.id !== id))
+  const deleteWidget = (id) => writeWidgets(atLevel((list) => list.filter((w) => w.id !== id)))
 
   async function saveWidgetSize(widgetId, patch) {
     if (!isAdmin || !page?.id) return
@@ -971,21 +1031,23 @@ export default function Dashboard() {
           : Math.max(floors[key] || 1, Math.round(n))
     }
 
-    const current = (page.widgets || []).find((w) => w.id === widgetId)
+    const current = levelWidgets.find((w) => w.id === widgetId)
     // Nothing to write. The handle commits on blur as well as on a pause, so
     // tabbing out of a box nobody edited used to cost a whole page write.
     if (current && Object.entries(clean).every(([k, v]) => (current[k] ?? null) === v)) return
 
-    const widgets = (page.widgets || []).map((w) =>
-      w.id === widgetId
-        ? {
-            ...w,
-            ...clean,
-            // A pinned width is only honoured in pixel mode, and typing one
-            // here is how somebody says that is what they want.
-            ...(clean.widthPx ? { widthMode: 'px' } : null),
-          }
-        : w
+    const widgets = atLevel((list) =>
+      list.map((w) =>
+        w.id === widgetId
+          ? {
+              ...w,
+              ...clean,
+              // A pinned width is only honoured in pixel mode, and typing one
+              // here is how somebody says that is what they want.
+              ...(clean.widthPx ? { widthMode: 'px' } : null),
+            }
+          : w
+      )
     )
 
     setSavingLayout(true)
@@ -1004,7 +1066,7 @@ export default function Dashboard() {
       doc(db, 'dashboards', page.id),
       // The whole widget list is rewritten, so any `undefined` sitting on an
       // unrelated widget would fail this save too -- see lib/firestoreSafe.js.
-      stripUndefined({ widgets: (page.widgets || []).map((w) => (w.id === widgetId ? { ...w, columns } : w)) }),
+      stripUndefined({ widgets: atLevel((list) => list.map((w) => (w.id === widgetId ? { ...w, columns } : w))) }),
       { merge: true }
     )
   }
@@ -1331,7 +1393,7 @@ export default function Dashboard() {
                     // always did -- no widget component knows about theming.
                     <div
                       data-widget={widget.id}
-                      className={`rise-in relative ${styleClass(themed)} ${
+                      className={`rise-in group/widget relative ${styleClass(themed)} ${
                         Number(widget.heightPx) > 0 ? 'widget-sized' : ''
                       }`}
                       style={{
@@ -1342,29 +1404,77 @@ export default function Dashboard() {
                         ...(heightStyle(widget.heightPx) || {}),
                       }}
                     >
-                      {/* In edit mode the widget IS the way in. A pill
-                          somebody has to find first is a pill somebody has
-                          to be told about; a card that lights up and says
-                          Edit is not. Above the card so a click lands here
-                          rather than drilling the chart -- in edit mode you
-                          are editing, not reading. */}
-                      {editing && isAdmin && (
+                      {/* In edit mode the widget IS the way in: it lights
+                          up on hover and says Edit, so nobody has to be
+                          told where the form lives.
+
+                          The highlight is a sheet of GLASS -- it takes no
+                          clicks. It used to be a button covering the whole
+                          card, which meant the live preview could be looked
+                          at and not used: no clicking a stage, no opening a
+                          dropdown, no scrolling a long chart. A preview you
+                          cannot work is a screenshot, and the point of
+                          editing beside the real thing is watching the real
+                          thing behave.
+
+                          So the card stays live and the pill takes the
+                          click. */}
+                      {/* The way into a widget that has widgets in it.
+                          A corner chip rather than the whole card, for the
+                          same reason the Edit highlight is glass: the card
+                          is a working chart, and a click on a bar should
+                          drill the bar.
+
+                          An admin sees it on every widget, because the way
+                          in has to exist before there is anything behind it
+                          -- that is how the first child gets added. A reader
+                          sees it only where there IS something behind it: an
+                          empty level is a blank page and a dead end. */}
+                      {(hasChildren(widget) || (editing && isAdmin)) &&
+                        insidePath.length < MAX_WIDGET_DEPTH && (
                         <button
-                          onClick={() => {
-                            setEditDraft(null)
-                            setEditTarget({ kind: 'widget', id: widget.id })
-                          }}
-                          title={`Edit ${widget.title || 'this widget'}`}
-                          className={`absolute inset-0 z-10 flex items-start justify-end rounded-2xl p-2 transition-all ${
-                            editTarget?.id === widget.id
-                              ? 'bg-indigo-500/10 ring-2 ring-indigo-400'
-                              : 'bg-transparent opacity-0 hover:bg-indigo-500/10 hover:opacity-100 hover:ring-2 hover:ring-indigo-300'
+                          onClick={() => setOpenWidgets(descendWidget(widgets, insidePath, widget.id, { allowEmpty: isAdmin }))}
+                          title={
+                            hasChildren(widget)
+                              ? `Open the ${childWidgets(widget).length} widgets inside ${widget.title || 'this'}`
+                              : `Nothing inside ${widget.title || 'this'} yet — open it to add`
+                          }
+                          className={`absolute bottom-2 right-2 z-20 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold shadow-sm backdrop-blur transition-colors ${
+                            hasChildren(widget)
+                              ? 'border-indigo-200 bg-white/90 text-indigo-600 hover:bg-indigo-50'
+                              : 'border-slate-200 bg-white/70 text-slate-400 opacity-0 hover:bg-white hover:text-slate-600 group-hover/widget:opacity-100'
                           }`}
                         >
-                          <span className="rounded-lg bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow">
-                            Edit
-                          </span>
+                          <Layers size={10} />
+                          {hasChildren(widget) ? insideLabel(widget) : 'Inside'}
                         </button>
+                      )}
+
+                      {editing && isAdmin && (
+                        <>
+                          <span
+                            aria-hidden
+                            className={`pointer-events-none absolute inset-0 z-10 rounded-2xl transition-all ${
+                              editTarget?.id === widget.id
+                                ? 'bg-indigo-500/10 ring-2 ring-indigo-400'
+                                : 'opacity-0 ring-2 ring-indigo-300 group-hover/widget:bg-indigo-500/10 group-hover/widget:opacity-100'
+                            }`}
+                          />
+                          <button
+                            onClick={() => {
+                              setEditDraft(null)
+                              setEditTarget({ kind: 'widget', id: widget.id })
+                            }}
+                            title={`Edit ${widget.title || 'this widget'}`}
+                            className={`absolute right-2 top-2 z-20 rounded-lg bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow transition-opacity ${
+                              editTarget?.id === widget.id
+                                ? 'opacity-100'
+                                : 'opacity-0 focus-visible:opacity-100 group-hover/widget:opacity-100'
+                            }`}
+                          >
+                            Edit
+                          </button>
+                        </>
                       )}
 
                       {arranging && (
@@ -1602,7 +1712,9 @@ export default function Dashboard() {
   // of those would write labels where refs belong and leave the tab picker
   // matching nothing.
   const editedWidget = useMemo(
-    () => (editTarget?.kind === 'widget' ? (page?.widgets || []).find((w) => w.id === editTarget.id) : null),
+    // Anywhere in the tree: the edit panel can outlive a descent, and a
+    // widget you are inside is not on the page's own list.
+    () => (editTarget?.kind === 'widget' ? findWidget(page?.widgets || [], editTarget.id) : null),
     [editTarget, page?.widgets]
   )
   const editedItem = useMemo(
@@ -1857,63 +1969,147 @@ export default function Dashboard() {
 
             {editing && isAdmin && (
               <div className="page-chrome page-chrome-surface flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-2.5 py-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">Add</span>
-
                 {/* Sixteen names tell you nothing about the difference
                     between a combo chart and a stacked one, and the way
                     anybody finds out is by adding both and deleting one. The
-                    sketch answers it in the time it takes to move the mouse. */}
-                {WIDGET_TYPES.map((t) => (
-                  <div key={t.value} className="group relative">
+                    sketch answers it in the time it takes to move the mouse.
+
+                    A type with shapes behind it OPENS rather than adds: the
+                    palette becomes those shapes and every other type steps
+                    aside, the same move the page makes when a widget has
+                    widgets inside it. Twenty-one chart styles behind one
+                    word is twenty-one things nobody can find. */}
+                {addFamily ? (
+                  <>
                     <button
-                      onClick={() => addWidgetHere(t.value)}
-                      className="flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:border-indigo-400 hover:bg-indigo-50"
+                      onClick={() => setAddFamily(null)}
+                      title="Back to every widget"
+                      className="flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
                     >
-                      <span aria-hidden>{t.icon}</span>
-                      {t.label}
+                      <ChevronLeft size={12} /> All widgets
                     </button>
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+                      {variantTitle(addFamily)}
+                    </span>
 
-                    <div className="pointer-events-none absolute left-0 top-full z-30 hidden pt-1.5 group-hover:block">
-                      <div className="w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                        <WidgetTypePreview type={t.value} />
-                        <p className="mt-1.5 text-[10px] leading-snug text-slate-500">{t.hint}</p>
+                    {variantsFor(addFamily).map((v) => (
+                      <div key={v.value} className="group relative">
+                        <button
+                          onClick={() => addWidgetHere(addFamily, v.patch)}
+                          className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:border-indigo-400 hover:bg-indigo-50"
+                        >
+                          {v.label}
+                        </button>
+
+                        <div className="pointer-events-none absolute left-0 top-full z-30 hidden pt-1.5 group-hover:block">
+                          <div className="w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                            <WidgetTypePreview type={v.preview} />
+                            <p className="mt-1.5 text-[10px] font-medium leading-snug text-slate-600">{v.label}</p>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    ))}
+
+                    <p className="ml-auto max-w-xs text-[10px] leading-relaxed text-indigo-700/70">
+                      {variantHint(addFamily)}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">Add</span>
+
+                    {WIDGET_TYPES.map((t) => (
+                      <div key={t.value} className="group relative">
+                        <button
+                          onClick={() => (hasVariants(t.value) ? setAddFamily(t.value) : addWidgetHere(t.value))}
+                          className="flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:border-indigo-400 hover:bg-indigo-50"
+                        >
+                          <span aria-hidden>{t.icon}</span>
+                          {t.label}
+                          {/* A button that OPENS rather than adds says so,
+                              or one click in the row does something other
+                              than what every click beside it does. */}
+                          {hasVariants(t.value) && (
+                            <span className="rounded-full bg-indigo-50 px-1 text-[9px] font-semibold text-indigo-500">
+                              {variantsFor(t.value).length}
+                            </span>
+                          )}
+                        </button>
+
+                        <div className="pointer-events-none absolute left-0 top-full z-30 hidden pt-1.5 group-hover:block">
+                          <div className="w-44 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                            <WidgetTypePreview type={t.value} />
+                            <p className="mt-1.5 text-[10px] leading-snug text-slate-500">{t.hint}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                  <span className="mx-1 h-4 w-px bg-indigo-200" />
+
+                  <button
+                    onClick={() => setEditTarget({ kind: 'controls' })}
+                    className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
+                  >
+                    Controls &amp; buttons
+                  </button>
+                  <button
+                    onClick={() => setEditTarget({ kind: 'page' })}
+                    className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
+                  >
+                    Page settings
+                  </button>
+                  {/* The backdrop, the card look and the text colour every
+                      widget on the page inherits. It has always been one
+                      click away behind the palette; in edit mode it belongs
+                      with the other things you are here to change. */}
+                  <button
+                    onClick={() => {
+                      setEditTarget(null)
+                      setDesigning(true)
+                    }}
+                    className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
+                  >
+                    Background &amp; text
+                  </button>
+
+                  <p className="ml-auto max-w-md text-[10px] leading-relaxed text-indigo-700/70">
+                    Everything opens as a split: the form on one side, what it changes on the other, live. Move the
+                    form left, right or bottom from its header.
+                  </p>
+                  </>
+                )}
+
+              </div>
+            )}
+
+            {/* Where you are, and the way back. Only ever on screen once
+                there IS somewhere to go back to. */}
+            {insideChain.length > 0 && (
+              <div className="page-chrome mb-3 flex flex-wrap items-center gap-1 rounded-xl border border-indigo-100 bg-white/80 px-2.5 py-1.5 text-[11px] shadow-sm backdrop-blur">
+                <Layers size={12} className="shrink-0 text-indigo-400" />
+                <button
+                  onClick={() => setOpenWidgets([])}
+                  className="rounded px-1.5 py-0.5 font-medium text-slate-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+                >
+                  {page?.name || 'This page'}
+                </button>
+                {insideChain.map((crumb, i) => (
+                  <span key={crumb.id} className="flex items-center gap-1">
+                    <ChevronRight size={11} className="shrink-0 text-slate-300" />
+                    <button
+                      onClick={() => setOpenWidgets(ascendWidget(insidePath, i))}
+                      className={`rounded px-1.5 py-0.5 font-semibold transition-colors hover:bg-indigo-50 ${
+                        i === insideChain.length - 1 ? 'text-indigo-700' : 'text-slate-500'
+                      }`}
+                    >
+                      {crumb.title || 'Untitled widget'}
+                    </button>
+                  </span>
                 ))}
-
-                <span className="mx-1 h-4 w-px bg-indigo-200" />
-
-                <button
-                  onClick={() => setEditTarget({ kind: 'controls' })}
-                  className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
-                >
-                  Controls &amp; buttons
-                </button>
-                <button
-                  onClick={() => setEditTarget({ kind: 'page' })}
-                  className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
-                >
-                  Page settings
-                </button>
-                {/* The backdrop, the card look and the text colour every
-                    widget on the page inherits. It has always been one
-                    click away behind the palette; in edit mode it belongs
-                    with the other things you are here to change. */}
-                <button
-                  onClick={() => {
-                    setEditTarget(null)
-                    setDesigning(true)
-                  }}
-                  className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50"
-                >
-                  Background &amp; text
-                </button>
-
-                <p className="ml-auto max-w-md text-[10px] leading-relaxed text-indigo-700/70">
-                  Everything opens as a split: the form on one side, what it changes on the other, live. Move the
-                  form left, right or bottom from its header.
-                </p>
+                <span className="ml-auto text-[10px] text-slate-400">
+                  Inside a widget — the rest of the page is waiting where you left it
+                </span>
               </div>
             )}
 
@@ -1924,6 +2120,15 @@ export default function Dashboard() {
               showRows={isAdmin && arranging}
               onMeasure={noteSize}
             />
+
+            {/* An empty inside is an admin who has just opened one. Nobody
+                else can get here: a reader is only offered widgets that
+                have something behind them. */}
+            {insideChain.length > 0 && view.widgets.length === 0 && !loading && (
+              <p className="empty-state">
+                Nothing inside {insideChain[insideChain.length - 1].title || 'this widget'} yet — add one below.
+              </p>
+            )}
 
             {loading && view.widgets.length === 0 && (
               <div className="card py-10 text-center text-slate-400">Loading…</div>

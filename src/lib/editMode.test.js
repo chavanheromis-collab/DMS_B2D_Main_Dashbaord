@@ -143,7 +143,7 @@ test('compact folds away everything that belongs to the LIST', () => {
 test('the widget redraws as the form is typed into', () => {
   // The draft is merged before anything reads the widgets, so the blend,
   // the filters, the canvas and the widget all see it at once.
-  assert.ok(dashboard.includes('mergeDraft(visibleWidgetsFor(page, access, isAdmin), editDraft?.id, editDraft?.patch)'))
+  assert.ok(dashboard.includes('mergeDraft( visibleWidgetsFor({ ...page, widgets: levelWidgets }, access, isAdmin), editDraft?.id, editDraft?.patch )'))
   assert.ok(dashboard.includes('setEditDraft({ id: next.id, patch: next })'))
 })
 
@@ -156,9 +156,9 @@ test('the write is debounced, and closing flushes it', () => {
 })
 
 test('a widget can be added from the page, and opens straight into itself', () => {
-  assert.ok(dashboard.includes('async function addWidgetHere(type)'))
+  assert.ok(dashboard.includes('async function addWidgetHere(type, patch = null)'))
   assert.ok(dashboard.includes('makeWidget({'))
-  assert.ok(dashboard.includes("setEditTarget({ kind: 'widget', id: made.id })"))
+  assert.ok(dashboard.includes("setEditTarget({ kind: 'widget', id: born.id })"))
 })
 
 test('a PAGE can be added from the sidebar, and opens with its settings', () => {
@@ -345,7 +345,7 @@ test('the form edits the widget as it is STORED, not as it is drawn', () => {
   // `view` is label space: every tab field rewritten to its human name for
   // rendering. Editing one of those writes labels where refs belong and
   // leaves the widget's own tab picker matching nothing.
-  assert.ok(dashboard.includes("(page?.widgets || []).find((w) => w.id === editTarget.id)"))
+  assert.ok(dashboard.includes('findWidget(page?.widgets || [], editTarget.id)'))
   assert.ok(!dashboard.includes('view.widgets.find((w) => w.id === editTarget.id)'))
 })
 
@@ -360,15 +360,38 @@ test('in edit mode the widget itself is the way in', () => {
   // A pill somebody has to find first is a pill somebody has to be told
   // about; a card that lights up and says Edit is not.
   assert.ok(dashboard.includes('{editing && isAdmin && ('))
-  assert.ok(dashboard.includes('absolute inset-0 z-10 flex items-start justify-end'))
+  assert.ok(dashboard.includes('group/widget relative'), 'the whole card is the hover target')
+  assert.ok(dashboard.includes('group-hover/widget:opacity-100'))
   assert.ok(dashboard.includes("title={`Edit ${widget.title || 'this widget'}`}"))
 })
 
-test('the click target sits UNDER the arrange pill', () => {
-  // Otherwise the pill's own buttons stop answering.
+test('the live preview is LIVE -- the highlight takes no clicks', () => {
+  // It used to be a button covering the whole card, which meant the preview
+  // could be looked at and not used: no clicking a stage, no opening a
+  // dropdown, no scrolling a long chart. A preview you cannot work is a
+  // screenshot.
+  assert.ok(dashboard.includes('pointer-events-none absolute inset-0 z-10 rounded-2xl'))
+  assert.ok(!dashboard.includes('absolute inset-0 z-10 flex items-start justify-end'), 'the blanket button is gone')
+
+  // And the thing that DOES take the click is a corner pill, not the card.
+  const at = dashboard.indexOf("title={`Edit ${widget.title || 'this widget'}`}")
+  assert.ok(at > 0)
+  assert.ok(dashboard.slice(at, at + 200).includes('absolute right-2 top-2 z-20'))
+})
+
+test('an invisible Edit pill is still reachable by keyboard', () => {
+  // Tabbing to a button nobody can see is a trap.
+  assert.ok(dashboard.includes('opacity-0 focus-visible:opacity-100 group-hover/widget:opacity-100'))
+})
+
+test('the highlight sits UNDER the arrange pill, and out of the Edit pill’s corner', () => {
+  // Two pills on one card: the arrange one top-left, the Edit one
+  // top-right, and glass between them that answers to neither.
   const bar = read('components/ArrangeBar.jsx')
   assert.ok(bar.includes('z-20 inline-flex'))
-  assert.ok(dashboard.includes('inset-0 z-10'))
+  assert.ok(bar.includes('-left-1 -top-1'), 'arrange is the LEFT corner')
+  assert.ok(dashboard.includes('absolute right-2 top-2 z-20'), 'and Edit is the right one')
+  assert.ok(dashboard.includes('pointer-events-none absolute inset-0 z-10'))
 })
 
 test('every widget type has a sketch of what it is', () => {

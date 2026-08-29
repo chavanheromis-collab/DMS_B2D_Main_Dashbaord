@@ -14,6 +14,10 @@
  *
  * Plain divs rather than SVG: at this size a rounded rectangle IS the
  * drawing, and it inherits the theme without a single fill attribute.
+ *
+ * A `type` of `family:shape` is one of a type's VARIANTS -- "chart:donut",
+ * "stacked:grouped" -- which is how the palette draws the twenty-one things
+ * hiding behind the word Chart. See lib/widgetVariants.js.
  */
 
 const BAR = 'rounded-sm bg-indigo-400/70'
@@ -442,7 +446,233 @@ const SKETCHES = {
   ),
 }
 
+// ---------------------------------------------------------------------
+// The shapes behind one name
+// ---------------------------------------------------------------------
+// Twenty-one chart styles, drawn rather than listed. Several share a
+// drawing: a bar and a cylinder bar differ by a rounded top, which is not a
+// difference worth two sketches -- see lib/widgetVariants.js, which decides
+// which shapes share which.
+
+/** Horizontal bars of the given widths. */
+function HBars({ widths }) {
+  return (
+    <div className="flex h-full flex-col justify-between py-0.5">
+      {widths.map((w, i) => (
+        <div key={i} className={`h-2 ${BAR}`} style={{ width: `${w}%` }} />
+      ))}
+    </div>
+  )
+}
+
+/** A polyline across the frame, as a fraction of its height. */
+function Line({ points, area = false }) {
+  const path = points.map((y, i) => `${(i / (points.length - 1)) * 100},${100 - y}`).join(' ')
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
+      {area && <polygon points={`0,100 ${path} 100,100`} className="fill-indigo-400/25" />}
+      <polyline
+        points={path}
+        fill="none"
+        className="stroke-indigo-400"
+        strokeWidth="6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  )
+}
+
+const VARIANTS = {
+  // --- vertical bars ------------------------------------------------
+  'chart:bar': () => (
+    <Frame>
+      <Bars heights={[45, 80, 60, 95, 35]} />
+    </Frame>
+  ),
+  'chart:histogram': () => (
+    <Frame>
+      <div className="flex h-full items-end">
+        {[20, 45, 80, 95, 70, 40, 18].map((h, i) => (
+          <div key={i} className="flex-1 bg-indigo-400/70" style={{ height: `${h}%` }} />
+        ))}
+      </div>
+    </Frame>
+  ),
+  'chart:lollipop': () => (
+    <Frame>
+      <div className="flex h-full items-end gap-1">
+        {[45, 80, 60, 95, 35].map((h, i) => (
+          <div key={i} className="flex flex-1 flex-col items-center justify-end" style={{ height: '100%' }}>
+            <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+            <span className="w-[2px] flex-none bg-indigo-300" style={{ height: `${h}%` }} />
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  'chart:waterfall': () => (
+    <Frame>
+      <div className="flex h-full items-end gap-1">
+        {[
+          { h: 40, b: 0 },
+          { h: 22, b: 40 },
+          { h: 18, b: 44 },
+          { h: 26, b: 26 },
+          { h: 62, b: 0 },
+        ].map((s, i) => (
+          <div key={i} className="relative h-full flex-1">
+            <div className={`absolute w-full ${BAR}`} style={{ height: `${s.h}%`, bottom: `${s.b}%` }} />
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  'chart:pareto': () => (
+    <Frame className="relative">
+      <Bars heights={[90, 65, 45, 28, 15]} />
+      <div className="pointer-events-none absolute inset-2">
+        <Line points={[35, 58, 74, 86, 95]} />
+      </div>
+    </Frame>
+  ),
+
+  // --- horizontal bars ----------------------------------------------
+  'chart:hbar': () => (
+    <Frame>
+      <HBars widths={[90, 70, 55, 35]} />
+    </Frame>
+  ),
+  'chart:funnel': () => (
+    <Frame className="items-center">
+      {[95, 74, 52, 30].map((w, i) => (
+        <div key={i} className={`h-3 ${BAR}`} style={{ width: `${w}%` }} />
+      ))}
+    </Frame>
+  ),
+
+  // --- lines --------------------------------------------------------
+  'chart:line': () => (
+    <Frame>
+      <Line points={[30, 55, 40, 78, 62, 90]} />
+    </Frame>
+  ),
+  'chart:area': () => (
+    <Frame>
+      <Line points={[30, 55, 40, 78, 62, 90]} area />
+    </Frame>
+  ),
+
+  // --- round --------------------------------------------------------
+  'chart:pie': () => (
+    <Frame className="items-center justify-center">
+      <div
+        className="h-12 w-12 rounded-full"
+        style={{ background: 'conic-gradient(rgb(99 102 241 / .8) 0 45%, rgb(129 140 248 / .6) 45% 72%, rgb(199 210 254) 72% 100%)' }}
+      />
+    </Frame>
+  ),
+  'chart:donut': () => (
+    <Frame className="items-center justify-center">
+      <div
+        className="flex h-12 w-12 items-center justify-center rounded-full"
+        style={{ background: 'conic-gradient(rgb(99 102 241 / .8) 0 45%, rgb(129 140 248 / .6) 45% 72%, rgb(199 210 254) 72% 100%)' }}
+      >
+        <span className="h-6 w-6 rounded-full bg-white" />
+      </div>
+    </Frame>
+  ),
+  'chart:radial': () => (
+    <Frame className="items-center justify-center">
+      <div className="relative h-12 w-12">
+        {[
+          { s: 48, c: 'border-indigo-500' },
+          { s: 34, c: 'border-indigo-400' },
+          { s: 20, c: 'border-indigo-300' },
+        ].map((r, i) => (
+          <span
+            key={i}
+            className={`absolute rounded-full border-[3px] border-r-transparent border-t-transparent ${r.c}`}
+            style={{ width: r.s, height: r.s, left: (48 - r.s) / 2, top: (48 - r.s) / 2 }}
+          />
+        ))}
+      </div>
+    </Frame>
+  ),
+  'chart:circles': () => (
+    <Frame className="items-center justify-center">
+      <div className="relative h-12 w-12">
+        <span className="absolute inset-0 rounded-full bg-indigo-200" />
+        <span className="absolute inset-[18%] rounded-full bg-indigo-300" />
+        <span className="absolute inset-[36%] rounded-full bg-indigo-500" />
+      </div>
+    </Frame>
+  ),
+  'chart:radar': () => (
+    <Frame className="items-center justify-center">
+      <svg viewBox="0 0 100 100" className="h-12 w-12">
+        <polygon points="50,6 94,38 77,90 23,90 6,38" className="fill-none stroke-slate-200" strokeWidth="4" />
+        <polygon points="50,24 78,42 66,76 32,72 24,44" className="fill-indigo-400/40 stroke-indigo-400" strokeWidth="4" />
+      </svg>
+    </Frame>
+  ),
+
+  // --- areas of a rectangle -----------------------------------------
+  'chart:treemap': () => (
+    <Frame>
+      <div className="grid h-full grid-cols-3 grid-rows-2 gap-0.5">
+        <div className="col-span-2 row-span-2 rounded-sm bg-indigo-400/70" />
+        <div className="rounded-sm bg-indigo-300/70" />
+        <div className="rounded-sm bg-indigo-200" />
+      </div>
+    </Frame>
+  ),
+
+  // --- the bar families ---------------------------------------------
+  'stacked:stacked': () => (
+    <Frame>
+      <div className="flex h-full items-end gap-1.5">
+        {[[45, 25], [60, 30], [35, 20], [70, 15]].map((seg, i) => (
+          <div key={i} className="flex h-full flex-1 flex-col justify-end">
+            <div className="w-full rounded-t-sm bg-indigo-300" style={{ height: `${seg[1]}%` }} />
+            <div className="w-full bg-indigo-500/70" style={{ height: `${seg[0]}%` }} />
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  'stacked:percent': () => (
+    <Frame>
+      <div className="flex h-full items-end gap-1.5">
+        {[65, 45, 80, 30].map((h, i) => (
+          <div key={i} className="flex h-full flex-1 flex-col justify-end">
+            <div className="w-full rounded-t-sm bg-indigo-300" style={{ height: `${100 - h}%` }} />
+            <div className="w-full bg-indigo-500/70" style={{ height: `${h}%` }} />
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  'stacked:grouped': () => (
+    <Frame>
+      <div className="flex h-full items-end gap-1.5">
+        {[[70, 45], [50, 80], [90, 35]].map((pair, i) => (
+          <div key={i} className="flex h-full flex-1 items-end gap-0.5">
+            <div className="flex-1 rounded-sm bg-indigo-500/70" style={{ height: `${pair[0]}%` }} />
+            <div className="flex-1 rounded-sm bg-indigo-300" style={{ height: `${pair[1]}%` }} />
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+}
+
 export default function WidgetTypePreview({ type }) {
-  const Sketch = SKETCHES[type] || SKETCHES.chart
+  // A variant falls back to its family's own sketch rather than to a chart:
+  // a shape nobody has drawn yet should look like what it IS, not like a
+  // bar chart.
+  const Sketch =
+    VARIANTS[type] || SKETCHES[type] || SKETCHES[String(type).split(':')[0]] || SKETCHES.chart
   return <Sketch />
 }

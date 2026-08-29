@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 import {
   Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -20,6 +19,7 @@ import {
   RadarChart,
   RadialBar,
   RadialBarChart,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Scatter,
@@ -44,6 +44,7 @@ import {
   resolvedReferences,
   waterfallData,
 } from '../../lib/chartOptions'
+import { resolvedBands, trendIsDrawable, trendLabel, withAnalytics } from '../../lib/chartAnalytics'
 
 // ---------------------------------------------------------------------
 // Clicking a chart
@@ -384,8 +385,11 @@ export default function ChartWidget({
   const data = useMemo(() => {
     if (type === 'waterfall') return waterfallData(base, { includeTotal: widget.showTotalBar !== false })
     if (type === 'pareto') return paretoData(base)
-    return base
-  }, [type, base, widget.showTotalBar])
+    // The trend and the running total ride on the SAME rows the chart
+    // draws -- one pass, so a chart cannot end up with the trend of one
+    // dataset and the running total of another. See lib/chartAnalytics.js.
+    return caps.trend ? withAnalytics(base, widget) : base
+  }, [type, base, widget, caps.trend])
 
   const color = widget.color || PALETTE[0]
   const fmt = (v) => formatNumber(v, widget.format, widget.aggregation)
@@ -505,6 +509,17 @@ export default function ChartWidget({
     [caps.refLines, widget, data]
   )
 
+  // A shaded range rather than a line. "Between 80 and 120" is a different
+  // question from "at 100", and two lines make the reader do the shading in
+  // their head.
+  const bands = useMemo(() => (caps.refLines ? resolvedBands(widget, data) : []), [caps.refLines, widget, data])
+
+  // Drawn only where it says something: two bars make a line that is merely
+  // the two bars joined up, and a moving average longer than the chart
+  // draws nothing at all.
+  const showTrend = caps.trend && trendIsDrawable(data, widget)
+  const showCumulative = caps.trend && Boolean(widget.cumulative)
+
   const scale = useMemo(
     () => (caps.axisStep ? axisTicks(data, widget.axisStep, references) : null),
     [caps.axisStep, data, widget.axisStep, references]
@@ -572,6 +587,71 @@ export default function ChartWidget({
   // property on the wrapper, and an inline attribute would out-rank it.
   const autoInk = autoFillLabels(chartVisuals)
   const inkOnFill = (markColor) => (autoInk ? fillLabelColor(chartVisuals, markColor) || '#fff' : undefined)
+
+  // Under the marks, deliberately: a band is the ground a bar stands on,
+  // not something laid over it.
+  const refBands = (axis = 'y') =>
+    bands.map((band, i) => (
+      <ReferenceArea
+        key={band.id || `band${i}`}
+        {...(axis === 'y' ? { y1: band.from, y2: band.to } : { x1: band.from, x2: band.to })}
+        fill={band.color || '#6366F1'}
+        fillOpacity={Number.isFinite(Number(band.opacity)) ? Number(band.opacity) : 0.1}
+        stroke="none"
+        ifOverflow="extendDomain"
+        label={
+          band.label
+            ? { value: band.label, position: 'insideTopLeft', fontSize: 10, fill: band.color || '#6366F1' }
+            : undefined
+        }
+      />
+    ))
+
+  const trendLine = (axisId = undefined) =>
+    showTrend ? (
+      <Line
+        {...(axisId ? { yAxisId: axisId } : {})}
+        type="monotone"
+        dataKey="__trend"
+        name={trendLabel(widget)}
+        stroke={widget.trendColor || '#0F172A'}
+        strokeWidth={2}
+        strokeDasharray={widget.trendDashed === false ? undefined : '6 4'}
+        dot={false}
+        // A moving average has no value for its first few bars, and joining
+        // across the gap would draw a line through numbers it does not have.
+        connectNulls={false}
+        isAnimationActive={false}
+      />
+    ) : null
+
+  const cumulativeLine = () =>
+    showCumulative ? (
+      <Line
+        yAxisId={widget.cumulative === 'percent' ? 'cum' : undefined}
+        type="monotone"
+        dataKey="__cumulative"
+        name={widget.cumulative === 'percent' ? 'Cumulative %' : 'Running total'}
+        stroke={widget.cumulativeColor || '#F59E0B'}
+        strokeWidth={2}
+        dot={{ r: 2 }}
+        isAnimationActive={false}
+      />
+    ) : null
+
+  // A percentage and a count do not share an axis -- 100% beside 14,000
+  // flattens the line onto the floor -- so the percentage gets its own.
+  const cumulativeAxis = () =>
+    showCumulative && widget.cumulative === 'percent' ? (
+      <YAxis
+        yAxisId="cum"
+        orientation="right"
+        domain={[0, 100]}
+        ticks={[0, 25, 50, 75, 100]}
+        tick={{ fontSize: 10 }}
+        unit="%"
+      />
+    ) : null
 
   const refLines = (axis = 'y') =>
     references.map((reference, i) => (
@@ -820,6 +900,7 @@ export default function ChartWidget({
             <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-35} textAnchor="end" height={58} />
             <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
+            {refBands('y')}
             {refLines('y')}
             {/* Bins touch: a histogram with gaps reads as a bar chart of
                 unrelated categories rather than as a distribution. */}
@@ -841,6 +922,7 @@ export default function ChartWidget({
             {xAxis}
             <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
+            {refBands('y')}
             {refLines('y')}
             {/* A hairline bar is the stem; the scatter dot is the head. Far
                 less ink than a bar chart, which is what makes twenty
@@ -873,8 +955,10 @@ export default function ChartWidget({
             {grid}
             <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis tick={{ fontSize: 11 }} {...axisProps} />
+            {cumulativeAxis()}
             <Tooltip {...tooltipStyle} />
             {showLegend && <Legend wrapperStyle={legendBox} />}
+            {refBands('y')}
             {refLines('y')}
             <Line
               type={type === 'step' ? 'stepAfter' : 'monotone'}
@@ -886,12 +970,14 @@ export default function ChartWidget({
               activeDot={{ r: 5 }}
               label={label()}
             />
+            {trendLine()}
+            {cumulativeLine()}
           </LineChart>
         )
 
       case 'area':
         return (
-          <AreaChart
+          <ComposedChart
             data={data}
             margin={{ top: topMargin, right: 10, bottom: 5, left: -12 }}
             onClick={onChartClick}
@@ -906,8 +992,10 @@ export default function ChartWidget({
             {grid}
             <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis tick={{ fontSize: 11 }} {...axisProps} />
+            {cumulativeAxis()}
             <Tooltip {...tooltipStyle} />
             {showLegend && <Legend wrapperStyle={legendBox} />}
+            {refBands('y')}
             {refLines('y')}
             <Area
               type="monotone"
@@ -920,7 +1008,9 @@ export default function ChartWidget({
               activeDot={{ r: 5 }}
               label={label()}
             />
-          </AreaChart>
+            {trendLine()}
+            {cumulativeLine()}
+          </ComposedChart>
         )
 
       case 'arrowRow':
@@ -948,6 +1038,7 @@ export default function ChartWidget({
               interval={extent.scrolls ? 0 : 'preserveStartEnd'}
             />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
+            {refBands('x')}
             {refLines('x')}
             <Bar
               dataKey="value"
@@ -962,7 +1053,7 @@ export default function ChartWidget({
 
       default:
         return (
-          <BarChart
+          <ComposedChart
             {...gapProps}
             data={data}
             margin={{ top: topMargin, right: 10, bottom: 5, left: -12 }}
@@ -971,8 +1062,11 @@ export default function ChartWidget({
           >
             {grid}
             {xAxis}
-            <YAxis tick={{ fontSize: 11 }} {...axisProps} />
+            <YAxis yAxisId={showCumulative && widget.cumulative === 'percent' ? 0 : undefined} tick={{ fontSize: 11 }} {...axisProps} />
+            {cumulativeAxis()}
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
+            {showLegend && (showTrend || showCumulative) && <Legend wrapperStyle={legendBox} />}
+            {refBands('y')}
             {refLines('y')}
             {type === 'cylinder' && <CylinderSheen />}
             <Bar
@@ -985,7 +1079,9 @@ export default function ChartWidget({
             >
               {cells()}
             </Bar>
-          </BarChart>
+            {trendLine()}
+            {cumulativeLine()}
+          </ComposedChart>
         )
     }
   }

@@ -264,7 +264,7 @@ test('a widget can be renamed, duplicated and removed from the page', () => {
 test('a duplicate lands right after the one it copied, with a new id', () => {
   // The commonest thing anybody wants after building a chart is the same
   // chart broken down another way.
-  assert.ok(dashboard.includes('[...widgets.slice(0, at + 1), copy, ...widgets.slice(at + 1)]'))
+  assert.ok(dashboard.includes('[...list.slice(0, at + 1), copy, ...list.slice(at + 1)]'))
   assert.ok(dashboard.includes("id: `w_${Math.random().toString(36).slice(2, 9)}`"))
 })
 

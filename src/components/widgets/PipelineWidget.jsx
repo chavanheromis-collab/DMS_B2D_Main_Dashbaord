@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
-import { ChevronRight, CornerDownRight, Filter, Layers } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { ChevronRight, CornerDownRight } from 'lucide-react'
 import { dailyCounts } from '../../lib/dataUtils.js'
 import { chainDrill, getStagePopupRows, getStageRows, stageConditions } from '../../lib/pipelineStageData.js'
 import {
   ascend,
   descend,
+  kpiDrill,
   hasSubStages,
   livePath,
   stageBox,
@@ -180,13 +181,28 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
     })
   }
 
+  /** The rows of any tab, unscoped -- for a KPI that reads its own. */
+  const rowsFor = useCallback(
+    (tab) => (widget.ignoreFilters ? rawRowsByTab : rowsByTab)?.[tab] || [],
+    [widget.ignoreFilters, rowsByTab, rawRowsByTab]
+  )
+
   function drillKpi(stage, kpi) {
+    const { tab, match, conditions, withinStage } = kpiDrill(kpi, stage)
+    const id = `stagekpi_${widget.id}_${stage.id}_${kpi.id}`
+    const icon = kpi.icon || stage.icon
+
+    // An independent KPI is not describing the stage, so filtering by the
+    // stage as well would contradict the number that was clicked.
+    if (!withinStage) {
+      onCrossFilter({ id, kind: 'conditions', tab, match, conditions, icon, label: kpi.label })
+      return
+    }
+
     narrowWithinStage(stage, {
-      id: `stagekpi_${widget.id}_${stage.id}_${kpi.id}`,
-      // A stage KPI's conditions are written against the stage's own tab,
-      // which the builder pins for them, but they don't carry it.
-      conditions: (kpi.conditions || []).filter((c) => c.column).map((c) => ({ ...c, tab: c.tab || stage.tab })),
-      icon: kpi.icon || stage.icon,
+      id,
+      conditions,
+      icon,
       label: `${stage.label} · ${kpi.label}`,
     })
   }
@@ -229,8 +245,9 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
   // stage any KPIs or pivot configuration there's nothing to show, so the
   // click falls through to the old behaviour and drills straight in.
   //
-  // A stage with sub-stages does neither: it opens them, and this level
-  // steps aside. Filtering by it is still one click away, on the crumb.
+  // A stage with sub-stages does neither: it opens them, its siblings step
+  // aside, and it stays on the row as the box its parts belong to --
+  // where clicking it filters, which is what descending took away.
   function handleClick(stage, event) {
     if (hasSubStages(stage)) {
       setOpenStageId(null)
@@ -261,9 +278,9 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
    * stays on the row, with the parts drawn after it.
    *
    * Measured the way its OWN level measured it: same percentage rule, same
-   * siblings, same step number. It is the same box the reader clicked, not a
-   * summary of it, and a number that changed on the way in would say the
-   * descent had done something to the data.
+   * siblings. It is the same box the reader clicked, not a summary of it,
+   * and a number that changed on the way in would say the descent had done
+   * something to the data.
    */
   const parentInfo = useMemo(() => {
     if (!chain.length) return null
@@ -278,7 +295,6 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
       stage,
       count: own.count,
       pct: stagePercent(own.count, { base: ownBase, total: own.total }),
-      index: Math.max(0, siblings.findIndex((s) => s.id === stage.id)),
       trend:
         widget.showSparkline && stage.dateColumn
           ? dailyCounts(own.matchedRows, stage.dateColumn, 30, dateOrder)
@@ -302,7 +318,7 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
    * open, so its click cannot descend again; it filters instead, which is
    * the one thing descending took away.
    */
-  function renderStage({ stage, count, trend, index, pct, isParent = false }) {
+  function renderStage({ stage, count, trend, pct, isParent = false }) {
     const active = isActive(stage)
     const color = stage.color || '#4F46E5'
     const children = subStages(stage).length
@@ -333,35 +349,12 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
         <span className="absolute left-0 top-0 h-full w-1" style={{ backgroundColor: color }} />
 
         <div className="flex items-start justify-between gap-2">
-          <span className="flex items-center gap-1.5">
-            {/* The step number: a funnel is an ordered thing, and numbering
-                it is what lets someone say "we lose them at three" instead
-                of pointing at the screen. The parent keeps the number it
-                had at its own level. */}
-            <span className="text-[13px] font-black leading-none tabular-nums opacity-30" style={{ color }}>
-              {String(index + 1).padStart(2, '0')}
-            </span>
-            <span className="text-base leading-none">{stage.icon || '•'}</span>
-          </span>
-          <span className="flex items-center gap-1">
-            {/* A box that leads somewhere says so, or its click does
-                something different from its neighbours' for no visible
-                reason. */}
-            {children > 0 && (
-              <span
-                className="flex items-center gap-0.5 rounded-full px-1 py-0.5 text-[9px] font-bold"
-                style={{ backgroundColor: `${color}22`, color }}
-              >
-                <Layers size={9} />
-                {children}
-              </span>
-            )}
-            <span
-              className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-              style={{ backgroundColor: `${color}22`, color }}
-            >
-              {pct}%
-            </span>
+          <span className="text-base leading-none">{stage.icon || '•'}</span>
+          <span
+            className="rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
+            style={{ backgroundColor: `${color}22`, color }}
+          >
+            {pct}%
           </span>
         </div>
 
@@ -379,20 +372,15 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
             ))}
         </div>
 
+        {/* One marker, not two. A count chip in the corner and this line
+            said the same thing in the same box. */}
         {children > 0 && (
           <span
             className="mt-auto flex items-center gap-1 pt-1 text-[9px] font-medium"
             style={{ color: isParent ? color : undefined }}
           >
-            {isParent ? (
-              <>
-                <Filter size={9} /> click to filter
-              </>
-            ) : (
-              <span className="flex items-center gap-1 text-slate-400">
-                <CornerDownRight size={9} /> {children} inside
-              </span>
-            )}
+            <CornerDownRight size={9} className={isParent ? '' : 'text-slate-400'} />
+            <span className={isParent ? '' : 'text-slate-400'}>{children} inside</span>
           </span>
         )}
       </button>
@@ -458,7 +446,7 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
 
           {computed.map(({ stage, count, total, trend }, i) => (
             <div key={stage.id} className="flex items-center">
-              {renderStage({ stage, count, trend, index: i, pct: stagePercent(count, { base, total }) })}
+              {renderStage({ stage, count, trend, pct: stagePercent(count, { base, total }) })}
               {i < computed.length - 1 && <ChevronRight size={14} className="mx-0.5 shrink-0 text-slate-300" />}
             </div>
           ))}
@@ -470,6 +458,7 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
         stage={openStage}
         anchorRect={anchorRect}
         rows={openStageRows}
+        rowsFor={rowsFor}
         dateOrder={dateOrder}
         onClose={() => setOpenStageId(null)}
         onDrill={drill}

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { X, Filter } from 'lucide-react'
 import { aggregate, bucketConditions, formatNumber, pivot } from '../lib/dataUtils'
 import { matchesConditions } from '../lib/filterEngine'
+import { followsStage, kpiTab } from '../lib/pipelineNav'
 
 const MARGIN = 10 // keep the popup this far from the viewport edge
 const MEDALS = ['🥇', '🥈', '🥉']
@@ -47,6 +48,10 @@ export default function StageKpiPopup({
   stage,
   anchorRect,
   rows,
+  // Every tab's rows, for the KPIs that read their own instead of the
+  // stage's. Absent, every KPI falls back to the stage -- which is what
+  // every KPI written before this existed did anyway.
+  rowsFor,
   dateOrder,
   onClose,
   onDrill,
@@ -149,16 +154,22 @@ export default function StageKpiPopup({
   const kpis = useMemo(() => {
     if (!stage) return []
     return (stage.kpis || []).map((kpi) => {
+      // The stage's rows, or its own -- see KPI_SCOPES in lib/pipelineNav.js
+      // for why a number in here might not be about the stage at all.
+      const own = !followsStage(kpi) && rowsFor
+      const from = own ? rowsFor(kpiTab(kpi, stage)) || [] : baseRows
       const scoped = kpi.conditions?.length
-        ? baseRows.filter((row) => matchesConditions(row, kpi.conditions, kpi.match || 'all', dateOrder))
-        : baseRows
+        ? from.filter((row) => matchesConditions(row, kpi.conditions, kpi.match || 'all', dateOrder))
+        : from
       return {
         ...kpi,
+        independent: Boolean(own),
         value: aggregate(scoped, kpi.column, kpi.aggregation),
         matched: scoped.length,
+        of: from.length,
       }
     })
-  }, [stage, baseRows, dateOrder])
+  }, [stage, baseRows, rowsFor, dateOrder])
 
   const pivotData = useMemo(() => {
     if (!stage?.pivot?.rowColumn || !stage?.pivot?.colColumn) return null
@@ -263,7 +274,9 @@ export default function StageKpiPopup({
                     // its own to narrow BY. A KPI that just counts the stage's
                     // rows would produce a filter identical to clicking the
                     // stage, so it stays inert rather than offering a second
-                    // control that does the same thing.
+                    // control that does the same thing. The same holds for an
+                    // independent one: with no conditions it is a whole tab,
+                    // and filtering the page to a whole tab filters nothing.
                     const canDrill = !!onDrillKpi && kpi.conditions?.length > 0
                     const drilled = drilledKpiId === kpi.id
                     return (
@@ -299,9 +312,14 @@ export default function StageKpiPopup({
                         <p className="mt-1 text-lg font-bold leading-tight tabular-nums" style={{ color: kpi.color }}>
                           {formatNumber(kpi.value, kpi.format, kpi.aggregation)}
                         </p>
-                        {kpi.conditions?.length > 0 && (
+                        {/* An independent KPI always says what it is
+                            out of, conditions or not: its number is not
+                            about the stage, and a bare figure in a stage's
+                            pop-up reads as though it were. */}
+                        {(kpi.conditions?.length > 0 || kpi.independent) && (
                           <p className="mt-0.5 truncate text-[9px] text-slate-400">
-                            {kpi.matched.toLocaleString('en-IN')} of {baseRows.length.toLocaleString('en-IN')} rows
+                            {kpi.matched.toLocaleString('en-IN')} of {kpi.of.toLocaleString('en-IN')}
+                            {kpi.independent ? ' · own rows' : ' rows'}
                           </p>
                         )}
                       </button>

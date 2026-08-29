@@ -16,7 +16,13 @@ import {
   stageBox,
   stageNumberClass,
   stagePath,
+  KPI_SCOPES,
+  followsStage,
+  kpiDrill,
+  kpiSummary,
+  kpiTab,
   stagePercent,
+  stageSummary,
   stagesAt,
   subStages,
 } from './pipelineNav.js'
@@ -163,6 +169,111 @@ test('one percentage rule, so a stage reads the same on both sides of a click', 
   )
   assert.equal(stagePercent(1, { base: 3, total: 9 }), 33, 'rounded, not truncated')
   assert.equal(stagePercent(2, { base: 3, total: 9 }), 67)
+})
+
+// ---------------------------------------------------------------------
+// What a closed stage says about itself
+// ---------------------------------------------------------------------
+
+test('enough to find the one you came for, and no more', () => {
+  assert.equal(stageSummary({ conditions: [{ column: 'Stage' }], kpis: [1, 2] }), '1 rule · 2 KPIs')
+  assert.equal(stageSummary({ conditions: [{ column: 'a' }, { column: 'b' }] }), '2 rules')
+})
+
+test('no conditions is "every row", not "0 rules"', () => {
+  // A stage with no conditions counts its ENTIRE tab. That looks like a
+  // half-finished stage and reads like a bug, so it says what it does.
+  assert.equal(stageSummary({ conditions: [] }), 'every row')
+  assert.equal(stageSummary({ conditions: [{ column: '' }] }), 'every row', 'and a blank condition is no condition')
+  assert.equal(stageSummary(undefined), 'every row')
+})
+
+test('KPIs go unmentioned once a stage has stages inside it', () => {
+  // The pop-up they belong to never opens; counting them would advertise
+  // something that cannot happen.
+  const parent = { conditions: [{ column: 'a' }], kpis: [1, 2, 3], stages: [{ id: 'x' }, { id: 'y' }] }
+  assert.equal(stageSummary(parent), '1 rule · 2 inside')
+})
+
+test('one of a thing is not "1 rules"', () => {
+  assert.equal(stageSummary({ conditions: [{ column: 'a' }], kpis: [1] }), '1 rule · 1 KPI')
+})
+
+test('a collapsed KPI says what it measures, and of what', () => {
+  const aggs = [
+    { value: 'count', label: 'Count of rows' },
+    { value: 'sum', label: 'Sum (numeric)' },
+  ]
+  assert.equal(kpiSummary({ aggregation: 'sum', column: 'Amount' }, aggs), 'Sum (numeric) · Amount · whole stage')
+  assert.equal(kpiSummary({ aggregation: 'count' }, aggs), 'Count of rows · whole stage')
+  assert.equal(
+    kpiSummary({ aggregation: 'count', conditions: [{ column: 'Stage' }, { column: '' }] }, aggs),
+    'Count of rows · 1 rule',
+    'a blank condition narrows nothing'
+  )
+})
+
+test('a KPI follows the stage unless it is told not to', () => {
+  // Absent means "stage", so nothing written before the setting existed
+  // changes what it measures.
+  assert.equal(followsStage({}), true)
+  assert.equal(followsStage(undefined), true)
+  assert.equal(followsStage({ scope: 'stage' }), true)
+  assert.equal(followsStage({ scope: 'own' }), false)
+  assert.deepEqual(KPI_SCOPES.map((s) => s.value), ['stage', 'own'])
+})
+
+test('a stage-scoped KPI reads the stage’s tab, whatever it says otherwise', () => {
+  // It is narrowing rows the stage already matched, and rows from another
+  // sheet are not those rows.
+  const stage = { tab: 's1::MASTER' }
+  assert.equal(kpiTab({ tab: 's2::OTHER' }, stage), 's1::MASTER')
+  assert.equal(kpiTab({ scope: 'own', tab: 's2::OTHER' }, stage), 's2::OTHER')
+  assert.equal(kpiTab({ scope: 'own' }, stage), 's1::MASTER', 'and falls back to the stage’s')
+})
+
+test('an independent KPI drills by itself, not by the stage', () => {
+  // It is not describing the stage, so filtering by the stage as well would
+  // contradict the number that was clicked.
+  const stage = { tab: 's1::MASTER' }
+  const own = kpiDrill({ scope: 'own', tab: 's2::TARGETS', conditions: [{ column: 'Year', operator: 'equals', value: '2026' }] }, stage)
+  assert.equal(own.withinStage, false)
+  assert.equal(own.tab, 's2::TARGETS')
+  assert.deepEqual(own.conditions, [{ column: 'Year', operator: 'equals', value: '2026', tab: 's2::TARGETS' }])
+
+  const inside = kpiDrill({ conditions: [{ column: 'Finance', operator: 'equals', value: 'Yes' }] }, stage)
+  assert.equal(inside.withinStage, true)
+  assert.equal(inside.tab, 's1::MASTER')
+})
+
+test('a KPI condition that named no tab inherits the one it is written against', () => {
+  // Or the cross-filter engine drops it and the drill filters nothing.
+  const out = kpiDrill({ scope: 'own', tab: 's2::X', conditions: [{ column: 'a' }, { column: '' }] }, { tab: 's1::M' })
+  assert.deepEqual(out.conditions, [{ column: 'a', tab: 's2::X' }])
+})
+
+test('a KPI with no conditions measures the WHOLE stage, and says so', () => {
+  // Which is what the field below it has always promised. "0 rules" would
+  // read as unfinished rather than as the default it is.
+  assert.ok(kpiSummary({}, []).endsWith('whole stage'))
+  assert.ok(!kpiSummary({}, []).includes('0'))
+})
+
+test('an independent KPI says so, so its number is not read as the stage’s', () => {
+  const aggs = [{ value: 'count', label: 'Count of rows' }]
+  assert.equal(kpiSummary({ scope: 'own', aggregation: 'count' }, aggs), 'Count of rows · own rows')
+  assert.equal(
+    kpiSummary({ scope: 'own', aggregation: 'count', conditions: [{ column: 'Year' }] }, aggs),
+    'Count of rows · own rows · 1 rule'
+  )
+  assert.ok(!kpiSummary({ scope: 'own' }, aggs).includes('whole stage'), 'and never claims the stage')
+})
+
+test('an aggregation with no label falls back to its own name', () => {
+  // The list is passed in, so it can be missing or stale; a summary reading
+  // "undefined · Amount" would be worse than a raw key.
+  assert.equal(kpiSummary({ aggregation: 'p90', column: 'Days' }, []), 'p90 · Days · whole stage')
+  assert.equal(kpiSummary(undefined, []), 'count · whole stage')
 })
 
 // ---------------------------------------------------------------------
@@ -341,7 +452,7 @@ test('the parent is the same box it was a click ago, not a second design of one'
   assert.equal((widget.match(/function renderStage\(/g) || []).length, 1, 'one renderer')
   assert.ok(widget.includes('{renderStage({ ...parentInfo, isParent: true })}'), 'the parent goes through it')
   assert.ok(
-    widget.includes('{renderStage({ stage, count, trend, index: i, pct: stagePercent(count, { base, total }) })}'),
+    widget.includes('{renderStage({ stage, count, trend, pct: stagePercent(count, { base, total }) })}'),
     'and so does every stage of the level'
   )
   assert.ok(!widget.includes('min-w-[132px]'))
@@ -372,6 +483,38 @@ test('and the trail does not offer a second button for the same thing', () => {
   assert.ok(!crumbs.includes('Filtering'), 'the parent box IS the filter control now')
 })
 
+test('the share sits in the corner, apart from the count', () => {
+  const at = widget.indexOf('{pct}%')
+  assert.ok(at > 0)
+  const around = widget.slice(at - 300, at)
+  assert.ok(around.includes('justify-between'), 'pushed to the far side of the top row')
+  assert.ok(around.includes('rounded-full'), 'as a chip, not as part of the number')
+  assert.ok(
+    widget.indexOf('{pct}%') < widget.indexOf("{count.toLocaleString('en-IN')}"),
+    'and above the count, not beside it'
+  )
+})
+
+test('a stage box is not numbered', () => {
+  // The step number was a second ordinal in a row that is already ordered
+  // left to right, and it cost the icon its corner.
+  assert.ok(!widget.includes("String(index + 1).padStart(2, '0')"))
+  assert.ok(!/renderStage\(\{[^}]*index/.test(widget), 'and nothing is passed a position any more')
+  const body = widget.slice(widget.indexOf('<span className="absolute left-0 top-0'), widget.indexOf('</button>'))
+  assert.ok(!body.includes('tabular-nums opacity-30'))
+})
+
+test('a box says "inside" once, not twice', () => {
+  // A count chip in the corner and the arrow along the bottom were the same
+  // thing in the same box. The tooltip may still say it -- that is not on
+  // screen next to itself.
+  const body = widget.slice(widget.indexOf('<span className="absolute left-0 top-0'), widget.indexOf('</button>'))
+  assert.equal((body.match(/\{children\}/g) || []).length, 1, 'one visible marker in the box')
+  assert.ok(body.includes('{children} inside'), 'and it is the arrow line')
+  assert.ok(!widget.includes('<Layers'), 'the duplicate chip is gone')
+  assert.ok(!/^import \{[^}]*Layers/m.test(widget), 'and so is its import')
+})
+
 test('the box is sized by the admin, not by a hard-coded class', () => {
   assert.ok(!widget.includes('min-w-[132px]'), 'the old fixed width is gone')
   assert.ok(widget.includes('const box = stageBox(widget)'))
@@ -393,7 +536,7 @@ test('the sub-stage form is the SAME form, not a second one', () => {
   const body = editor.slice(at, at + 6000)
   assert.ok(body.includes('<StageList'), 'it renders itself')
   assert.ok(body.includes('depth={depth + 1}'))
-  assert.ok(body.includes('{depth + 1 < MAX_DEPTH ? ('), 'and the Add button stops at the cap')
+  assert.ok(body.includes('{depth < MAX_DEPTH ? ('), 'and the Add button stops at the cap')
 })
 
 test('a sub-stage is pinned to the tab whose rows it divides', () => {
@@ -403,8 +546,118 @@ test('a sub-stage is pinned to the tab whose rows it divides', () => {
   assert.ok(body.includes('parentTab={stage.tab}'))
 })
 
+test('the pop-up is three things, so it is three buttons', () => {
+  // Stacked, the KPIs, the pivot and the leaderboard were two hundred lines
+  // under one stage -- and a stage is already one of six.
+  const at = editor.indexOf('export function StageKpiEditor(')
+  const body = editor.slice(at, at + 3000)
+  assert.ok(body.includes("{ key: 'kpis', label: 'KPIs', badge: kpis.length }"))
+  assert.ok(body.includes("{ key: 'pivot', label: 'Pivot'"))
+  assert.ok(body.includes("{ key: 'board', label: 'Leaderboard'"))
+  assert.ok(body.includes('<SectionTabs sections={sections} active={part} onPick={setPart} />'))
+  for (const key of ['kpis', 'pivot', 'board']) {
+    assert.ok(editor.includes(`here === '${key}'`), `${key} has a panel`)
+  }
+})
+
+test('a pivot is configured or it is not -- there is no count to print', () => {
+  const at = editor.indexOf('export function StageKpiEditor(')
+  const body = editor.slice(at, at + 3000)
+  assert.ok(body.includes('badge: Boolean(pivotConfig.rowColumn && pivotConfig.colColumn)'))
+  assert.ok(body.includes('badge: Boolean(leaderboardConfig.groupBy)'))
+})
+
+test('the KPIs are an accordion too, one at a time', () => {
+  const at = editor.indexOf('export function StageKpiEditor(')
+  const body = editor.slice(at, at + 6000)
+  assert.ok(body.includes('const [openKpi, setOpenKpi] = useState(null)'))
+  assert.ok(body.includes('setOpenKpi(open ? null : kpi.id)'))
+  assert.ok(body.includes('{kpiSummary(kpi, AGGREGATIONS)}'), 'and a closed one says what it measures')
+  assert.ok(body.includes('setOpenKpi(fresh.id)'), 'a new KPI opens')
+  assert.ok(
+    body.includes('{open && ( <div className="space-y-1.5 border-t border-slate-100 p-2">'),
+    'and a closed one renders no form at all -- the whole point of collapsing it'
+  )
+})
+
+test('the pop-up no longer collapses itself behind its own toggle', () => {
+  // It is already behind the stage's Pop-up button; a second disclosure was
+  // a click that revealed nothing new.
+  assert.ok(!editor.includes('Pop-up KPIs ('))
+  assert.ok(!editor.includes('defaultOpen'))
+})
+
+test('the pop-up can read rows the stage did not match', () => {
+  const popup = read('src/components/StageKpiPopup.jsx')
+  assert.ok(popup.includes('const own = !followsStage(kpi) && rowsFor'))
+  assert.ok(popup.includes('const from = own ? rowsFor(kpiTab(kpi, stage)) || [] : baseRows'))
+  assert.ok(popup.includes('of: from.length,'), 'and works out what it is out of')
+  assert.ok(
+    popup.includes("of {kpi.of.toLocaleString('en-IN')}"),
+    'and prints THAT, not the stage’s total, which the number is not over'
+  )
+  assert.ok(popup.includes("{kpi.independent ? ' · own rows' : ' rows'}"), 'and says which')
+})
+
+test('the widget hands over every tab’s rows, honouring its own filter setting', () => {
+  assert.ok(widget.includes('const rowsFor = useCallback('))
+  assert.ok(widget.includes('(tab) => (widget.ignoreFilters ? rawRowsByTab : rowsByTab)?.[tab] || []'))
+  assert.ok(widget.includes('rowsFor={rowsFor}'))
+})
+
+test('an independent KPI’s drill carries no stage', () => {
+  const at = widget.indexOf('function drillKpi(')
+  const body = widget.slice(at, at + 700)
+  assert.ok(body.includes('const { tab, match, conditions, withinStage } = kpiDrill(kpi, stage)'))
+  assert.ok(body.includes('if (!withinStage) {'))
+  assert.ok(body.indexOf('return') < body.indexOf('narrowWithinStage'), 'it returns before the stage is added')
+})
+
+test('the editor offers the choice, and the tab that comes with it', () => {
+  const at = editor.indexOf('export function StageKpiEditor(')
+  const body = editor.slice(at, at + 6000)
+  assert.ok(body.includes('options={KPI_SCOPES}'))
+  assert.ok(body.includes('{!followsStage(kpi) && ('), 'the tab picker only where it means something')
+  assert.ok(body.includes('tabs={[kpiTab(kpi, stage)]}'), 'and its conditions are written against that tab')
+  assert.ok(!body.includes('tabs={[stage.tab]}'), 'not against the stage’s regardless')
+})
+
+test('changing the tab clears conditions written against the old one', () => {
+  // A column name from another sheet is a condition that matches nothing,
+  // silently, and looks exactly like one that legitimately matches nothing.
+  const at = editor.indexOf('export function StageKpiEditor(')
+  const body = editor.slice(at, at + 6000)
+  assert.ok(body.includes('update(kpi.id, { tab: v, conditions: [] })'))
+})
+
 test('a stage that owns stages is not offered KPIs it can never show', () => {
   const at = editor.indexOf('function StageList(')
-  const body = editor.slice(at, at + 6000)
-  assert.ok(body.includes('{kids.length === 0 && ( <StageKpiEditor'))
+  const body = editor.slice(at, at + 9000)
+  assert.ok(
+    body.includes("kids.length === 0 && { key: 'popup'"),
+    'the tab is not even offered'
+  )
+  assert.ok(body.includes("{here === 'popup' && kids.length === 0 && ("), 'and the panel cannot be reached either')
+})
+
+test('a long form is a row of buttons, and one stage at a time', () => {
+  // Six stages with their conditions, KPIs and sub-stages all unrolled is a
+  // form nobody can see the end of -- and the thing an admin does most is
+  // find ONE stage, not read them all.
+  const at = editor.indexOf('function StageList(')
+  const body = editor.slice(at, at + 9000)
+  assert.ok(body.includes('const [openId, setOpenId] = useState(null)'), 'nothing is open to begin with')
+  assert.ok(body.includes('setOpenId(open ? null : stage.id)'), 'and opening one closes the last')
+  assert.ok(body.includes('<SectionTabs sections={sections}'), 'the rest is behind buttons')
+  assert.ok(body.includes('{open && ('), 'a closed stage renders no form at all')
+  assert.ok(body.includes('{stageSummary(stage)}'), 'and says enough closed to be found')
+})
+
+test('adding a stage opens it', () => {
+  // The one moment you certainly do want it unrolled.
+  const at = editor.indexOf('function StageList(')
+  const body = editor.slice(at, at + 9000)
+  const add = body.slice(body.indexOf('function add()'), body.indexOf('function add()') + 400)
+  assert.ok(add.includes('setOpenId(fresh.id)'))
+  assert.ok(add.includes("setSection('rules')"), 'at the tab it needs first')
 })

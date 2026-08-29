@@ -18,20 +18,24 @@ import { toNumber } from './dataUtils.js'
 // up believing a feature is broken -- the capability table is published, the
 // editor greys out what does not apply and says why, and the widget only
 // renders what the style supports.
+// `trend` is the analytics overlay -- a trend line and a running total.
+// Not every cartesian chart earns one: a trend through a HISTOGRAM is a
+// trend through a distribution, which is a line through a shape rather than
+// through a series, and a running total over a WATERFALL is the waterfall.
 export const CHART_CAPABILITIES = {
-  bar: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true, legend: false },
+  bar: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true, legend: false, trend: true },
   hbar: { cartesian: true, horizontal: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true },
   lollipop: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true },
-  arrow: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true },
+  arrow: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true, trend: true },
   arrowRow: { cartesian: true, horizontal: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true },
-  cylinder: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true },
+  cylinder: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true, trend: true },
   circles: { labels: true, perDatumColor: true },
   waterfall: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: 'signed' },
   pareto: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true, legend: true },
   histogram: { cartesian: true, binned: true, refLines: true, axisStep: true, grid: true, labels: true, perDatumColor: true },
-  line: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true },
-  step: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true },
-  area: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true },
+  line: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, trend: true },
+  step: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, trend: true },
+  area: { cartesian: true, refLines: true, axisStep: true, grid: true, labels: true, trend: true },
   pie: { labels: true, perDatumColor: true, legend: true },
   donut: { labels: true, perDatumColor: true, legend: true },
   rose: { labels: true, perDatumColor: true, legend: true },
@@ -59,6 +63,7 @@ export function unsupportedNote(type) {
   if (!caps.grid) missing.push('grid lines')
   if (!caps.labels) missing.push('value labels')
   if (!caps.perDatumColor) missing.push('per-bar colour rules')
+  if (!caps.trend) missing.push('trend lines or a running total')
   if (missing.length === 0) return ''
   return `This chart style has no ${missing.join(', ')}.`
 }
@@ -71,21 +76,11 @@ export const COLOR_MODES = [
   { value: 'rank', label: 'Highlight best & worst', hint: 'Top and bottom stand out, the rest recede.' },
 ]
 
-export const REFERENCE_KINDS = [
-  { value: 'value', label: 'A fixed value', needsValue: true },
-  { value: 'avg', label: 'Average of the bars' },
-  { value: 'median', label: 'Median of the bars' },
-  { value: 'max', label: 'Highest bar' },
-  { value: 'min', label: 'Lowest bar' },
-]
-
-export const DEFAULT_REFERENCE = {
-  kind: 'avg',
-  value: 0,
-  label: '',
-  color: '#EF4444',
-  dashed: true,
-}
+// The reference lines moved to lib/chartAnalytics.js when bands and trend
+// lines joined them -- they are one pane, not three. Re-exported rather
+// than re-declared, so there is exactly one list of kinds in the app and no
+// second one to fall behind it.
+export { DEFAULT_REFERENCE, REFERENCE_KINDS, referenceValue, resolvedReferences } from './chartAnalytics.js'
 
 /** Mixes `hex` toward white (t<0) or black (t>0). */
 function shade(hex, t) {
@@ -162,42 +157,6 @@ export function colorForDatum(widget, entry, index, data, book = {}) {
 }
 
 /** Resolves a reference line's configured kind into an actual y value. */
-export function referenceValue(reference, data) {
-  const values = (data || []).map((d) => d.value).filter((n) => Number.isFinite(n))
-  if (values.length === 0) return null
-
-  switch (reference.kind) {
-    case 'avg':
-      return values.reduce((a, b) => a + b, 0) / values.length
-    case 'median': {
-      const sorted = [...values].sort((a, b) => a - b)
-      const mid = Math.floor(sorted.length / 2)
-      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
-    }
-    case 'max':
-      return Math.max(...values)
-    case 'min':
-      return Math.min(...values)
-    case 'value':
-    default: {
-      const n = toNumber(reference.value)
-      return n === null ? null : n
-    }
-  }
-}
-
-/** Every reference line that resolves to a real number, with its label. */
-export function resolvedReferences(widget, data) {
-  return (widget.references || [])
-    .map((reference) => {
-      const y = referenceValue(reference, data)
-      if (y === null) return null
-      const auto = REFERENCE_KINDS.find((k) => k.value === reference.kind)?.label || ''
-      return { ...reference, y, text: reference.label || auto }
-    })
-    .filter(Boolean)
-}
-
 // ---------------------------------------------------------------------
 // Shapes derived from the grouped data
 // ---------------------------------------------------------------------

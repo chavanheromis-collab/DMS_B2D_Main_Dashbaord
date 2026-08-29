@@ -1,4 +1,4 @@
-import { Plus, ChevronDown, ChevronUp, Layers, X, GripVertical } from 'lucide-react'
+import { Plus, ChevronDown, ChevronUp, X, GripVertical } from 'lucide-react'
 import { useState } from 'react'
 import {
   AGGREGATIONS,
@@ -17,8 +17,14 @@ import {
   MAX_STAGE_HEIGHT,
   MAX_STAGE_WIDTH,
   MIN_STAGE_WIDTH,
+  KPI_SCOPES,
+  followsStage,
+  kpiSummary,
+  kpiTab,
+  stageSummary,
   subStages,
 } from '../../lib/pipelineNav'
+import { activeSection } from '../../lib/sectionTabs'
 import { Btn, Field, RowControls, SectionTabs, Select, TextInput, Toggle, listOps, optValue } from './ui.jsx'
 import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
 import { clashingPins, nextPinColor } from '../../lib/valueColors'
@@ -75,128 +81,173 @@ function newStage({ tab, index, nested }) {
  * nested form out separately would mean two forms to keep in step, and the
  * second one always ends up missing whatever the first one gained.
  */
-function StageList({ stages, onChange, widget, tabs, tabHeaders, depth = 0, parentTab }) {
+function StageList({ stages, onChange, widget, tabs, tabHeaders, depth = 0, parentTab, tab, addLabel }) {
   const ops = listOps(stages, onChange)
 
+  // One stage open at a time. Six stages, each with its conditions, its KPIs
+  // and its sub-stages all unrolled, is a form nobody can see the end of --
+  // and the thing an admin does most is find ONE stage, not read them all.
+  const [openId, setOpenId] = useState(null)
+  const [section, setSection] = useState('rules')
+
+  function add() {
+    const fresh = newStage({ tab: parentTab || tab, index: stages.length, nested: depth > 0 })
+    onChange([...stages, fresh])
+    // Opened straight away: adding a stage is the one moment you certainly
+    // do want it unrolled.
+    setOpenId(fresh.id)
+    setSection('rules')
+  }
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {stages.map((stage, i) => {
         const setStage = (patch) => ops.update(stage.id, patch)
         const dateCols = (tabHeaders?.[stage.tab] || []).filter(looksLikeDateColumn)
         const kids = subStages(stage)
+        const open = openId === stage.id
+        const color = stage.color || '#4F46E5'
+
+        const sections = [
+          { key: 'rules', label: 'Rules', badge: (stage.conditions || []).filter((c) => c.column).length },
+          // A stage that owns stages opens them; its pop-up would be one
+          // nobody can get to, so it is not offered.
+          kids.length === 0 && { key: 'popup', label: 'Pop-up', badge: (stage.kpis || []).length },
+          (kids.length > 0 || depth + 1 < MAX_DEPTH) && { key: 'inside', label: 'Inside', badge: kids.length },
+        ]
+        const here = activeSection(sections, section)
 
         return (
-          <div key={stage.id} className="rounded-lg border border-slate-200 bg-slate-50/50 p-2">
-            <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              <span className="w-5 text-center text-[11px] font-bold text-slate-400">
-                {depth > 0 && '↳'}
-                {i + 1}
-              </span>
-              <TextInput
-                value={stage.label}
-                onChange={(v) => setStage({ label: v })}
-                placeholder="Stage name"
-                className="w-40"
+          <div
+            key={stage.id}
+            className={`rounded-lg border bg-white ${open ? 'border-indigo-200 shadow-sm' : 'border-slate-200'}`}
+          >
+            {/* Collapsed, a stage is one line you can scan: what it is
+                called, and enough about it to know it is the one. */}
+            <div className="flex items-center gap-1.5 p-1.5">
+              <button
+                onClick={() => setOpenId(open ? null : stage.id)}
+                title={open ? 'Collapse' : `Edit ${stage.label || 'this stage'}`}
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+              >
+                {open ? (
+                  <ChevronUp size={12} className="shrink-0 text-slate-400" />
+                ) : (
+                  <ChevronDown size={12} className="shrink-0 text-slate-400" />
+                )}
+                {depth > 0 && <span className="shrink-0 text-[10px] text-slate-300">↳</span>}
+                <span className="h-4 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                <span className="shrink-0 text-[13px] leading-none">{stage.icon || '•'}</span>
+                <span className="truncate text-[12px] font-semibold text-slate-700">
+                  {stage.label || 'Untitled stage'}
+                </span>
+                <span className="truncate text-[10px] text-slate-400">{stageSummary(stage)}</span>
+              </button>
+              <RowControls
+                onUp={() => ops.move(i, -1)}
+                onDown={() => ops.move(i, 1)}
+                onDelete={() => ops.remove(stage.id)}
+                isFirst={i === 0}
+                isLast={i === stages.length - 1}
               />
-              <TextInput value={stage.icon} onChange={(v) => setStage({ icon: v })} placeholder="🏍️" className="w-16" />
-              <input
-                type="color"
-                value={stage.color}
-                onChange={(e) => setStage({ color: e.target.value })}
-                className="h-[30px] w-10 rounded-lg border border-slate-200"
-              />
-              <Select
-                value={stage.match || 'all'}
-                onChange={(v) => setStage({ match: v })}
-                options={[
-                  { value: 'all', label: 'ALL (AND)' },
-                  { value: 'any', label: 'ANY (OR)' },
-                ]}
-                className="w-28"
-              />
-              {widget.showSparkline && (
-                <Select
-                  value={stage.dateColumn || ''}
-                  onChange={(v) => setStage({ dateColumn: v })}
-                  options={dateCols}
-                  placeholder="— trend date column —"
-                  className="w-52"
-                />
-              )}
-              <div className="ml-auto">
-                <RowControls
-                  onUp={() => ops.move(i, -1)}
-                  onDown={() => ops.move(i, 1)}
-                  onDelete={() => ops.remove(stage.id)}
-                  isFirst={i === 0}
-                  isLast={i === stages.length - 1}
-                />
-              </div>
             </div>
 
-            <ConditionBuilder
-              compact
-              conditions={stage.conditions || []}
-              match={stage.match || 'all'}
-              tabs={depth > 0 ? tabs.filter((t) => optValue(t) === parentTab) : tabs}
-              tabHeaders={tabHeaders}
-              onChange={(next) =>
-                setStage({ conditions: next, tab: depth > 0 ? parentTab : next[0]?.tab || stage.tab })
-              }
-            />
-
-            {/* A stage that owns stages opens them; its KPIs would be a
-                pop-up nobody can get to, so they are not offered. */}
-            {kids.length === 0 && (
-              <StageKpiEditor stage={stage} tabs={tabs} tabHeaders={tabHeaders} setStage={setStage} />
-            )}
-
-            {(kids.length > 0 || depth + 1 < MAX_DEPTH) && (
-              <div className="mt-2 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 p-2">
-                <p className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-indigo-700">
-                  <Layers size={11} /> Stages inside {stage.label || 'this stage'}
-                  {kids.length > 0 && <span className="text-indigo-400">({kids.length})</span>}
-                </p>
-
-                {kids.length > 0 && (
-                  <StageList
-                    stages={kids}
-                    onChange={(next) => setStage({ stages: next })}
-                    widget={widget}
-                    tabs={tabs}
-                    tabHeaders={tabHeaders}
-                    depth={depth + 1}
-                    parentTab={stage.tab}
+            {open && (
+              <div className="space-y-2 border-t border-slate-100 p-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <TextInput
+                    value={stage.label}
+                    onChange={(v) => setStage({ label: v })}
+                    placeholder="Stage name"
+                    className="w-40"
                   />
+                  <TextInput
+                    value={stage.icon}
+                    onChange={(v) => setStage({ icon: v })}
+                    placeholder="🏍️"
+                    className="w-14"
+                  />
+                  <input
+                    type="color"
+                    value={stage.color}
+                    onChange={(e) => setStage({ color: e.target.value })}
+                    className="h-[30px] w-9 rounded-lg border border-slate-200"
+                    title="Stage colour"
+                  />
+                  {widget.showSparkline && (
+                    <Select
+                      value={stage.dateColumn || ''}
+                      onChange={(v) => setStage({ dateColumn: v })}
+                      options={dateCols}
+                      placeholder="— trend date column —"
+                      className="w-48"
+                    />
+                  )}
+                </div>
+
+                <SectionTabs sections={sections} active={section} onPick={setSection} />
+
+                {here === 'rules' && (
+                  <div className="space-y-1.5">
+                    <Select
+                      value={stage.match || 'all'}
+                      onChange={(v) => setStage({ match: v })}
+                      options={[
+                        { value: 'all', label: 'Match ALL (AND)' },
+                        { value: 'any', label: 'Match ANY (OR)' },
+                      ]}
+                      className="w-40"
+                    />
+                    <ConditionBuilder
+                      compact
+                      conditions={stage.conditions || []}
+                      match={stage.match || 'all'}
+                      tabs={depth > 0 ? tabs.filter((t) => optValue(t) === parentTab) : tabs}
+                      tabHeaders={tabHeaders}
+                      onChange={(next) =>
+                        setStage({ conditions: next, tab: depth > 0 ? parentTab : next[0]?.tab || stage.tab })
+                      }
+                    />
+                  </div>
                 )}
 
-                {depth + 1 < MAX_DEPTH ? (
-                  <Btn
-                    className="mt-1.5"
-                    onClick={() =>
-                      setStage({
-                        stages: [...kids, newStage({ tab: stage.tab, index: kids.length, nested: true })],
-                      })
-                    }
-                  >
-                    <Plus size={12} /> Add sub-stage
-                  </Btn>
-                ) : (
-                  <p className="text-[10px] text-indigo-400">As deep as it goes.</p>
+                {here === 'popup' && kids.length === 0 && (
+                  <StageKpiEditor stage={stage} tabs={tabs} tabHeaders={tabHeaders} setStage={setStage} />
                 )}
 
-                {kids.length > 0 && (
-                  <p className="mt-1.5 text-[10px] text-indigo-500/80">
-                    Clicking {stage.label || 'this stage'} on the page opens these instead of filtering — the other
-                    stages step aside and a trail appears. Each one counts only rows already inside{' '}
-                    {stage.label || 'it'}, so they add up to the number that was clicked.
-                  </p>
+                {here === 'inside' && (
+                  <div className="space-y-1.5">
+                    <StageList
+                      stages={kids}
+                      onChange={(next) => setStage({ stages: next })}
+                      widget={widget}
+                      tabs={tabs}
+                      tabHeaders={tabHeaders}
+                      depth={depth + 1}
+                      parentTab={stage.tab}
+                      addLabel="Add sub-stage"
+                    />
+                    {kids.length > 0 && (
+                      <p className="text-[10px] text-slate-400">
+                        Clicking {stage.label || 'this stage'} on the page opens these instead of filtering. Each one
+                        counts only rows already inside it, so they add up to the number that was clicked.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
           </div>
         )
       })}
+
+      {depth < MAX_DEPTH ? (
+        <Btn onClick={add}>
+          <Plus size={12} /> {addLabel || 'Add stage'}
+        </Btn>
+      ) : (
+        <p className="text-[10px] text-slate-400">As deep as it goes.</p>
+      )}
     </div>
   )
 }
@@ -252,11 +303,8 @@ export function PipelineEditor({ widget, tabs, tabHeaders, set }) {
         widget={widget}
         tabs={tabs}
         tabHeaders={tabHeaders}
+        tab={widget.tab || optValue(tabs[0])}
       />
-
-      <Btn onClick={() => set({ stages: [...stages, newStage({ tab: widget.tab || optValue(tabs[0]), index: stages.length })] })}>
-        <Plus size={12} /> Add stage
-      </Btn>
 
       <p className="text-[10px] text-slate-400">
         A stage counts every row matching its conditions — stages are independent, so a row can appear in several.
@@ -365,8 +413,14 @@ export function LeaderboardEditor({ widget, cols, set }) {
  * the bookings, how many are financed" -- which is why every KPI carries an
  * optional condition set of its own on top of the stage's.
  */
+/**
+ * What a reader gets when they click a stage: some KPIs, a pivot, a ranked
+ * list. Three separate things, so three buttons -- stacked, they were two
+ * hundred lines under one stage, and a stage is already one of six.
+ */
 export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
-  const [open, setOpen] = useState(false)
+  const [part, setPart] = useState('kpis')
+  const [openKpi, setOpenKpi] = useState(null)
   const kpis = stage.kpis || []
   const cols = tabHeaders?.[stage.tab] || []
 
@@ -379,239 +433,321 @@ export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
   const leaderboardMetrics = leaderboardConfig.metrics || []
 
   function add() {
-    setStage({
-      kpis: [
-        ...kpis,
-        {
-          id: uid('sk'),
-          label: `KPI ${kpis.length + 1}`,
-          icon: '',
-          color: KPI_PALETTE[kpis.length % KPI_PALETTE.length],
-          aggregation: 'count',
-          column: null,
-          format: 'comma',
-          match: 'all',
-          conditions: [],
-        },
-      ],
-    })
-    setOpen(true)
+    const fresh = {
+      id: uid('sk'),
+      label: `KPI ${kpis.length + 1}`,
+      icon: '',
+      color: KPI_PALETTE[kpis.length % KPI_PALETTE.length],
+      aggregation: 'count',
+      column: null,
+      format: 'comma',
+      match: 'all',
+      conditions: [],
+    }
+    setStage({ kpis: [...kpis, fresh] })
+    setOpenKpi(fresh.id)
   }
 
+  const sections = [
+    { key: 'kpis', label: 'KPIs', badge: kpis.length },
+    // A dot rather than a count: a pivot is configured or it is not, and
+    // "1" would be a number that never changes.
+    { key: 'pivot', label: 'Pivot', badge: Boolean(pivotConfig.rowColumn && pivotConfig.colColumn) },
+    { key: 'board', label: 'Leaderboard', badge: Boolean(leaderboardConfig.groupBy) },
+  ]
+  const here = activeSection(sections, part)
+
   return (
-    <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2">
-      <div className="flex items-center gap-2">
-        <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700">
-          {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          Pop-up KPIs ({kpis.length})
-        </button>
-        <Btn onClick={add} className="!py-0.5">
-          <Plus size={11} /> Add KPI
-        </Btn>
-        <span className="ml-auto text-[10px] text-slate-400">Shown when a user clicks this stage</span>
+    <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <SectionTabs sections={sections} active={part} onPick={setPart} />
+        <span className="ml-auto text-[10px] text-slate-400">Shown when a reader clicks this stage</span>
       </div>
 
-      {open && (
-        <div className="mt-2 space-y-2">
+      {here === 'kpis' && (
+        <div className="mt-2 space-y-1">
           {kpis.length === 0 && (
             <p className="py-2 text-center text-[11px] text-slate-400">
               No KPIs yet — without any, clicking this stage filters the dashboard directly.
             </p>
           )}
 
-          {kpis.map((kpi) => (
-            <div key={kpi.id} className="rounded-lg border border-slate-200 bg-white p-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <TextInput value={kpi.label} onChange={(v) => update(kpi.id, { label: v })} placeholder="Label" className="w-36" />
-                <TextInput value={kpi.icon} onChange={(v) => update(kpi.id, { icon: v })} placeholder="💰" className="w-14" />
-                <input
-                  type="color"
-                  value={kpi.color}
-                  onChange={(e) => update(kpi.id, { color: e.target.value })}
-                  className="h-[30px] w-10 rounded-lg border border-slate-200"
-                />
-                <Select
-                  value={kpi.aggregation}
-                  onChange={(v) => update(kpi.id, { aggregation: v })}
-                  options={AGGREGATIONS}
-                  className="w-52"
-                />
-                <Select
-                  value={kpi.column || ''}
-                  onChange={(v) => update(kpi.id, { column: v })}
-                  options={cols}
-                  placeholder="— column —"
-                  disabled={!aggNeedsColumn(kpi.aggregation)}
-                  className="w-44"
-                />
-                <Select
-                  value={kpi.format || 'comma'}
-                  onChange={(v) => update(kpi.id, { format: v })}
-                  options={NUMBER_FORMATS}
-                  className="w-40"
-                />
-                <button onClick={() => remove(kpi.id)} className="ml-auto text-slate-300 hover:text-rose-500">
-                  <X size={14} />
-                </button>
-              </div>
+          {kpis.map((kpi) => {
+            const open = openKpi === kpi.id
+            const color = kpi.color || KPI_PALETTE[0]
 
-              <div className="mt-1.5">
-                <p className="mb-1 text-[10px] font-medium text-slate-500">
-                  Narrow further (optional) — leave empty to measure the whole stage
-                </p>
-                <ConditionBuilder
-                  conditions={kpi.conditions || []}
-                  match={kpi.match || 'all'}
-                  tabs={[stage.tab]}
-                  tabHeaders={tabHeaders}
-                  onChange={(conditions) => update(kpi.id, { conditions })}
-                  compact
-                />
+            return (
+              <div
+                key={kpi.id}
+                className={`rounded-lg border bg-white ${open ? 'border-indigo-200' : 'border-slate-200'}`}
+              >
+                <div className="flex items-center gap-1.5 p-1.5">
+                  <button
+                    onClick={() => setOpenKpi(open ? null : kpi.id)}
+                    title={open ? 'Collapse' : `Edit ${kpi.label || 'this KPI'}`}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                  >
+                    {open ? (
+                      <ChevronUp size={12} className="shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronDown size={12} className="shrink-0 text-slate-400" />
+                    )}
+                    <span className="h-4 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                    <span className="shrink-0 text-[13px] leading-none">{kpi.icon || '•'}</span>
+                    <span className="truncate text-[12px] font-semibold text-slate-700">{kpi.label || 'Untitled'}</span>
+                    <span className="truncate text-[10px] text-slate-400">{kpiSummary(kpi, AGGREGATIONS)}</span>
+                  </button>
+                  <button onClick={() => remove(kpi.id)} className="text-slate-300 hover:text-rose-500" title="Delete">
+                    <X size={14} />
+                  </button>
+                </div>
+
+                {open && (
+                  <div className="space-y-1.5 border-t border-slate-100 p-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <TextInput
+                        value={kpi.label}
+                        onChange={(v) => update(kpi.id, { label: v })}
+                        placeholder="Label"
+                        className="w-36"
+                      />
+                      <TextInput
+                        value={kpi.icon}
+                        onChange={(v) => update(kpi.id, { icon: v })}
+                        placeholder="💰"
+                        className="w-14"
+                      />
+                      <input
+                        type="color"
+                        value={kpi.color}
+                        onChange={(e) => update(kpi.id, { color: e.target.value })}
+                        className="h-[30px] w-9 rounded-lg border border-slate-200"
+                        title="KPI colour"
+                      />
+                      <Select
+                        value={kpi.aggregation}
+                        onChange={(v) => update(kpi.id, { aggregation: v })}
+                        options={AGGREGATIONS}
+                        className="w-48"
+                      />
+                      <Select
+                        value={kpi.column || ''}
+                        onChange={(v) => update(kpi.id, { column: v })}
+                        options={cols}
+                        placeholder="— column —"
+                        disabled={!aggNeedsColumn(kpi.aggregation)}
+                        className="w-40"
+                      />
+                      <Select
+                        value={kpi.format || 'comma'}
+                        onChange={(v) => update(kpi.id, { format: v })}
+                        options={NUMBER_FORMATS}
+                        className="w-36"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Select
+                        value={kpi.scope || 'stage'}
+                        onChange={(v) => update(kpi.id, { scope: v })}
+                        options={KPI_SCOPES}
+                        className="w-56"
+                      />
+                      {!followsStage(kpi) && (
+                        <Select
+                          value={kpi.tab || stage.tab}
+                          onChange={(v) => update(kpi.id, { tab: v, conditions: [] })}
+                          options={tabs}
+                          className="w-56"
+                        />
+                      )}
+                    </div>
+
+                    <p className="text-[10px] font-medium text-slate-500">
+                      {followsStage(kpi)
+                        ? 'Narrow further (optional) — leave empty to measure the whole stage'
+                        : 'Narrow further (optional) — leave empty to measure the whole tab'}
+                    </p>
+                    <ConditionBuilder
+                      conditions={kpi.conditions || []}
+                      match={kpi.match || 'all'}
+                      tabs={[kpiTab(kpi, stage)]}
+                      tabHeaders={tabHeaders}
+                      onChange={(conditions) => update(kpi.id, { conditions })}
+                      compact
+                    />
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
+
+          <Btn onClick={add} className="!py-0.5">
+            <Plus size={11} /> Add KPI
+          </Btn>
         </div>
       )}
 
-      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold text-slate-800">Optional pivot table</p>
-            <p className="text-[11px] text-slate-500">Show a pivot table for this stage in the popup.</p>
-            <PivotBuckets
-              columns={[pivotConfig.rowColumn, pivotConfig.colColumn]}
-              widget={pivotConfig}
-              set={(patch) => setStage({ pivot: { ...pivotConfig, ...patch } })}
-            />
+      {here === 'pivot' && (
+        <div className="mt-2 space-y-2">
+          <PivotBuckets
+            columns={[pivotConfig.rowColumn, pivotConfig.colColumn]}
+            widget={pivotConfig}
+            set={(patch) => setStage({ pivot: { ...pivotConfig, ...patch } })}
+          />
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <Field label="Rows">
+              <Select
+                value={pivotConfig.rowColumn || ''}
+                onChange={(v) => updatePivot({ rowColumn: v })}
+                options={cols}
+                placeholder="— row column —"
+              />
+            </Field>
+            <Field label="Columns">
+              <Select
+                value={pivotConfig.colColumn || ''}
+                onChange={(v) => updatePivot({ colColumn: v })}
+                options={cols}
+                placeholder="— column column —"
+              />
+            </Field>
+            <Field label="Value column">
+              <Select
+                value={pivotConfig.column || ''}
+                onChange={(v) => updatePivot({ column: v })}
+                options={cols}
+                placeholder="— value column —"
+                disabled={!aggNeedsColumn(pivotConfig.aggregation)}
+              />
+            </Field>
+            <Field label="Aggregation">
+              <Select
+                value={pivotConfig.aggregation || 'count'}
+                onChange={(v) => updatePivot({ aggregation: v })}
+                options={AGGREGATIONS}
+              />
+            </Field>
+            <Field label="Number format" className="md:col-span-2">
+              <Select
+                value={pivotConfig.format || 'comma'}
+                onChange={(v) => updatePivot({ format: v })}
+                options={NUMBER_FORMATS}
+              />
+            </Field>
+            <Field label="Display mode" className="md:col-span-2">
+              <Select
+                value={pivotConfig.display || 'matrix'}
+                onChange={(v) => updatePivot({ display: v })}
+                options={[
+                  { value: 'matrix', label: 'Full pivot matrix' },
+                  { value: 'totals', label: 'Totals only' },
+                ]}
+              />
+            </Field>
           </div>
+          <p className="text-[10px] text-slate-400">Both a row and a column are needed before anything is drawn.</p>
         </div>
+      )}
 
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-          <Field label="Rows">
-            <Select
-              value={pivotConfig.rowColumn || ''}
-              onChange={(v) => updatePivot({ rowColumn: v })}
-              options={cols}
-              placeholder="— row column —"
-            />
-          </Field>
-          <Field label="Columns">
-            <Select
-              value={pivotConfig.colColumn || ''}
-              onChange={(v) => updatePivot({ colColumn: v })}
-              options={cols}
-              placeholder="— column column —"
-            />
-          </Field>
-          <Field label="Value column">
-            <Select
-              value={pivotConfig.column || ''}
-              onChange={(v) => updatePivot({ column: v })}
-              options={cols}
-              placeholder="— value column —"
-              disabled={!aggNeedsColumn(pivotConfig.aggregation)}
-            />
-          </Field>
-          <Field label="Aggregation">
-            <Select
-              value={pivotConfig.aggregation || 'count'}
-              onChange={(v) => updatePivot({ aggregation: v })}
-              options={AGGREGATIONS}
-            />
-          </Field>
-          <Field label="Number format" className="md:col-span-2">
-            <Select
-              value={pivotConfig.format || 'comma'}
-              onChange={(v) => updatePivot({ format: v })}
-              options={NUMBER_FORMATS}
-            />
-          </Field>
-          <Field label="Display mode" className="md:col-span-2">
-            <Select
-              value={pivotConfig.display || 'matrix'}
-              onChange={(v) => updatePivot({ display: v })}
-              options={[
-                { value: 'matrix', label: 'Full pivot matrix' },
-                { value: 'totals', label: 'Totals only' },
-              ]}
-            />
-          </Field>
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold text-slate-800">Optional leaderboard</p>
-            <p className="text-[11px] text-slate-500">Show a ranked list for this stage in the popup.</p>
+      {here === 'board' && (
+        <div className="mt-2 space-y-2">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <Field label="Group by">
+              <Select
+                value={leaderboardConfig.groupBy || ''}
+                onChange={(v) => updateLeaderboard({ groupBy: v })}
+                options={cols}
+                placeholder="— group by column —"
+              />
+            </Field>
+            <Field label="Top rows">
+              <TextInput
+                type="number"
+                value={leaderboardConfig.limit || 10}
+                onChange={(v) => updateLeaderboard({ limit: Number(v) || 10 })}
+              />
+            </Field>
+            <Field label="Sort metric" className="md:col-span-2">
+              <Select
+                value={leaderboardConfig.sortBy || 'first'}
+                onChange={(v) => updateLeaderboard({ sortBy: v === 'first' ? null : v })}
+                options={[
+                  { value: 'first', label: 'First metric' },
+                  ...leaderboardMetrics.map((metric) => ({ value: metric.id, label: metric.label })),
+                ]}
+              />
+            </Field>
           </div>
-          <Btn size="small" onClick={() => updateLeaderboard({ metrics: [...leaderboardMetrics, { id: uid('sm'), label: `Metric ${leaderboardMetrics.length + 1}`, aggregation: 'count', column: null, format: 'comma' }] })}>
+
+          {leaderboardMetrics.map((metric, index) => (
+            <div key={metric.id} className="grid grid-cols-2 gap-1.5 rounded-lg border border-slate-200 bg-white p-2 md:grid-cols-4">
+              <TextInput
+                value={metric.label}
+                onChange={(v) =>
+                  updateLeaderboard({
+                    metrics: leaderboardMetrics.map((m, i) => (i === index ? { ...m, label: v } : m)),
+                  })
+                }
+                placeholder="Label"
+                className="w-full"
+              />
+              <Select
+                value={metric.aggregation}
+                onChange={(v) =>
+                  updateLeaderboard({
+                    metrics: leaderboardMetrics.map((m, i) => (i === index ? { ...m, aggregation: v } : m)),
+                  })
+                }
+                options={AGGREGATIONS}
+                className="w-full"
+              />
+              <Select
+                value={metric.column || ''}
+                onChange={(v) =>
+                  updateLeaderboard({
+                    metrics: leaderboardMetrics.map((m, i) => (i === index ? { ...m, column: v } : m)),
+                  })
+                }
+                options={cols}
+                placeholder="— column —"
+                disabled={!aggNeedsColumn(metric.aggregation)}
+                className="w-full"
+              />
+              <Select
+                value={metric.format || 'comma'}
+                onChange={(v) =>
+                  updateLeaderboard({
+                    metrics: leaderboardMetrics.map((m, i) => (i === index ? { ...m, format: v } : m)),
+                  })
+                }
+                options={NUMBER_FORMATS}
+                className="w-full"
+              />
+            </div>
+          ))}
+
+          <Btn
+            className="!py-0.5"
+            onClick={() =>
+              updateLeaderboard({
+                metrics: [
+                  ...leaderboardMetrics,
+                  {
+                    id: uid('sm'),
+                    label: `Metric ${leaderboardMetrics.length + 1}`,
+                    aggregation: 'count',
+                    column: null,
+                    format: 'comma',
+                  },
+                ],
+              })
+            }
+          >
             <Plus size={11} /> Add metric
           </Btn>
         </div>
-
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-          <Field label="Group by">
-            <Select
-              value={leaderboardConfig.groupBy || ''}
-              onChange={(v) => updateLeaderboard({ groupBy: v })}
-              options={cols}
-              placeholder="— group by column —"
-            />
-          </Field>
-          <Field label="Top rows">
-            <TextInput
-              type="number"
-              value={leaderboardConfig.limit || 10}
-              onChange={(v) => updateLeaderboard({ limit: Number(v) || 10 })}
-            />
-          </Field>
-          <Field label="Sort metric" className="md:col-span-2">
-            <Select
-              value={leaderboardConfig.sortBy || 'first'}
-              onChange={(v) => updateLeaderboard({ sortBy: v === 'first' ? null : v })}
-              options={[{ value: 'first', label: 'First metric' }, ...leaderboardMetrics.map((metric) => ({ value: metric.id, label: metric.label }))]}
-            />
-          </Field>
-        </div>
-
-        {leaderboardMetrics.length > 0 && (
-          <div className="mt-3 space-y-2">
-            {leaderboardMetrics.map((metric, index) => (
-              <div key={metric.id} className="rounded-lg border border-slate-200 bg-white p-2">
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-                  <TextInput
-                    value={metric.label}
-                    onChange={(v) => updateLeaderboard({ metrics: leaderboardMetrics.map((m, i) => (i === index ? { ...m, label: v } : m)) })}
-                    placeholder="Label"
-                    className="w-full"
-                  />
-                  <Select
-                    value={metric.aggregation}
-                    onChange={(v) => updateLeaderboard({ metrics: leaderboardMetrics.map((m, i) => (i === index ? { ...m, aggregation: v } : m)) })}
-                    options={AGGREGATIONS}
-                    className="w-full"
-                  />
-                  <Select
-                    value={metric.column || ''}
-                    onChange={(v) => updateLeaderboard({ metrics: leaderboardMetrics.map((m, i) => (i === index ? { ...m, column: v } : m)) })}
-                    options={cols}
-                    placeholder="— column —"
-                    disabled={!aggNeedsColumn(metric.aggregation)}
-                    className="w-full"
-                  />
-                  <Select
-                    value={metric.format || 'comma'}
-                    onChange={(v) => updateLeaderboard({ metrics: leaderboardMetrics.map((m, i) => (i === index ? { ...m, format: v } : m)) })}
-                    options={NUMBER_FORMATS}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   )
 }

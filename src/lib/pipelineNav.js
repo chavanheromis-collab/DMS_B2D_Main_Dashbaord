@@ -94,6 +94,102 @@ export function ascend(path, index) {
 export const opensSubStages = (stage) => hasSubStages(stage)
 
 /**
+ * What a collapsed stage says about itself in the editor.
+ *
+ * Enough to find the one you came for without opening it, and no more. A
+ * stage with no conditions counts its ENTIRE tab, which looks like a
+ * half-finished stage and reads like a bug, so it says so rather than
+ * showing "0 rules" and leaving the admin to work out what that means.
+ *
+ * KPIs go unmentioned once a stage has stages inside it: the pop-up they
+ * belong to never opens, so counting them would be advertising something
+ * that cannot happen.
+ */
+export function stageSummary(stage) {
+  const rules = (stage?.conditions || []).filter((c) => c && c.column).length
+  const kpis = (stage?.kpis || []).length
+  const inside = subStages(stage).length
+
+  const parts = [rules ? plural(rules, 'rule') : 'every row']
+  if (inside) parts.push(`${inside} inside`)
+  else if (kpis) parts.push(plural(kpis, 'KPI'))
+  return parts.join(' · ')
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// ---------------------------------------------------------------------
+// What a pop-up KPI measures
+// ---------------------------------------------------------------------
+// A stage's pop-up is usually about the stage: 40 booked, of which 22
+// financed and 9 delivered. Everything in it narrows the same rows, and
+// that is what makes the numbers agree with the box that was clicked.
+//
+// But not every number worth putting there is about the stage. "Booked this
+// month, against a target of 300" needs the 300; "12 of these, out of 4,000
+// enquiries all year" needs the 4,000. Those are context, not contents, and
+// scoping them to the stage would make them wrong rather than merely
+// unhelpful -- so a KPI can opt out and read its own rows instead.
+
+export const KPI_SCOPES = [
+  { value: 'stage', label: 'Rows in this stage' },
+  { value: 'own', label: 'Its own rows — ignores the stage' },
+]
+
+/** Absent means "stage", so nothing written before this existed changes. */
+export const followsStage = (kpi) => (kpi?.scope || 'stage') !== 'own'
+
+/**
+ * The tab a KPI reads.
+ *
+ * A stage-scoped KPI reads the stage's, always: it is narrowing rows the
+ * stage already matched, and rows from another sheet are not those rows. An
+ * independent one may name its own, and falls back to the stage's, which is
+ * the sensible thing to measure first.
+ */
+export const kpiTab = (kpi, stage) => (followsStage(kpi) ? stage?.tab : kpi?.tab || stage?.tab)
+
+/**
+ * What clicking a KPI filters the dashboard by.
+ *
+ * `withinStage` tells the caller whether the stage (and everything it sits
+ * inside) has to travel with it. An independent KPI is not describing the
+ * stage, so filtering by the stage as well would contradict the number the
+ * reader just clicked.
+ */
+export function kpiDrill(kpi, stage) {
+  const tab = kpiTab(kpi, stage)
+  return {
+    tab,
+    match: kpi?.match || 'all',
+    // A condition that never named its tab is dropped by the engine, so it
+    // inherits the one it is written against -- the same rule stages use.
+    conditions: (kpi?.conditions || []).filter((c) => c && c.column).map((c) => ({ ...c, tab: c.tab || tab })),
+    withinStage: followsStage(kpi),
+  }
+}
+
+/**
+ * What a collapsed pop-up KPI says about itself.
+ *
+ * What it measures, and what it measures it over. `aggregations` is passed
+ * in rather than imported so this file stays dependency-free -- the caller
+ * already has the list it renders the picker from, and a label that drifts
+ * from that picker would be worse than none.
+ */
+export function kpiSummary(kpi, aggregations = []) {
+  const agg = kpi?.aggregation || 'count'
+  const what = aggregations.find((a) => a.value === agg)?.label || agg
+  const rules = (kpi?.conditions || []).filter((c) => c && c.column).length
+
+  const over = followsStage(kpi)
+    ? [rules ? plural(rules, 'rule') : 'whole stage']
+    : ['own rows', rules && plural(rules, 'rule')].filter(Boolean)
+
+  return [kpi?.column ? `${what} · ${kpi.column}` : what, ...over].join(' · ')
+}
+
+/**
  * The size of a stage box.
  *
  * Bounded rather than free: a 20px box cannot hold a five-figure number and

@@ -391,6 +391,35 @@ aside.fixed.right-0 {
   overflow: auto;
 }
 
+/* ...and its HEADING stays put while the body scrolls under it.
+ *
+ * The card is the scroll container, so without this the title, the count
+ * beside it and the export button scroll away with the chart -- and a
+ * widget whose name you have to scroll back up to read is a widget you
+ * cannot tell apart from its neighbour. Shrinking a widget is exactly when
+ * the label matters most, and exactly when it used to disappear.
+ *
+ * `:has` rather than a marker class on thirteen components: every widget
+ * already wraps its title in one direct child of the card, and a rule that
+ * finds that wrapper works on the widgets nobody has touched since -- and on
+ * the next one somebody writes.
+ *
+ * The negative margin plus matching padding pulls the strip out to the
+ * card's edges and puts the padding back inside it, so scrolling content
+ * passes UNDER the heading rather than appearing in the gap beside it. */
+.widget-sized > .card > *:has(.widget-title) {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  /* The card's own surface, or content would read through it. The solid
+     layer only -- the sheen is a gradient anchored to the card, and
+     repeating it here would draw a second highlight partway down. */
+  background-color: var(--card-bg, rgb(255 255 255 / 0.92));
+  margin-inline: calc(var(--card-padding, 1rem) * -1);
+  margin-top: calc(var(--card-padding, 1rem) * -1);
+  padding: var(--card-padding, 1rem) var(--card-padding, 1rem) 0.5rem;
+}
+
 /* ------------------------------------------------------------------ */
 /* The accent, on the widgets that were offered one                    */
 /* ------------------------------------------------------------------ */

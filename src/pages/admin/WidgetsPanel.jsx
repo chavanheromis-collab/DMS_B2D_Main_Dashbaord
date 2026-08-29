@@ -22,6 +22,13 @@ import { DEFAULT_PIE_OPTIONS, PIE_LABEL_STYLES, PIE_PERCENT_BASES } from '../../
 import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
 import { hasCustomStyle } from '../../lib/widgetStyle'
 import { COLOR_MODES, DEFAULT_REFERENCE, REFERENCE_KINDS, chartCaps, unsupportedNote } from '../../lib/chartOptions'
+import {
+  BAND_KINDS,
+  CUMULATIVE_MODES,
+  DEFAULT_BAND,
+  DEFAULT_TREND_WINDOW,
+  TREND_KINDS,
+} from '../../lib/chartAnalytics'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
 import { SERIES_PALETTES } from '../../lib/valueColors'
 import AppImage from '../../components/PageIcon.jsx'
@@ -853,6 +860,7 @@ function ChartAdvanced({ widget, set }) {
   const mode = widget.colorMode || 'single'
   const rules = widget.colorRules || []
   const references = widget.references || []
+  const bands = widget.bands || []
   // Not every option means something on every style, so the ones that don't
   // are disabled and explained rather than silently ignored -- which is how
   // a setting comes to look broken.
@@ -861,6 +869,7 @@ function ChartAdvanced({ widget, set }) {
 
   const setRules = (next) => set({ colorRules: next })
   const setRefs = (next) => set({ references: next })
+  const setBands = (next) => set({ bands: next })
 
   return (
     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/50 p-2">
@@ -1094,6 +1103,126 @@ function ChartAdvanced({ widget, set }) {
           })}
         </div>
       </div>
+
+      {/* --- Reference bands ------------------------------------------ */}
+      {/* "Between 80 and 120" is a different question from "at 100", and
+          two lines make the reader do the shading in their head. */}
+      <div className="mt-2 rounded-lg border border-slate-100 bg-white p-2">
+        <div className="mb-1 flex items-center justify-between">
+          <p className="text-[11px] font-medium text-slate-500">Shaded bands</p>
+          <Btn className="!py-0.5" onClick={() => setBands([...bands, { ...DEFAULT_BAND, id: uid('bd') }])}>
+            <Plus size={11} /> Add band
+          </Btn>
+        </div>
+
+        {bands.length === 0 && (
+          <p className="py-1 text-[10px] text-slate-400">
+            None. A band says “this is the range we meant to be in”, which a line cannot.
+          </p>
+        )}
+
+        <div className="space-y-1.5">
+          {bands.map((band, bi) => {
+            const setBand = (patch) => setBands(bands.map((b, i) => (i === bi ? { ...b, ...patch } : b)))
+            const meta = BAND_KINDS.find((k) => k.value === band.kind)
+            return (
+              <div key={band.id || bi} className="flex flex-wrap items-center gap-1.5">
+                <Select value={band.kind} onChange={(v) => setBand({ kind: v })} options={BAND_KINDS} className="w-52" />
+                {meta?.needsBoth && (
+                  <>
+                    <TextInput
+                      type="number"
+                      value={band.from ?? ''}
+                      onChange={(v) => setBand({ from: Number(v) })}
+                      placeholder="from"
+                      className="w-24"
+                    />
+                    <TextInput
+                      type="number"
+                      value={band.to ?? ''}
+                      onChange={(v) => setBand({ to: Number(v) })}
+                      placeholder="to"
+                      className="w-24"
+                    />
+                  </>
+                )}
+                {meta?.needsValue && (
+                  <TextInput
+                    type="number"
+                    value={band.value ?? ''}
+                    onChange={(v) => setBand({ value: Number(v) })}
+                    placeholder={meta.valueLabel || 'value'}
+                    className="w-24"
+                  />
+                )}
+                <TextInput
+                  value={band.label || ''}
+                  onChange={(v) => setBand({ label: v })}
+                  placeholder={meta?.label || 'Label'}
+                  className="w-32"
+                />
+                <input
+                  type="color"
+                  value={band.color || '#6366F1'}
+                  onChange={(e) => setBand({ color: e.target.value })}
+                  className="h-[30px] w-12 rounded-lg border border-slate-200"
+                />
+                <button
+                  onClick={() => setBands(bands.filter((_, i) => i !== bi))}
+                  className="text-slate-300 hover:text-rose-500"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* --- Trend and running total ---------------------------------- */}
+      {caps.trend ? (
+        <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-slate-100 bg-white p-2">
+          <Field label="Trend line" className="w-52" hint="Which way is this going, under the noise.">
+            <Select value={widget.trend || ''} onChange={(v) => set({ trend: v })} options={TREND_KINDS} />
+          </Field>
+          {widget.trend === 'movingAvg' && (
+            <Field label="Over how many" className="w-28">
+              <TextInput
+                type="number"
+                value={widget.trendWindow ?? DEFAULT_TREND_WINDOW}
+                onChange={(v) => set({ trendWindow: Math.max(2, Number(v) || DEFAULT_TREND_WINDOW) })}
+              />
+            </Field>
+          )}
+          {widget.trend && (
+            <Field label="Colour" className="w-20">
+              <input
+                type="color"
+                value={widget.trendColor || '#0F172A'}
+                onChange={(e) => set({ trendColor: e.target.value })}
+                className="h-[30px] w-full rounded-lg border border-slate-200"
+              />
+            </Field>
+          )}
+          <Field label="Running total" className="w-60" hint="Where the chart has got to, bar by bar.">
+            <Select value={widget.cumulative || ''} onChange={(v) => set({ cumulative: v })} options={CUMULATIVE_MODES} />
+          </Field>
+          {widget.cumulative && (
+            <Field label="Colour" className="w-20">
+              <input
+                type="color"
+                value={widget.cumulativeColor || '#F59E0B'}
+                onChange={(e) => set({ cumulativeColor: e.target.value })}
+                className="h-[30px] w-full rounded-lg border border-slate-200"
+              />
+            </Field>
+          )}
+        </div>
+      ) : (
+        <p className="mt-2 text-[10px] text-slate-400">
+          A trend line and a running total need a series to run along — this chart style has none.
+        </p>
+      )}
     </div>
   )
 }

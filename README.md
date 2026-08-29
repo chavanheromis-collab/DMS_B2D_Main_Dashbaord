@@ -390,6 +390,18 @@ it changes on the other, live.**
 given the same unsaved draft — so what you see *is* what the page will show.
 There is no second implementation to disagree with the first.
 
+**And it is live, not a picture of one.** Click a pipeline stage and it opens
+its sub-stages; open a dropdown, scroll a long chart, drill a bar — the
+preview behaves exactly as the page will, while you are still changing it.
+The highlight that marks which card you're editing is a sheet of glass: it
+takes no clicks. The **Edit** pill in the card's top-right corner is what
+opens the form.
+
+This is a correction. The highlight used to be a button covering the whole
+card, so a widget in edit mode could be looked at and not used — and a
+preview you cannot work is a screenshot. The arrange pill keeps the opposite
+corner, so a card can carry both without either getting in the way.
+
 **Move the form** to the left, the right or the bottom from the buttons in
 its header, and **drag the divider** to resize. Both are remembered per
 browser, because they're a preference about *your* screen and not a property
@@ -472,6 +484,75 @@ is a form about nothing.
 The admin panel is still there and still does everything it did: it is where
 spreadsheets are connected and access is granted. What has moved to the page
 is everything that is *about* a page you can see.
+
+### One name in the palette, several shapes behind it
+
+**Chart** is one button and twenty-one drawings. A bar chart and a treemap
+are not variations on a theme — they answer different questions — and hiding
+both behind a word means the way anybody finds the treemap is by adding a
+chart, opening its editor and reading a dropdown.
+
+So a type with shapes behind it **opens** instead of adding. The palette
+becomes those shapes, every other type steps aside, and each one is **drawn**
+rather than named — hover any of them for the sketch. `‹ All widgets` goes
+back. The button that opens rather than adds carries its count, so one click
+in the row never does something different from every click beside it with
+nothing on screen saying so.
+
+Two types have shapes today:
+
+| | |
+|---|---|
+| **Chart** | all 21 styles — bar, lollipop, waterfall, pareto, histogram, pie, donut, rose, radar, radial, treemap, funnel, … |
+| **Stacked / Grouped Bars** | stacked, stacked to 100%, grouped — a total broken up, a mix, and a comparison |
+
+**A variant is a type plus a patch.** Picking *Donut* adds a chart whose
+`chartType` is donut — exactly what picking Chart and then changing the
+dropdown has always produced. Nothing new is stored and no widget learns a
+second identity, so every editor, every saved page and every renderer already
+understands the result, and any of it can still be changed afterwards.
+
+The chart list is **built from** the same `CHART_TYPES` the editor's dropdown
+uses, so a style added there cannot go missing from the palette. Shapes that
+are the same drawing at thumbnail size share one sketch — a bar and a cylinder
+bar differ by a rounded top, which is not a difference worth drawing twice.
+
+### A widget inside a widget
+
+One chart of company totals, and behind it the same chart per region, per
+branch, per model. Laid side by side that is thirty cards and no story; laid
+one level down it is a headline you can open.
+
+**Any widget can hold widgets.** A card that has something inside it carries
+an `⧉ 2 inside` chip in its bottom-right corner; clicking it **replaces the
+page** with those two, and the page you left becomes a trail at the top —
+`Sales dashboard › Sales by region › North`, every crumb clickable. Up to
+three levels deep.
+
+The chip is a corner, not the card, for the same reason the edit highlight is
+glass: the card is a working chart, and a click on a bar should drill the bar.
+
+**A child is an ordinary widget.** Not a special kind, not a reduced kind —
+the same object the page stores. So every widget type, every control, every
+condition, every style and every editor works inside exactly as it does
+outside, with nothing to keep in step. **Add** adds where you are standing:
+on the page, or inside whichever widget is open. That is what "add" has
+always meant.
+
+An admin sees the chip on **every** widget, including empty ones — the way in
+has to exist before there is anything behind it. A reader only sees it where
+there is something behind it, because an empty level is a blank page and a
+dead end.
+
+Everything else follows from one rule: a page saves **one array**, so an edit
+three levels down is rebuilt into the whole tree on the way out. Adding,
+deleting, renaming, reordering, resizing, restyling and re-ordering columns
+all go through the same `atLevel` funnel — a site that missed it would write
+a child's change onto the page, silently, which is why a test asserts nothing
+reaches past it.
+
+Deleting a widget somebody is inside puts them back at its parent, not in
+front of a blank page. Changing page leaves the widget behind.
 
 ### Designing a page, from the page
 
@@ -2021,6 +2102,73 @@ down to three.
 Controls render in the canvas wrapper above each widget, which is why all
 every widget type gets them without any widget knowing controls exist.
 
+### The Analytics layer
+
+A chart shows what happened. This is the pane that says what it **means** —
+the direction under the noise, the range you meant to stay inside, how far
+from typical the worst one is, where the running total gets to.
+
+It sits with the reference lines in a chart's **Setup**, and everything in it
+is worked out from the **bars the chart is drawing** — not from the rows
+behind them. An average of rows a limited chart never showed would be an
+average of numbers the reader cannot see.
+
+#### Lines that move with the data
+
+The four a chart always had — average, median, highest, lowest — plus a fixed
+value, and now:
+
+| | |
+|---|---|
+| **A percentile** | any, interpolated the way a spreadsheet's `PERCENTILE` does, so a number checked against the sheet agrees |
+| **Average ± n σ** | negative is the lower side; the spread is the *population* one, because the bars **are** the population, not a sample of bars |
+| **Total of the bars** | |
+| **% of the average** | "120% of typical" as a target that keeps being true |
+
+#### Bands, not two lines
+
+"Between 80 and 120" is a different question from "at 100", and two lines make
+the reader do the shading in their head. A band can be two values you choose,
+**lowest-to-highest**, **average ± n σ**, the **middle half** (IQR) or the
+**middle 80%** (10th–90th). It is drawn *under* the marks — a band is the
+ground a bar stands on. Typed the wrong way round it still shades: nobody
+means an empty range by entering 120 and then 80.
+
+#### A trend line
+
+**Straight line** is the least-squares fit — what a ruler laid across the
+chart would say. **Moving average** follows the shape instead of replacing
+it, for when the trend is not straight.
+
+It trails rather than centring, so the line for March does not already know
+about April, and the first bars have **no** value rather than an average of
+fewer — a "3-month average" made of one month is not a 3-month average. A gap
+breaks it rather than being skipped, and the line is not joined across the
+break.
+
+There is deliberately **no polynomial fit**. A cubic through fifteen points
+fits the noise, looks authoritative and forecasts nonsense, and a chart that
+makes a reader more confident than the data warrants is worse than no chart.
+
+Two bars do not get a trend — that is the two bars joined up — and a moving
+average longer than the chart draws nothing, so neither is offered.
+
+#### A running total
+
+Where the chart has got to, bar by bar, either as a **total** or as a **% of
+everything**. The percentage gets its own right-hand axis: 100% beside 14,000
+flattens the line onto the floor. The Pareto chart has always had one wired
+into it; this is the same question anywhere the order means something.
+
+#### Where it applies
+
+A trend and a running total need a **series to run along**, so they are
+offered on **bar, cylinder, arrow, line, step and area** and nowhere else. A
+trend through a histogram is a line through a distribution; a running total
+over a waterfall *is* the waterfall. Reference lines and bands apply wherever
+there is an axis. The editor says which of these a style ignores rather than
+accepting a setting and dropping it.
+
 ### Chart styles
 
 Seventeen, all sharing one "group by a column and aggregate" config, so
@@ -2086,13 +2234,65 @@ So a stage can own stages. **Add sub-stage** inside any stage in the editor,
 up to four levels deep; it's the same form as a top-level stage, because a
 sub-pipeline *is* a pipeline.
 
-On the page, a stage with stages inside it says so — a count badge and
-"3 inside" along the bottom — and clicking it **opens** them. Its *siblings*
+The editor lists stages **one line each** — colour, icon, name, and a summary
+like `2 rules · 3 inside` — and opens **one at a time**. Six stages with their
+conditions, KPIs and sub-stages all unrolled was a form with no visible end,
+and the thing you actually do is find one stage, not read them all. Inside an
+open stage the rest is a row of buttons: **Rules**, **Pop-up**, **Inside**.
+Adding a stage opens it at Rules, which is the one moment you do want it
+unrolled.
+
+A stage with no conditions counts its *entire* tab, so the summary says
+`every row` rather than `0 rules` — it looks like a half-finished stage
+otherwise. And a stage with sub-stages isn't offered a **Pop-up** tab at all,
+since that pop-up can never open.
+
+**Pop-up** splits the same way, into **KPIs**, **Pivot** and **Leaderboard** —
+three separate things that were two hundred stacked lines under one stage, and
+a stage is already one of six. The KPIs are their own accordion inside it: one
+line each (`Sum (numeric) · Amount · whole stage`), one open at a time, and a
+new one opens as you add it. A KPI with no conditions measures the whole
+stage, which is what the field under it has always promised, so that is what
+the line says.
+
+The **Pivot** and **Leaderboard** buttons carry a dot rather than a count —
+each is set up or it isn't, and "1" would be a number that never changed.
+
+#### A KPI that isn't about the stage
+
+A pop-up is usually about the stage you clicked: 40 booked, of which 22
+financed and 9 delivered. Everything in it narrows the same rows, which is
+what makes the numbers agree with the box above.
+
+But not every number worth putting there is about the stage. *"Booked this
+month, against a target of 300"* needs the 300; *"12 of these, out of 4,000
+enquiries all year"* needs the 4,000. Those are context, not contents, and
+scoping them to the stage makes them **wrong**, not merely unhelpful.
+
+So each KPI picks one:
+
+| | |
+|---|---|
+| **Rows in this stage** | the default, and what every KPI did before this existed |
+| **Its own rows — ignores the stage** | starts from a tab of its own (the stage's, unless you pick another) and only its own conditions |
+
+An independent KPI announces itself: its caption reads `12 of 4,000 · own
+rows` rather than a bare figure that would be read as the stage's. And
+clicking it filters the dashboard by **its** conditions alone — filtering by
+the stage as well would contradict the number that was clicked.
+
+Changing its tab clears the conditions written against the old one. A column
+name from another sheet matches nothing, silently, and looks exactly like a
+condition that legitimately matches nothing.
+
+On the page, a stage with stages inside it says so — `↳ 3 inside` along the
+bottom, and nothing else; a chip in the corner saying the same number was the
+same fact twice in one box — and clicking it **opens** them. Its *siblings*
 step aside; **the stage itself stays on the row**, drawn first, with an
 `↳ inside` divider and then its parts. A whole you cannot see is a sum with
 nothing to check it against.
 
-The parent keeps its own box: the same step number, the same percentage, the
+The parent keeps its own box: the same share and the
 same count it had a click ago — measured against *its* level, not the one you
 are now looking at. A number that changed on the way in would be saying the
 descent had done something to the data. It is drawn by the same renderer as
@@ -2131,6 +2331,19 @@ Two consequences worth knowing:
 
 Deleting a stage while somebody has it open doesn't strand them — the trail
 resolves as far as it can and puts them back at the last real level.
+
+### What a stage box says
+
+Top row: the stage's icon on the left, its **share** as a chip on the right.
+Then the stage name, the count, the optional 30-day trend, and — only where a
+stage has stages inside it — `↳ N inside`.
+
+What the share is a percentage *of* is the **Percentages measured against**
+setting: the first stage of its level (funnel conversion), or the rows that
+level starts from.
+
+There is no step number. A row of boxes is already ordered left to right, and
+numbering it again cost the icon its corner.
 
 ### Stage boxes are sized by the admin
 
