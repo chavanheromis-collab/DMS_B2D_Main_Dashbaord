@@ -26,6 +26,11 @@ import {
   unreadCount,
   whenText,
   withId,
+  DEFAULT_TONE,
+  SENT_RECEIPT_MS,
+  autoHideAfter,
+  canReceiveMessages,
+  canSendMessages
 } from './messages.js'
 
 const ME = 'u_me'
@@ -495,4 +500,249 @@ test('the rules of a tone live in one place', () => {
   // somebody added.
   assert.ok(centre.includes('const needsReply = needsReplyFrom(message, uid)'))
   assert.ok(!centre.includes("message.tone === 'ask'"))
+})
+
+// ---------------------------------------------------------------------
+// Toasts: on screen, then gone
+// ---------------------------------------------------------------------
+
+test('what asks nothing goes by itself; what asks something does not', () => {
+  // A notice that can be ignored and then sits on the page for ever is
+  // being ignored AND taking up room. A question that vanishes on a timer
+  // is a question nobody answers -- and the timer is exactly as long as
+  // somebody looks away for.
+  assert.ok(autoHideAfter(msg({ tone: 'fyi' })) > 0)
+  assert.ok(autoHideAfter(msg({ tone: 'seen' })) > 0)
+  assert.equal(autoHideAfter(msg({ tone: 'ask' })), null)
+  assert.equal(autoHideAfter(msg({ tone: 'urgent' })), null)
+})
+
+test('what you sent goes by itself, whatever you sent', () => {
+  // "Send, and it puts itself away" is what every messaging app does, and
+  // the sender is not being asked anything by their own message. A question
+  // you sent, sitting on your own screen until you answer it, is a loop.
+  for (const t of TONES) {
+    assert.equal(autoHideAfter(msg({ tone: t.value, from: ME }), ME), SENT_RECEIPT_MS, t.value)
+  }
+  // And it is still a question for the people it was sent to.
+  assert.equal(autoHideAfter(msg({ tone: 'ask', from: BOSS }), ME), null)
+})
+
+test('the receipt is long enough to read back', () => {
+  assert.ok(SENT_RECEIPT_MS >= 2000 && SENT_RECEIPT_MS <= 15000)
+})
+
+test('with nobody asking, the tone still decides', () => {
+  // The trap is `undefined === undefined`: a half-written message with no
+  // sender, asked about by a caller with no uid, is not "yours".
+  assert.equal(autoHideAfter({ tone: 'ask' }), null)
+  assert.equal(autoHideAfter({ tone: 'ask', from: undefined }, undefined), null)
+  assert.equal(autoHideAfter(msg({ tone: 'ask', from: ME })), null)
+})
+
+test('a tone that asks for an answer may never carry a life', () => {
+  // Stated over the model rather than the four cases above, so a fifth tone
+  // added next year cannot quietly time out a question.
+  for (const t of TONES) {
+    if (t.needsReply) assert.equal(t.autoHideAfter, null, t.value)
+    else assert.ok(t.autoHideAfter > 0, t.value)
+  }
+})
+
+test('long enough to read, short enough not to be furniture', () => {
+  // Under three seconds is a message people see and cannot finish.
+  for (const t of TONES.filter((x) => x.autoHideAfter)) {
+    assert.ok(t.autoHideAfter >= 3000 && t.autoHideAfter <= 20000, t.value)
+  }
+})
+
+test('an unknown tone still goes away by itself', () => {
+  // It falls back to the quietest tone, and the quietest tone is the one
+  // that must not need a click.
+  assert.ok(autoHideAfter(msg({ tone: 'whatever' })) > 0)
+  assert.ok(autoHideAfter(null) > 0)
+})
+
+test('the composer opens on a tone that exists', () => {
+  // It opened on 'note', which is not one: no tone was highlighted, the
+  // hint under the picker was blank, and messageDoc normalised it to fyi on
+  // the way out -- so the screen and the send disagreed.
+  assert.ok(TONES.some((t) => t.value === DEFAULT_TONE))
+  assert.ok(centre.includes('tone: DEFAULT_TONE'))
+  assert.ok(!centre.includes("tone: 'note'"))
+})
+
+// ---------------------------------------------------------------------
+// Who may use it at all
+// ---------------------------------------------------------------------
+
+test('absent means yes, both ways', () => {
+  // The field is new. Everyone who signed up before it existed must keep
+  // working, rather than silently losing messages until an admin ticks a
+  // box nobody told them about.
+  assert.equal(canSendMessages({}), true)
+  assert.equal(canSendMessages(undefined), true)
+  assert.equal(canReceiveMessages({}), true)
+  assert.equal(canReceiveMessages(undefined), true)
+})
+
+test('and off is off', () => {
+  assert.equal(canSendMessages({ canSendMessages: false }), false)
+  assert.equal(canReceiveMessages({ canReceiveMessages: false }), false)
+  // Only false. A stray null from a half-written document must not switch
+  // somebody off.
+  assert.equal(canSendMessages({ canSendMessages: null }), true)
+})
+
+test('somebody switched off is not offered the centre at all', () => {
+  assert.ok(centre.includes('if (!uid || !mayReceive) return null'))
+  assert.ok(centre.includes('const mayReceive = canReceiveMessages(userDoc)'))
+})
+
+test('and somebody who may not send is not offered a compose button', () => {
+  assert.ok(centre.includes('maySend'))
+  const header = centre.slice(centre.indexOf('<p className="text-sm font-semibold text-slate-800">Messages</p>'))
+  assert.ok(header.slice(0, 300).includes('{onCompose && ('), 'the New button must be conditional')
+  assert.ok(centre.includes('maySend ? () => { setInboxOpen(false) setComposing(true) } : null'))
+})
+
+test('nobody is offered as a recipient who cannot receive', () => {
+  // Sending into a hole: it would go, it would be stored, and the sender
+  // would never learn it was not delivered.
+  assert.ok(centre.includes('p.id !== me && canReceiveMessages(p)'))
+})
+
+test('sending is fenced in the rules, not only in the form', () => {
+  // A hidden button is a hidden button. The rule is the boundary.
+  assert.ok(messageRule.includes('allow create: if isSignedIn() && maySend() &&'))
+  assert.ok(messageRule.includes(".data.get('canSendMessages', true) == true"))
+})
+
+test('and neither switch can be flipped by the person it is about', () => {
+  const userRule = rules.slice(rules.indexOf('match /users/'), rules.indexOf('match /messages/'))
+  assert.ok(userRule.includes("request.resource.data.get('canSendMessages', true) =="))
+  assert.ok(userRule.includes("request.resource.data.get('canReceiveMessages', true) =="))
+  // `.get(field, default)` rather than a bare read, so an account that
+  // predates the fields compares equal instead of failing every self-update.
+  assert.ok(userRule.includes("resource.data.get('canSendMessages', true)"))
+})
+
+test('an admin has both switches, per person', () => {
+  const users = read('src/pages/admin/UsersPanel.jsx')
+  assert.ok(users.includes('saveUser(u.id, { canSendMessages: v })'))
+  assert.ok(users.includes('saveUser(u.id, { canReceiveMessages: v })'))
+  // Drawn from the model, so the box shows ticked for an account that has
+  // never had the field.
+  assert.ok(users.includes('checked={canSendMessages(u)}'))
+  assert.ok(users.includes('checked={canReceiveMessages(u)}'))
+})
+
+// ---------------------------------------------------------------------
+// Off the canvas
+// ---------------------------------------------------------------------
+
+const stack = centre.slice(centre.indexOf('{toasts.length > 0 &&'), centre.indexOf('{blocking && ('))
+const toast = centre.slice(centre.indexOf('function Toast('), centre.indexOf('function Banner('))
+
+test('toasts float; they do not push the dashboard down', () => {
+  // The whole complaint about banners was that a column of notices at the
+  // top of the page is a column of dashboard nobody can see. `fixed` means
+  // the page neither moves nor shortens when one arrives.
+  assert.ok(stack.length > 0)
+  assert.ok(stack.includes('fixed'), 'the stack must be out of the flow')
+  assert.ok(!centre.includes('mb-3 space-y-2'), 'the old in-flow banner stack is gone')
+})
+
+test('the stack takes no clicks, but each card does', () => {
+  // A transparent column pinned over the corner of the page would swallow
+  // clicks on whatever is under it for as long as one message is showing.
+  assert.ok(stack.includes('pointer-events-none'))
+  assert.ok(toast.includes('className="rise-in pointer-events-auto relative"'))
+})
+
+test('the entrance is the one the app already has', () => {
+  // An arbitrary Tailwind animation naming keyframes that do not exist
+  // animates nothing, silently -- and skips the reduced-motion rule this
+  // class carries.
+  const css = fs.readFileSync(path.join(ROOT, 'src/index.css'), 'utf8')
+  assert.ok(css.includes('.rise-in {'))
+  assert.ok(css.includes('@keyframes riseIn'))
+  // Per BLOCK. There are three of these in the stylesheet, and slicing from
+  // the first one to the end of the file is a search of the whole file --
+  // which passed with the entrance taken out of the rule that stops it.
+  const CLOSE = String.fromCharCode(10) + '}'
+  const blocks = css
+    .split('@media (prefers-reduced-motion')
+    .slice(1)
+    .map((b) => b.slice(0, b.indexOf(CLOSE)))
+  assert.ok(
+    blocks.some((b) => b.includes('.rise-in') && b.includes('animation: none')),
+    'the entrance must be one of the ones that stops',
+  )
+  assert.ok(!centre.includes('animate-[rise-in'), 'no keyframes by that name exist')
+})
+
+test('none of it is printed', () => {
+  assert.ok(stack.includes('no-print'))
+})
+
+test('three at a time, and the rest are counted', () => {
+  // A fourth is not more information, it is the bottom of the page. But a
+  // stack that silently drops the rest is worse than one that says so.
+  assert.ok(centre.includes('pending.slice(0, 3)'))
+  assert.ok(stack.includes('{pending.length > toasts.length && ('))
+  assert.ok(stack.includes('{pending.length - toasts.length} more'))
+})
+
+test('the corner is shared, not fought over', () => {
+  // The bell sits there, and the notification offer or the listener error
+  // sits above it. A stack pinned to a fixed offset lands on top of
+  // whichever of those is showing.
+  assert.ok(centre.includes('const cornerTaken = offering || Boolean(error)'))
+  assert.ok(stack.includes("cornerTaken ? 'bottom-28' : 'bottom-20'"))
+})
+
+test('the message covering the screen is not also drawn behind itself', () => {
+  assert.ok(centre.includes('m.id !== blocking?.id'))
+})
+
+test('hiding a toast is not closing the message', () => {
+  // It stays in the inbox, and anything owed is still owed -- which is why
+  // the covering dialogue does not consult `hidden` at all.
+  assert.ok(centre.includes('const [hidden, setHidden] = useState({})'))
+  const blockingCall = centre.slice(
+    centre.indexOf('const blocking = useMemo'),
+    centre.indexOf('const pending = useMemo')
+  )
+  assert.ok(blockingCall.length > 0)
+  assert.ok(!blockingCall.includes('hidden'))
+})
+
+test('closing one closes it for good, and replying puts it away', () => {
+  assert.ok(toast.includes('onDismiss() onHide()'), 'the X must dismiss as well as hide')
+  assert.ok(toast.includes('await onReply(text) onHide()'))
+})
+
+test('the toast asks who is looking, not just what the message is', () => {
+  // `autoHideAfter(message)` alone would leave the sender's own question on
+  // their screen for ever.
+  assert.ok(toast.includes('const life = autoHideAfter(message, uid)'))
+})
+
+test('the timer waits while somebody is reading', () => {
+  // A message that disappears mid-sentence is a message that has to be
+  // found again in the inbox.
+  assert.ok(toast.includes('if (!life || paused) return undefined'))
+  assert.ok(toast.includes('onMouseEnter={() => setPaused(true)}'))
+  assert.ok(toast.includes('onFocus={() => setPaused(true)}'), 'keyboard too, or the reply box goes mid-type')
+  assert.ok(toast.includes('return () => clearTimeout(timer)'))
+})
+
+test('what never hides by itself can still be put down', () => {
+  // A question has no close button -- answering is how it closes -- so
+  // without this its card is on screen until it is answered, which is the
+  // stacking this was meant to end. "Later" hides the card and leaves the
+  // message owed; the nag brings it back.
+  assert.ok(toast.includes('{!life && ('))
+  assert.ok(toast.includes('Later'))
 })

@@ -1561,6 +1561,12 @@ function TableEditor({ widget, cols, set }) {
           { key: 'columns', label: 'Columns', badge: selected.length, hint: 'Which ones, and in what order' },
           { key: 'detail', label: 'Detail', badge: Boolean(widget.rowDetail), hint: 'The panel a clicked row opens' },
           {
+            key: 'remarks',
+            label: 'Remarks',
+            badge: Boolean(widget.rowNotes),
+            hint: 'A shared note on each row',
+          },
+          {
             key: 'files',
             label: 'Files',
             badge: Boolean(widget.downloadButtons),
@@ -1677,6 +1683,62 @@ function TableEditor({ widget, cols, set }) {
           Editing still requires a per-user grant in the Users tab — this switch only makes the table editable in
           principle. Admins can always edit.
         </p>
+      )}
+
+      {/* --- Remarks ---------------------------------------------------- */}
+      {part === 'remarks' && (
+      <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+        <Toggle
+          checked={widget.rowNotes}
+          onChange={(v) => set({ rowNotes: v })}
+          label="Give every row a note people can write remarks on"
+        />
+        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+          A small button appears on each row. Anyone who can see this table can open it,
+          read what others have written and add their own — with their name and the time
+          against it. Rows that already have remarks show an amber button and a count.
+        </p>
+
+        {widget.rowNotes && (
+          <div className="mt-2 space-y-2">
+            <Field
+              label="Attach remarks to this column"
+              hint="The column that identifies the record — a deal id, chassis number, invoice number"
+              className="max-w-xs"
+            >
+              <Select
+                value={widget.noteKeyColumn || ''}
+                onChange={(v) => set({ noteKeyColumn: v })}
+                options={cols}
+                placeholder="— the sheet row number —"
+              />
+            </Field>
+
+            {/* The one thing an admin must understand before switching this
+                on, said where the decision is made rather than in a manual
+                nobody opens. */}
+            {widget.noteKeyColumn ? (
+              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] leading-snug text-emerald-700">
+                Remarks follow the value in <strong>{widget.noteKeyColumn}</strong>. Rows can be
+                sorted, filtered or moved in the sheet and each note stays with its record — and
+                the same record shows the same remarks in every table built on this tab.
+              </p>
+            ) : (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-700">
+                <strong>Without a column, remarks are pinned to the sheet row number.</strong>{' '}
+                Insert a row in Google Sheets and every remark below it moves onto the wrong
+                record. Pick a column that will not change.
+              </p>
+            )}
+
+            <p className="text-[11px] leading-snug text-slate-400">
+              Everyone deletes their own remarks and nobody else’s. Nothing is ever edited after
+              it is saved, so a remark somebody has already acted on cannot quietly become a
+              different sentence.
+            </p>
+          </div>
+        )}
+      </div>
       )}
 
       {/* --- Row detail panel ------------------------------------------ */}

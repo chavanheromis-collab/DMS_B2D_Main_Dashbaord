@@ -5,6 +5,7 @@ import { db } from '../../firebase'
 import { accessId } from '../../lib/workspace'
 import { DEFAULT_SCOPE, SCOPE_TOKENS, describeScope } from '../../lib/userScope'
 import { collectTabRefs } from '../../lib/refs'
+import { canReceiveMessages, canSendMessages } from '../../lib/messages'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import { stripUndefined } from '../../lib/firestoreSafe'
 import { Btn, Select, TextInput, Toggle, stableEqual, useWorkspaceCtx } from './ui.jsx'
@@ -189,13 +190,14 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[880px] text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-left text-slate-400">
               <th className="py-2 font-medium">Name</th>
               <th className="py-2 font-medium">Work role</th>
               <th className="py-2 font-medium">Status</th>
               <th className="py-2 font-medium">Access</th>
+              <th className="py-2 font-medium">Messages</th>
               <th className="py-2 font-medium">Pages</th>
               <th />
             </tr>
@@ -261,6 +263,30 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
                         className="w-24"
                       />
                     </td>
+                    {/* Who may use the message centre at all.
+                        Both read through the model, where ABSENT MEANS YES:
+                        everyone who signed up before this existed keeps
+                        working, rather than silently losing messages until
+                        an admin ticks a box nobody knew about.
+
+                        Sending is enforced in firestore.rules as well --
+                        this box is the admin's decision, not the fence.
+                        Receiving is a feature switched off for somebody, not
+                        a secret kept from them, so the client honours it. */}
+                    <td className="py-2 pr-2">
+                      <div className="flex flex-col gap-0.5">
+                        <Toggle
+                          checked={canSendMessages(u)}
+                          onChange={(v) => saveUser(u.id, { canSendMessages: v })}
+                          label={<span className="text-[11px]">Send</span>}
+                        />
+                        <Toggle
+                          checked={canReceiveMessages(u)}
+                          onChange={(v) => saveUser(u.id, { canReceiveMessages: v })}
+                          label={<span className="text-[11px]">Receive</span>}
+                        />
+                      </div>
+                    </td>
                     <td className="py-2 pr-2 text-xs text-slate-500">
                       {u.role === 'admin' ? (
                         <span className="inline-flex items-center gap-1 text-indigo-600">
@@ -301,7 +327,7 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
 
                   {open && (
                     <tr className="bg-slate-50/60">
-                      <td colSpan={6} className="p-3">
+                      <td colSpan={7} className="p-3">
                         {u.role === 'admin' ? (
                           <p className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-4 text-center text-xs text-indigo-700">
                             Admins can see and edit every page. Change their role to “User” to grant pages individually.
@@ -389,7 +415,7 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
 
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-8 text-center text-slate-300">
+                <td colSpan={7} className="py-8 text-center text-slate-300">
                   {users.length === 0 ? 'No users have signed in yet' : 'No user matches that search'}
                 </td>
               </tr>

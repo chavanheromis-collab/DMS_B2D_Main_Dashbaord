@@ -47,6 +47,9 @@ export const TONES = [
     blocks: false,
     needsReply: false,
     nagAfter: null,
+    // Gone by itself. A message that can be ignored and then sits on the
+    // page for ever is a message that is being ignored AND taking up room.
+    autoHideAfter: 9000,
   },
   {
     value: 'seen',
@@ -54,7 +57,10 @@ export const TONES = [
     hint: 'Covers the page until they close it.',
     blocks: true,
     needsReply: false,
+    // It has been read -- it covered the page until somebody closed it --
+    // so the toast that follows is a receipt, not a notice.
     nagAfter: null,
+    autoHideAfter: 6000,
   },
   {
     value: 'ask',
@@ -63,6 +69,9 @@ export const TONES = [
     blocks: true,
     needsReply: true,
     nagAfter: 5 * 60 * 1000,
+    // Never. A question that vanishes on a timer is a question nobody
+    // answers, and the timer is exactly how long somebody looks away for.
+    autoHideAfter: null,
   },
   {
     value: 'urgent',
@@ -71,10 +80,14 @@ export const TONES = [
     blocks: true,
     needsReply: true,
     nagAfter: 60 * 1000,
+    autoHideAfter: null,
   },
 ]
 
 export const DEFAULT_TONE = 'fyi'
+
+/** How long the sender's own copy stays up. Long enough to read it back. */
+export const SENT_RECEIPT_MS = 4000
 
 /** The tone's own rules, or the mildest ones. */
 export function toneOf(message) {
@@ -91,6 +104,45 @@ export function needsReplyFrom(message, uid) {
 /** Nobody reads a wall of text in a banner, and nobody writes one twice. */
 export const MAX_BODY = 600
 export const MAX_REPLY = 400
+
+/**
+ * Whether somebody may send, and whether they may receive.
+ *
+ * ABSENT MEANS YES, on both. A field added today must not silently switch
+ * the feature off for every account that predates it -- an admin turning
+ * something off is a decision, and a schema change is not.
+ *
+ * The two are separate because they are separate problems: a workshop that
+ * should be told things but should not be broadcasting, and a shared
+ * terminal that should be neither.
+ */
+export function canSendMessages(userDoc) {
+  return userDoc?.canSendMessages !== false
+}
+
+export function canReceiveMessages(userDoc) {
+  return userDoc?.canReceiveMessages !== false
+}
+
+/**
+ * How long this card stays on screen, in ms -- or null for "until it is
+ * dealt with".
+ *
+ * Two rules, and the second one overrules the first:
+ *
+ *   THE TONE DECIDES. A notice that asked for nothing goes by itself; a
+ *   question does not, because one that vanishes on a timer is a question
+ *   nobody answers.
+ *
+ *   YOUR OWN GOES ANYWAY. The copy the sender sees is a RECEIPT -- it says
+ *   the thing left -- and nobody is being asked anything by a message they
+ *   wrote themselves. A question you sent sitting on your own screen until
+ *   you answer it is a loop.
+ */
+export function autoHideAfter(message, uid) {
+  if (uid && message?.from === uid) return SENT_RECEIPT_MS
+  return toneOf(message).autoHideAfter ?? null
+}
 
 /**
  * Is this message addressed to this person?

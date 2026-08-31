@@ -1,13 +1,62 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Download, Filter, GripVertical, Rows3, Search, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Download, Filter, GripVertical, Rows3, Search, StickyNote, X } from 'lucide-react'
 import { badgeColor } from '../../lib/dataUtils'
 import ExportButton from '../ExportButton.jsx'
 import { fetchDownloadMeta, getDownloadActions, triggerDownload } from '../../lib/downloadActions.js'
 import RowDetailPanel from '../RowDetailPanel.jsx'
 import ColumnFilterMenu from '../ColumnFilterMenu.jsx'
 import { activeFilterColumns, applyColumnFilters, columnIsFiltered } from '../../lib/columnFilters'
+import RowNotePopover from '../RowNotePopover.jsx'
+import { useRowNoteActions, useRowNotes } from '../../hooks/useRowNotes'
+import { countLabel, latestSummary, noteIdFor, notesEnabled, remarkCount, rowKeyOf } from '../../lib/rowNotes'
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/**
+ * The little note button on a row.
+ *
+ * Two states, and the difference between them is the whole point: an empty
+ * note is a faint outline that does not compete with the data, and one that
+ * has something in it is amber and carries a count. Somebody scanning a
+ * table should be able to see WHICH rows have been talked about without
+ * opening anything.
+ *
+ * A row with no key at all gets no button rather than a broken one -- see
+ * `rowKeyOf`.
+ */
+function NoteButton({ row, scope, keyColumn, notes, open, onOpen }) {
+  const id = noteIdFor(scope, row, keyColumn)
+  if (!id) return null
+
+  const note = notes[id]
+  const count = remarkCount(note)
+  const label = countLabel(count)
+
+  return (
+    <button
+      type="button"
+      title={latestSummary(note)}
+      aria-label={count ? `${count} remarks on this row` : 'Add a remark to this row'}
+      aria-expanded={open}
+      onClick={(e) => {
+        e.stopPropagation()
+        onOpen(e.currentTarget.getBoundingClientRect())
+      }}
+      className={`relative inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+        count
+          ? 'border-amber-300 bg-amber-50 text-amber-600 hover:bg-amber-100'
+          : 'border-slate-200 bg-white text-slate-300 hover:border-indigo-300 hover:text-indigo-500'
+      } ${open ? 'ring-2 ring-indigo-300' : ''}`}
+    >
+      <StickyNote size={13} />
+      {label && (
+        <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white">
+          {label}
+        </span>
+      )}
+    </button>
+  )
+}
 
 /**
  * The workhorse table.
@@ -35,6 +84,7 @@ export default function TableWidget({
   dateOrder = 'DMY',
   canPersistLayout = false,
   onSaveColumnOrder,
+  noteScope = '',
 }) {
   const defaultSorts = useMemo(
     () => (widget.sortBy ? [{ column: widget.sortBy, dir: widget.sortDir || 'asc' }] : []),
@@ -57,6 +107,18 @@ export default function TableWidget({
   const [colFilters, setColFilters] = useState({})
   const [menuCol, setMenuCol] = useState(null)
   const [menuRect, setMenuRect] = useState(null)
+  // { row, rect } -- the row whose note is open, and the button it hangs off.
+  const [noteOpen, setNoteOpen] = useState(null)
+
+  // --- remarks ---------------------------------------------------------
+  // Off unless an admin switched it on for this table, and then one listener
+  // for the whole tab rather than one per row. See lib/rowNotes.js for what
+  // a remark is attached to, which is the only decision here that matters.
+  const showNotes = notesEnabled(widget)
+  const noteKeyColumn = widget.noteKeyColumn || ''
+  const { notes, error: noteError } = useRowNotes(noteScope, showNotes)
+  const { addRemark, removeRemark, me } = useRowNoteActions()
+  const uid = me.uid
 
   const pageSize = widget.pageSize || 25
 
@@ -187,6 +249,11 @@ export default function TableWidget({
 
   const detailColumns = widget.detailColumns?.length ? widget.detailColumns : tabHeaders || []
   const titleColumn = widget.detailTitleColumn || columns[0]
+  // A note is headed by whatever IDENTIFIES the record -- the key column the
+  // remarks are attached to, if there is one. That is the value somebody
+  // would quote back, and it is the one thing on the note guaranteed to
+  // still mean something after the table is re-sorted.
+  const noteTitleColumn = noteKeyColumn || titleColumn
   const allDownloadColumns = widget.downloadButtons ? widget.downloadColumns || [] : []
   const enabledDownloadColumns = useMemo(
     () => allDownloadColumns.filter((col) => downloadableColumns.includes(col)),
@@ -389,6 +456,7 @@ export default function TableWidget({
             <table className="w-full min-w-max text-sm">
               <thead className="sticky top-0 z-10 bg-gradient-to-b from-slate-50 to-slate-50/95 backdrop-blur">
                 <tr className="border-b border-slate-200 text-left text-slate-500">
+                  {showNotes && <th className="w-10 px-2 py-2" aria-label="Remarks" />}
                   {hasDownloadColumn && (
                     <th className="whitespace-nowrap px-2 py-2 font-medium text-slate-500">Files</th>
                   )}
@@ -460,6 +528,23 @@ export default function TableWidget({
                       widget.rowDetail ? 'cursor-pointer' : ''
                     } ${detailRow?._row === row._row ? 'bg-indigo-50' : ''}`}
                   >
+                    {showNotes && (
+                      <td className="px-2 py-2 align-middle">
+                        <NoteButton
+                          row={row}
+                          scope={noteScope}
+                          keyColumn={noteKeyColumn}
+                          notes={notes}
+                          open={noteOpen?.row?._row === row._row}
+                          onOpen={(rect) =>
+                            setNoteOpen((current) =>
+                              current?.row?._row === row._row ? null : { row, rect }
+                            )
+                          }
+                        />
+                      </td>
+                    )}
+
                     {hasDownloadColumn && (
                       <td className="px-2 py-2 align-middle">
                         <div className="relative inline-block">
@@ -548,7 +633,10 @@ export default function TableWidget({
 
                 {pageRows.length === 0 && (
                   <tr>
-                    <td colSpan={columns.length + (hasDownloadColumn ? 1 : 0) || 1} className="py-10 text-center text-slate-300">
+                    <td
+                      colSpan={columns.length + (hasDownloadColumn ? 1 : 0) + (showNotes ? 1 : 0) || 1}
+                      className="py-10 text-center text-slate-300"
+                    >
                       No rows match the current filters
                     </td>
                   </tr>
@@ -602,6 +690,35 @@ export default function TableWidget({
           onSort={sortFromMenu}
           onChange={setColumnFilter}
           onClose={() => setMenuCol(null)}
+        />
+      )}
+
+      {/* A rejected read is a rule problem, not a network one, and it is
+          silent unless somebody says so. Said once, under the table, rather
+          than as a broken button on every row. */}
+      {showNotes && noteError && (
+        <p className="mt-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] text-rose-600">
+          Remarks: {noteError}
+        </p>
+      )}
+
+      {noteOpen && (
+        <RowNotePopover
+          anchorRect={noteOpen.rect}
+          title={String(noteOpen.row[noteTitleColumn] ?? `Row ${noteOpen.row._row}`)}
+          note={notes[noteIdFor(noteScope, noteOpen.row, noteKeyColumn)]}
+          uid={uid}
+          onAdd={(text) =>
+            addRemark(noteIdFor(noteScope, noteOpen.row, noteKeyColumn), {
+              scope: noteScope,
+              key: rowKeyOf(noteOpen.row, noteKeyColumn),
+              text,
+            })
+          }
+          onRemove={(remark) =>
+            removeRemark(noteIdFor(noteScope, noteOpen.row, noteKeyColumn), remark)
+          }
+          onClose={() => setNoteOpen(null)}
         />
       )}
 

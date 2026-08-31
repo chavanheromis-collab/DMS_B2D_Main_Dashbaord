@@ -2,11 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Bell, BellRing, Check, CornerUpLeft, Eye, Megaphone, Minus, Send, Trash2, X } from 'lucide-react'
 import {
   AUDIENCES,
+  DEFAULT_TONE,
   MAX_BODY,
   MAX_REPLY,
   TONES,
   audienceLabel,
+  autoHideAfter,
   blockingFor,
+  canReceiveMessages,
+  canSendMessages,
   draftProblem,
   inboxFor,
   needsReplyFrom,
@@ -16,6 +20,7 @@ import {
   unreadCount,
   whenText,
 } from '../lib/messages'
+import { useAuth } from '../context/AuthContext.jsx'
 import { useMessageActions, useMessages, usePeople } from '../hooks/useMessages'
 import {
   askPermission,
@@ -62,6 +67,7 @@ const styleFor = (tone) => TONE_STYLE[tone] || TONE_STYLE.fyi
  * should not vanish because somebody navigated to the admin panel.
  */
 export default function MessageCenter() {
+  const { userDoc } = useAuth()
   const { messages, error } = useMessages()
   const { markRead, dismiss, reply, unsend, sender } = useMessageActions()
   const { people, byId } = usePeople()
@@ -81,9 +87,41 @@ export default function MessageCenter() {
   const [snoozed, setSnoozed] = useState({})
   const [now, setNow] = useState(() => Date.now())
 
+  /**
+   * Toasts this person has already let go of, this session.
+   *
+   * Separate from `dismissedBy`: hiding a toast is getting it off the screen,
+   * not deciding about the message. It stays in the inbox and, for anything
+   * that asked for something, it is still owed -- which is why the blocking
+   * dialogue does not consult this at all.
+   */
+  const [hidden, setHidden] = useState({})
+
   const uid = sender.uid
+  // An admin's decision about who uses this at all. Sending is enforced in
+  // the rules as well (see firestore.rules); receiving is a feature being
+  // switched off for somebody rather than a secret being kept from them, so
+  // it is honestly what it looks like -- the centre simply does not appear.
+  const mayReceive = canReceiveMessages(userDoc)
+  const maySend = canSendMessages(userDoc)
+
   const open = useMemo(() => openFor(messages, uid), [messages, uid])
+
+  /**
+   * At most three on screen.
+   *
+   * A fourth is not more information, it is the bottom of the page. The rest
+   * are counted under the stack and live behind the bell, which is what the
+   * bell is for.
+   */
   const blocking = useMemo(() => blockingFor(messages, uid, snoozed, now), [messages, uid, snoozed, now])
+  // Not the one already covering the screen. Drawing it twice, once behind
+  // its own dialogue, is one message pretending to be two.
+  const pending = useMemo(
+    () => open.filter((m) => !hidden[m.id] && m.id !== blocking?.id),
+    [open, hidden, blocking],
+  )
+  const toasts = useMemo(() => pending.slice(0, 3), [pending])
   const unread = useMemo(() => unreadCount(messages, uid), [messages, uid])
 
   /**
@@ -143,7 +181,14 @@ export default function MessageCenter() {
     }
   }, [unread])
 
-  if (!uid) return null
+  if (!uid || !mayReceive) return null
+
+  // Three things want this corner: the bell, the notification offer or the
+  // listener error above it, and the toasts above those. The first two are
+  // a fixed height each, so the stack starts higher when one of them is
+  // there rather than sitting on top of it.
+  const offering = shouldOfferNotifications(permission, messages.length > 0)
+  const cornerTaken = offering || Boolean(error)
 
   return (
     <>
@@ -165,7 +210,7 @@ export default function MessageCenter() {
       {/* Asked for by a button, after something has actually arrived --
           never on page load. A denied prompt is permanent, and a prompt
           nobody understands gets denied. */}
-      {shouldOfferNotifications(permission, messages.length > 0) && (
+      {offering && (
         <button
           onClick={async () => setPermission(await askPermission())}
           className="no-print fixed bottom-16 right-4 z-40 flex max-w-[15rem] items-center gap-1.5 rounded-lg border border-indigo-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-indigo-700 shadow-lg backdrop-blur hover:bg-indigo-50"
@@ -181,21 +226,38 @@ export default function MessageCenter() {
         </p>
       )}
 
-      {/* --- banners, at the top of whatever page you are on --------- */}
-      {open.length > 0 && (
-        <div className="no-print mb-3 space-y-2">
-          {open.map((m) => (
-            <Banner
+      {/* --- toasts, floating clear of the page ---------------------
+          `fixed`, so the dashboard neither moves nor shortens when one
+          arrives -- the page is the thing people came for, and a column of
+          notices down the top of it is a column of dashboard nobody can
+          see. Capped, and the ones that ask nothing go by themselves. */}
+      {toasts.length > 0 && (
+        <div
+          className={`no-print pointer-events-none fixed ${
+            cornerTaken ? 'bottom-28' : 'bottom-20'
+          } right-4 z-50 flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col gap-2`}
+        >
+          {toasts.map((m) => (
+            <Toast
               key={m.id}
               message={m}
               uid={uid}
               people={byId}
               onRead={() => markRead(m)}
+              onHide={() => setHidden((all) => ({ ...all, [m.id]: true }))}
               onDismiss={() => dismiss(m)}
               onReply={(text) => reply(m, text)}
               onUnsend={() => unsend(m)}
             />
           ))}
+          {pending.length > toasts.length && (
+            <button
+              onClick={() => setInboxOpen(true)}
+              className="pointer-events-auto self-end rounded-full border border-slate-200 bg-white/95 px-2.5 py-1 text-[11px] font-medium text-slate-500 shadow-lg backdrop-blur hover:text-slate-800"
+            >
+              {pending.length - toasts.length} more
+            </button>
+          )}
         </div>
       )}
 
@@ -221,10 +283,14 @@ export default function MessageCenter() {
           uid={uid}
           people={byId}
           onClose={() => setInboxOpen(false)}
-          onCompose={() => {
-            setInboxOpen(false)
-            setComposing(true)
-          }}
+          onCompose={
+            maySend
+              ? () => {
+                  setInboxOpen(false)
+                  setComposing(true)
+                }
+              : null
+          }
           onRead={markRead}
           onReply={reply}
           onUnsend={unsend}
@@ -237,14 +303,89 @@ export default function MessageCenter() {
 }
 
 /**
- * A message, in the flow of the page.
+ * One message, floating clear of the page.
+ *
+ * The same card the inbox draws, given three things a banner did not have:
+ *
+ *   IT FLOATS. `fixed` on the stack means the dashboard neither moves nor
+ *   shortens when one arrives. That was the whole complaint about banners --
+ *   they pushed the thing people came for down the screen.
+ *
+ *   IT GOES BY ITSELF, when the message asked for nothing. A notice that can
+ *   be ignored and then sits there for ever is being ignored AND taking up
+ *   room.
+ *
+ *   IT WAITS WHILE IT IS BEING READ. Hovering pauses the timer, because a
+ *   message that disappears mid-sentence is a message that has to be found
+ *   again in the inbox.
+ */
+function Toast({ message, uid, people, onRead, onHide, onDismiss, onReply, onUnsend }) {
+  const [paused, setPaused] = useState(false)
+  const life = autoHideAfter(message, uid)
+
+  useEffect(() => {
+    if (!life || paused) return undefined
+    const timer = setTimeout(onHide, life)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [life, paused, message.id])
+
+  return (
+    <div
+      // The stack takes no clicks so the dashboard behind it stays usable;
+      // each card takes its own back. `rise-in` is the app's own entrance
+      // -- an arbitrary Tailwind animation naming keyframes that do not
+      // exist animates nothing, silently, and skips the reduced-motion rule
+      // this class already honours.
+      className="rise-in pointer-events-auto relative"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
+    >
+      <Banner
+        message={message}
+        uid={uid}
+        people={people}
+        onRead={onRead}
+        // Closing a toast is closing THIS message, for good -- the X on a
+        // notice means "done with it", not "hide it for ten seconds".
+        onDismiss={() => {
+          onDismiss()
+          onHide()
+        }}
+        onReply={async (text) => {
+          await onReply(text)
+          onHide()
+        }}
+        onUnsend={onUnsend}
+        floating
+      />
+      {/* A question does not auto-hide and cannot be closed -- answering is
+          how it closes. "Later" is neither: it takes this card off the
+          screen, leaves the message owed, and the nag brings it back. */}
+      {!life && (
+        <button
+          onClick={onHide}
+          className="absolute -top-2 right-2 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-400 shadow hover:text-slate-700"
+        >
+          Later
+        </button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The card itself, drawn the same whether it is floating in the corner or
+ * sitting in the inbox list.
  *
  * Stays until it is closed -- or, when it asked for one, until it is
  * answered. Closing an `ask` is not answering it, because a question that
  * can be dismissed in one click is a question that gets dismissed in one
  * click.
  */
-function Banner({ message, uid, people, onRead, onDismiss, onReply, onUnsend }) {
+function Banner({ message, uid, people, onRead, onDismiss, onReply, onUnsend, floating = false }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const { bar, chip, Icon } = styleFor(message.tone)
@@ -274,7 +415,11 @@ function Banner({ message, uid, people, onRead, onDismiss, onReply, onUnsend }) 
   }
 
   return (
-    <div className="page-chrome page-chrome-surface relative overflow-hidden rounded-xl border border-slate-200 bg-white/90 shadow-sm backdrop-blur">
+    <div
+      className={`page-chrome page-chrome-surface relative overflow-hidden rounded-xl border border-slate-200 bg-white/95 backdrop-blur ${
+        floating ? 'shadow-xl ring-1 ring-black/5' : 'shadow-sm'
+      }`}
+    >
       <span className={`absolute left-0 top-0 h-full w-1 ${bar}`} />
       <div className="flex flex-wrap items-start gap-2 py-2 pl-3 pr-2">
         <Icon size={15} className="mt-0.5 shrink-0 text-slate-400" />
@@ -284,11 +429,11 @@ function Banner({ message, uid, people, onRead, onDismiss, onReply, onUnsend }) 
             <strong className="text-slate-600">{mine ? 'You' : message.fromName || 'Someone'}</strong>
             <span>to {audienceLabel(message, people)}</span>
             <span>· {whenText(message.createdAt)}</span>
-            {message.tone !== 'note' && (
-              <span className={`rounded-full border px-1.5 text-[9px] font-semibold ${chip}`}>
-                {TONES.find((t) => t.value === message.tone)?.label}
-              </span>
-            )}
+            {/* Through the model, so a tone this build does not know shows
+                the fallback's label rather than an empty chip. */}
+            <span className={`rounded-full border px-1.5 text-[9px] font-semibold ${chip}`}>
+              {toneOf(message).label}
+            </span>
           </p>
           <p className="whitespace-pre-wrap break-words text-[13px] leading-snug text-slate-700">{message.body}</p>
 
@@ -482,12 +627,14 @@ function Inbox({ messages, uid, people, onClose, onCompose, onRead, onReply, onU
         <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
           <p className="text-sm font-semibold text-slate-800">Messages</p>
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={onCompose}
-              className="flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
-            >
-              <Send size={11} /> New
-            </button>
+            {onCompose && (
+              <button
+                onClick={onCompose}
+                className="flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+              >
+                <Send size={11} /> New
+              </button>
+            )}
             <button
               onClick={onClose}
               title="Close"
@@ -502,7 +649,12 @@ function Inbox({ messages, uid, people, onClose, onCompose, onRead, onReply, onU
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
           {messages.length === 0 && (
             <p className="py-10 text-center text-xs text-slate-400">
-              Nothing yet. <button onClick={onCompose} className="text-indigo-600 underline">Send the first one.</button>
+              Nothing yet.{' '}
+              {onCompose && (
+                <button onClick={onCompose} className="text-indigo-600 underline">
+                  Send the first one.
+                </button>
+              )}
             </p>
           )}
           {messages.map((m) => (
@@ -531,7 +683,7 @@ function Inbox({ messages, uid, people, onClose, onCompose, onRead, onReply, onU
  */
 function Composer({ people, me, onClose }) {
   const { send } = useMessageActions()
-  const [draft, setDraft] = useState({ audience: 'people', to: [], body: '', tone: 'note' })
+  const [draft, setDraft] = useState({ audience: 'people', to: [], body: '', tone: DEFAULT_TONE })
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState('')
   const [query, setQuery] = useState('')
@@ -548,8 +700,12 @@ function Composer({ people, me, onClose }) {
 
   // Everybody but you: a message to yourself is a note, and there is nowhere
   // for it to usefully go.
+  //
+  // And nobody an admin has switched off. Their message centre does not
+  // appear, so listing them is offering to send into a hole -- the sender
+  // would watch it go and never learn it was not delivered.
   const shown = useMemo(() => {
-    const others = people.filter((p) => p.id !== me)
+    const others = people.filter((p) => p.id !== me && canReceiveMessages(p))
     const q = query.trim().toLowerCase()
     if (!q) return others
     return others.filter((p) => `${p.name || ''} ${p.email || ''} ${p.jobRole || ''}`.toLowerCase().includes(q))
@@ -671,7 +827,7 @@ function Composer({ people, me, onClose }) {
             ))}
           </div>
           <p className="text-[10px] leading-snug text-slate-400">
-            {TONES.find((t) => t.value === draft.tone)?.hint}
+            {toneOf(draft).hint}
           </p>
 
           {failed && (

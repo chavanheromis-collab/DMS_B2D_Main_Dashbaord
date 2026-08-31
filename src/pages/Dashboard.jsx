@@ -1712,6 +1712,12 @@ export default function Dashboard() {
                             canExport={canExport}
                             canPersistLayout={isAdmin}
                             onSaveColumnOrder={(cols) => saveColumnOrder(widget.id, cols)}
+                            // The REAL ref, not the display label the widget
+                            // was handed. Remarks belong to the record, so
+                            // two tables on the same tab must address the
+                            // same note -- and labels are per page and can
+                            // be disambiguated differently on the next one.
+                            noteScope={refByLabel[widget.tab] || widget.tab}
                           />
                         )}
 

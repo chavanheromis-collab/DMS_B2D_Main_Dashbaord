@@ -369,8 +369,9 @@ your deliveries first."* Things that are **about** the dashboard, need to
 reach the person reading it, and otherwise go out on WhatsApp where they are
 read by everyone except the two people who needed them.
 
-Anyone signed in can send one — from the **bell** at the bottom right of every
-screen. To **one person**, **several**, or **everyone with an account**.
+Anyone an admin has allowed can send one — from the **bell** at the bottom
+right of every screen. To **one person**, **several**, or **everyone with an
+account**.
 
 #### What you are asking of them
 
@@ -381,10 +382,81 @@ else follows from that one field.
 
 | | what it does | comes back |
 |---|---|---|
-| **Can be ignored** | a banner at the top of the page; nothing has to happen | never |
+| **Can be ignored** | a toast in the corner; gone in 9 seconds; nothing has to happen | never |
 | **Should be seen** | covers the page until they close it | never |
 | **Should reply** | covers the page until they **answer** | **after 5 minutes** |
 | **Urgent — reply now** | the same | after 1 minute |
+
+#### Toasts, not a stack down the page
+
+Messages arrive as **toasts in the bottom-right corner**, floating clear of
+the page. Three things follow from that, and each of them was a complaint
+about the banners they replaced:
+
+**The dashboard does not move.** The stack is `fixed`, so a message arriving
+neither shortens the page nor pushes the widget somebody is reading down the
+screen. A column of notices along the top of a dashboard is a column of
+dashboard nobody can see.
+
+**They go by themselves — when they asked for nothing.** *Can be ignored*
+lasts 9 seconds, *should be seen* 6 (which it only ever gets while something
+louder is covering the page ahead of it). A notice that can be ignored and then
+sits there for ever is being ignored **and** taking up room. The timer
+**pauses while the pointer is over the card or the cursor is in its reply
+box**: a message that vanishes mid-sentence is a message that has to be
+found again in the inbox.
+
+**A question never goes by itself.** *Should reply* and *urgent* carry no
+timer at all — one that vanishes after 9 seconds is a question nobody
+answers, and 9 seconds is exactly how long somebody looks away for. That rule
+is stated over the model rather than per tone, so a fifth tone added next
+year cannot quietly time a question out. What a question does get is
+**Later**, which takes the card off the screen and leaves the message owed —
+it is still in the inbox, and it still comes back.
+
+**What you sent puts itself away.** The sender's own copy is a *receipt* — it
+says the thing left — and it goes after 4 seconds whatever its tone, because
+nobody is being asked anything by a message they wrote themselves. A question
+you sent, sitting on your own screen until you answer it, is a loop.
+
+**Three at a time, and the rest are counted.** A fourth toast is not more
+information, it is the bottom of the page. Past three the stack shows
+*“2 more”*, which opens the inbox — a stack that silently drops the rest is
+worse than one that says so.
+
+**Nothing behind them is blocked.** The column takes no clicks and each card
+takes its own back, so the dashboard under a toast stays usable. And none of
+it prints.
+
+Hiding a toast is **not** closing the message: it is off this screen, still in
+the inbox, and anything owed is still owed — which is why the covering
+dialogue below does not consult it. Pressing the **×**, by contrast, closes
+the message for good. The one message currently covering the page is never
+also drawn as a toast behind its own dialogue.
+
+#### Who may use it at all
+
+Two switches per person, in **Admin → Users → Messages**: **Send** and
+**Receive**.
+
+**Absent means yes.** Everybody who signed up before these fields existed
+keeps working, rather than silently losing messages until an admin ticks a box
+nobody told them about. Only an explicit `false` switches somebody off.
+
+**Sending is fenced in the rules**, not only in the form — a hidden button is
+a hidden button, and `firestore.rules` reads the sender's own user document
+before it will accept a message. **Receiving is honoured by the client**,
+because it is a feature being switched off for somebody rather than a secret
+being kept from them.
+
+**Neither switch can be flipped by the person it is about.** They are frozen
+on self-update the same way `role` and `status` are, using
+`get('canSendMessages', true)` on both sides so an account that predates the
+fields compares equal and can still save its own name.
+
+**Somebody who cannot receive is not offered as a recipient.** Listing them
+would be offering to send into a hole: the message would go, it would be
+stored, and the sender would never learn it was not delivered.
 
 #### Covering the page, and getting out from under it
 
@@ -422,20 +494,21 @@ Five more decisions worth knowing:
 send it Monday, and the person who joins Tuesday never sees it — which is not
 what anybody means by everyone.
 
-**Closing is per person.** One recipient putting a banner away cannot put it
+**Closing is per person.** One recipient putting a message away cannot put it
 away for the other eleven, so the state is `dismissedBy: [uid]` on the message.
 
-**Closing a question is not answering it.** A *Should reply* banner has no
+**Closing a question is not answering it.** A *Should reply* card has no
 close button for the people it asks — offering both makes the answer optional.
 That rule lives in the model, not the markup: a rule enforced only in the UI is
-a rule enforced nowhere. Answering it *does* close it, though — leaving a
-banner up after the thing it asked for has been done is the other way to teach
-people to ignore banners.
+a rule enforced nowhere. Answering it *does* close it, though — leaving a card
+up after the thing it asked for has been done is the other way to teach people
+to ignore them.
 
 **Only one thing covers the page at a time.** Three dialogues stacked on a
 dashboard is not urgency, it's an obstacle — and somebody who has to dismiss
 three things before they can read a number will dismiss the third without
-looking at it. The newest one covers; the rest wait in the banner.
+looking at it. The newest one covers; the rest wait as toasts and in the
+inbox.
 
 **The sender is never interrupted by their own message.** They wrote it. And
 an unrecognised tone falls back to *can be ignored*, so a message stored with
@@ -506,6 +579,94 @@ work here than anywhere else in the file:
 
 The message centre is mounted on the **shell**, not on a page: a message about
 the workspace should not vanish because somebody navigated to the admin panel.
+
+### Remarks on a row
+
+*"Customer asked to postpone delivery to the 14th."* *"Invoice already
+raised — do not re-bill."* Things that are true about **one record**, that
+the next person to look at it needs to know, and that have nowhere to live: a
+spreadsheet column is the wrong shape for them and a WhatsApp message reaches
+the wrong people.
+
+An admin switches it on per table — **Widgets → (a table) → Remarks**. Every
+row then gets a small note button. Anyone who can see the table can open it,
+read what others have written and add their own; each remark carries the
+writer's **name** and the **time**, and several people write on the same
+note. It is a thread, not a field.
+
+#### What a remark is attached to
+
+The one decision here that matters, and it is worth being blunt about.
+
+A remark is attached to the value in a **key column** the admin picks — a
+deal id, a chassis number, an invoice number. Not to the row's position. If
+it were pinned to the spreadsheet row number, then the moment somebody
+inserted a row in Google Sheets **every remark below it would move down onto
+a different record** — silently, onto real records, carrying somebody else's
+words. That is the worst thing this feature could do.
+
+With a key column, rows can be sorted, filtered, paged, re-imported or moved
+and each note stays with its record. The address is the **tab plus the key**,
+which also means a record shows the same remarks in **every** table built on
+that tab — two tables on one tab are two views of the same records, and a
+remark that appeared on one but not the other would have people asking where
+their note went.
+
+The row number is still the fallback when no column has been chosen, because
+a feature that refuses to work until it is configured perfectly is a feature
+nobody switches on. The editor says plainly what that costs, in amber, at the
+moment the decision is made.
+
+#### Reading it without opening it
+
+A row nobody has written on has a faint outline that does not compete with
+the data. A row that has been talked about is **amber and carries a count**,
+so somebody scanning a table sees which records have a history before opening
+anything. Hovering shows the most recent remark — usually the only one anyone
+wanted. The count caps at 9+, the same rule the message bell follows.
+
+The note itself is portalled out of the table and positioned fixed, because
+the table scrolls inside a card: a panel drawn in the row would be clipped by
+the row beneath it. It is measured before it is placed, so one opened on the
+last row or against the right edge flips instead of hanging off the window.
+Escape, a click outside, or scrolling the page closes it — scrolling *inside*
+it does not.
+
+#### Four rules about what people can do
+
+**You write as yourself.** Every remark carries the writer's uid, and
+`firestore.rules` refuses one that does not. On a note colleagues make
+decisions from, a remark signed by the wrong person is the whole game.
+
+**Nothing is edited after it is saved.** Not in the UI, and not in the rules —
+an edit is a delete plus an add, which fails both branches of the update rule.
+A remark somebody has already acted on must not quietly become a different
+sentence.
+
+**You delete your own and nobody else's.** The rule takes the set difference
+in *both* directions and looks at the `by` field of what actually changed;
+`hasAll` alone would prove a list had not shrunk while saying nothing about
+whose remark had gone. One remark moves per write, in one direction — an add
+and a delete in the same write would leave the delete unchecked.
+
+**A note cannot be moved to another record.** `scope` and `key` are frozen on
+update, or a whole thread could be relocated onto somebody else's row.
+
+Binning an entire note is an admin's job. One person deleting the record of
+what eleven people said is not something to leave lying about.
+
+#### What it costs
+
+One Firestore listener per table that has remarks switched on, scoped to that
+tab — not one per row, which for a 25-row page would mean twenty-five
+subscriptions torn down and rebuilt on every page turn. A table with remarks
+off opens nothing at all.
+
+The first remark creates the note; there is no read to find out whether it
+exists, which would be a round trip on every row anybody opened plus a race
+between two people writing the first remark at the same moment. Remarks are
+added with `arrayUnion` so that two people writing within a second of each
+other both keep theirs.
 
 ### When something breaks
 

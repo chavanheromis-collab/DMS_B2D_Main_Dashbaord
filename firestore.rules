@@ -29,7 +29,17 @@ service cloud.firestore {
       allow update: if isAdmin() ||
         (isSelf(userId) &&
           request.resource.data.status == resource.data.status &&
-          request.resource.data.role == resource.data.role);
+          request.resource.data.role == resource.data.role &&
+          // Nor may they grant themselves the right to message everybody.
+          // Frozen the same way `role` is, and for the same reason: the
+          // fields that say what somebody may DO are an admin's to write.
+          // `get()` on a missing key returns null on both sides, so an
+          // account predating these fields compares equal and can still
+          // save its own name.
+          request.resource.data.get('canSendMessages', true) ==
+            resource.data.get('canSendMessages', true) &&
+          request.resource.data.get('canReceiveMessages', true) ==
+            resource.data.get('canReceiveMessages', true));
       allow delete: if isAdmin();
     }
 
@@ -117,7 +127,17 @@ service cloud.firestore {
 
       allow get, list: if isAdmin() || forMe();
 
-      allow create: if isSignedIn() &&
+      // One extra read per message SENT -- not per message read -- to ask
+      // whether this person is allowed to send at all. Absent means yes, so
+      // turning the field on for one account does not switch everybody else
+      // off. Enforced here rather than only in the composer, because a rule
+      // that lives in a form is a rule anybody with a console can skip.
+      function maySend() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid))
+          .data.get('canSendMessages', true) == true;
+      }
+
+      allow create: if isSignedIn() && maySend() &&
         request.resource.data.from == request.auth.uid &&
         request.resource.data.body is string &&
         request.resource.data.body.size() > 0 &&
@@ -148,6 +168,68 @@ service cloud.firestore {
     // account in api/sheets.js, which re-checks the caller's page access
     // before returning a single row. `tabHeaders` is written by that same
     // route through the Admin SDK, which bypasses these rules entirely.
+    // Remarks on a row.
+    //
+    // A shared sticky note: several people write on the same document, each
+    // remark carrying the name of whoever wrote it. Two things are enforced,
+    // and both are about the LIST, because it is the only field anybody
+    // writes to.
+    //
+    //   YOU WRITE AS YOURSELF. Every remark that arrives must carry the
+    //   writer's own uid. Without this one person could add a remark signed
+    //   by another -- which, on a note colleagues make decisions from, is the
+    //   whole game.
+    //
+    //   YOU CANNOT TOUCH WHAT IS ALREADY THERE. An update may add exactly one
+    //   remark or take away exactly one of your own, and nothing else moves.
+    //   A remark somebody has already acted on must not quietly become a
+    //   different sentence, and nobody deletes anybody else's words.
+    //
+    // Both are checked by set DIFFERENCE rather than by counting: `hasAll`
+    // alone would prove a list did not shrink while saying nothing about
+    // WHOSE remark had gone. `added` and `gone` are the actual elements that
+    // changed, so the rule can look at their `by` field.
+    //
+    // Reading is open to anybody signed in. Row scoping is applied in the
+    // browser -- the whole tab already reaches it, see Dashboard.jsx -- so
+    // narrowing here would protect nothing that is not already on the page.
+    match /rowNotes/{noteId} {
+      function remarksIn(data) {
+        return data.get('remarks', []);
+      }
+      function added() {
+        return remarksIn(request.resource.data).removeAll(remarksIn(resource.data));
+      }
+      function gone() {
+        return remarksIn(resource.data).removeAll(remarksIn(request.resource.data));
+      }
+
+      allow get, list: if isSignedIn();
+
+      // The first remark creates the note, so a create IS one remark.
+      allow create: if isSignedIn() &&
+        request.resource.data.scope is string &&
+        request.resource.data.key is string &&
+        remarksIn(request.resource.data).size() == 1 &&
+        remarksIn(request.resource.data)[0].by == request.auth.uid;
+
+      allow update: if isSignedIn() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['scope', 'key', 'remarks']) &&
+        request.resource.data.get('scope', '') == resource.data.get('scope', '') &&
+        request.resource.data.get('key', '') == resource.data.get('key', '') &&
+        (
+          // Added one of my own, and took nothing away.
+          (added().size() == 1 && added()[0].by == request.auth.uid && gone().size() == 0) ||
+          // Or took away one of my own, and added nothing.
+          (gone().size() == 1 && gone()[0].by == request.auth.uid && added().size() == 0)
+        );
+
+      // Sweeping up a whole note is an admin's job. One person deleting the
+      // record of what eleven people said is not a thing to leave lying about.
+      allow delete: if isAdmin();
+    }
+
     match /dataSources/{sourceId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
