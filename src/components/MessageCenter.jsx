@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Bell, Check, CornerUpLeft, Eye, Megaphone, Minus, Send, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Bell, BellRing, Check, CornerUpLeft, Eye, Megaphone, Minus, Send, Trash2, X } from 'lucide-react'
 import {
   AUDIENCES,
   MAX_BODY,
@@ -17,6 +17,15 @@ import {
   whenText,
 } from '../lib/messages'
 import { useMessageActions, useMessages, usePeople } from '../hooks/useMessages'
+import {
+  askPermission,
+  pageIsVisible,
+  pendingNotifications,
+  permissionState,
+  raise,
+  shouldOfferNotifications,
+  titleWithBadge,
+} from '../lib/notify'
 
 // =====================================================================
 // Messages
@@ -92,6 +101,48 @@ export default function MessageCenter() {
     return () => clearTimeout(timer)
   }, [dueIn])
 
+  // --- reaching somebody who is not looking at the page ------------------
+  // A banner is only a banner to somebody who can see it. The person the
+  // message is for is usually in another tab, or has the browser minimised
+  // behind the DMS. See lib/notify.js.
+  const [visible, setVisible] = useState(() => pageIsVisible())
+  const [permission, setPermission] = useState(() => permissionState())
+  const notified = useRef(new Set())
+
+  useEffect(() => {
+    const check = () => setVisible(pageIsVisible())
+    // Three events, because they are three different things: switching tab,
+    // clicking another window, and coming back to either.
+    document.addEventListener('visibilitychange', check)
+    window.addEventListener('focus', check)
+    window.addEventListener('blur', check)
+    return () => {
+      document.removeEventListener('visibilitychange', check)
+      window.removeEventListener('focus', check)
+      window.removeEventListener('blur', check)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (permission !== 'granted') return
+    for (const m of pendingNotifications(messages, uid, { notified: notified.current, visible })) {
+      // Recorded before raising, not after: `raise` can fail on a platform
+      // that wants a service worker, and retrying it on every snapshot for
+      // the rest of the session would be a loop nobody can see.
+      notified.current.add(m.id)
+      raise(m, toneOf(m), () => setInboxOpen(true))
+    }
+  }, [messages, uid, visible, permission])
+
+  // The count in the tab title. No permission, survives a denied prompt, and
+  // it is what somebody actually sees glancing along a row of tabs.
+  useEffect(() => {
+    document.title = titleWithBadge(unread)
+    return () => {
+      document.title = titleWithBadge(0)
+    }
+  }, [unread])
+
   if (!uid) return null
 
   return (
@@ -110,6 +161,19 @@ export default function MessageCenter() {
           </span>
         )}
       </button>
+
+      {/* Asked for by a button, after something has actually arrived --
+          never on page load. A denied prompt is permanent, and a prompt
+          nobody understands gets denied. */}
+      {shouldOfferNotifications(permission, messages.length > 0) && (
+        <button
+          onClick={async () => setPermission(await askPermission())}
+          className="no-print fixed bottom-16 right-4 z-40 flex max-w-[15rem] items-center gap-1.5 rounded-lg border border-indigo-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-indigo-700 shadow-lg backdrop-blur hover:bg-indigo-50"
+        >
+          <BellRing size={13} className="shrink-0" />
+          Get these when the tab is closed
+        </button>
+      )}
 
       {error && (
         <p className="no-print fixed bottom-16 right-4 z-40 max-w-xs rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] text-rose-600">

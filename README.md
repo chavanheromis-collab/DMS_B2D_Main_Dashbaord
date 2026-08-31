@@ -445,6 +445,45 @@ a value nobody recognises cannot end up covering everybody's screen.
 because *"where did that go"* is the first thing somebody asks after closing
 one by accident.
 
+#### Reaching somebody who is not looking
+
+A banner is only a banner to somebody who can see it. The person a message is
+actually for is usually in another tab, or has the browser minimised behind
+the DMS, or is in a meeting with the laptop shut. For them the dashboard's own
+banner is a thing they find later — which is the same as not being told.
+
+So two more surfaces, neither of which needs the tab to be on screen:
+
+**A count in the tab title** — `(3) Dealer Dashboard`. Costs no permission,
+survives a denied prompt, and it is the thing people actually notice glancing
+along a row of tabs. Capped at 9+, for the same reason the bell is.
+
+**A desktop notification**, which arrives whatever the browser is doing. The
+sender's name is the title, because *"Ravi"* tells somebody more than *"New
+message"* does, and the obligation follows the message out of the app: a
+**Should reply** notification stays on screen until it is dealt with, while
+one that **can be ignored** arrives silently.
+
+Four rules keep that from becoming the thing people switch off:
+
+- **Only when they cannot see the page.** Firing a desktop notification for a
+  banner somebody is already reading is how an app teaches people to mute it.
+  And "cannot see" means both halves — a visible tab in an unfocused window is
+  a dashboard on a second monitor that nobody is reading.
+- **Never twice.** A re-render, a reconnecting listener, or a reply arriving on
+  a message must not raise the same alert again. The id is remembered *before*
+  the notification is raised, because `new Notification` throws on some
+  platforms and retrying every snapshot would be an invisible loop.
+- **Asked for by a button, never on load.** A permission prompt on page load is
+  the anti-pattern that gets denied for ever, and a denial is permanent — there
+  is no second chance from JavaScript. The offer appears only once a message
+  has actually arrived, when the reason for it is on screen, and never again
+  once it has been denied: a button that appears to ask and silently does
+  nothing is worse than no button.
+- **It degrades to nothing.** No permission, an old browser, a platform that
+  wants a service worker — the banner and the title badge still work. Nothing
+  here is the only way a message arrives.
+
 #### What the rules enforce
 
 This is the second collection an ordinary user may write to, and the first
