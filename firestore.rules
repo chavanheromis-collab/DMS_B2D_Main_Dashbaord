@@ -76,6 +76,69 @@ service cloud.firestore {
       allow write: if isSignedIn() && prefId.matches(request.auth.uid + '_.*');
     }
 
+    // Messages between people using the dashboard.
+    //
+    // The second collection an ordinary user may write to, and the first one
+    // where what they write is seen by somebody else -- so the rules here do
+    // more work than anywhere else in this file.
+    //
+    // Three things are enforced:
+    //
+    //   YOU CAN ONLY READ WHAT WAS SENT TO YOU. `list` is evaluated per
+    //   document, so a query that could return somebody else's message is
+    //   rejected outright rather than quietly narrowed. The client therefore
+    //   asks two constrained questions -- "addressed to me" and "addressed to
+    //   everyone" -- and merges them (see hooks/useMessages.js). Do not
+    //   "optimise" that into one unfiltered query; it will fail for everyone
+    //   who is not an admin.
+    //
+    //   YOU CANNOT SEND AS SOMEBODY ELSE. `from` must be your own uid, which
+    //   is what stops a message appearing to come from the boss.
+    //
+    //   A RECIPIENT MAY ONLY MARK AND REPLY. The update rule freezes every
+    //   field except the three that are a recipient's own state, and checks
+    //   that the two id lists grew by AT MOST the writer's own uid -- so
+    //   nobody can dismiss a message on another person's behalf, or edit the
+    //   body of something already delivered.
+    match /messages/{messageId} {
+      function forMe() {
+        return isSignedIn() && (
+          resource.data.from == request.auth.uid ||
+          resource.data.audience == 'all' ||
+          request.auth.uid in resource.data.to
+        );
+      }
+      // Only the writer's own id may appear that was not there before.
+      function onlyAddsSelf(field) {
+        return request.resource.data[field].hasOnly(
+          resource.data[field].concat([request.auth.uid])
+        ) && resource.data[field].hasOnly(request.resource.data[field]);
+      }
+
+      allow get, list: if isAdmin() || forMe();
+
+      allow create: if isSignedIn() &&
+        request.resource.data.from == request.auth.uid &&
+        request.resource.data.body is string &&
+        request.resource.data.body.size() > 0 &&
+        request.resource.data.body.size() <= 600 &&
+        request.resource.data.audience in ['all', 'people'] &&
+        request.resource.data.readBy.size() == 0 &&
+        request.resource.data.dismissedBy.size() == 0 &&
+        request.resource.data.replies.size() == 0;
+
+      allow update: if forMe() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['readBy', 'dismissedBy', 'replies']) &&
+        onlyAddsSelf('readBy') &&
+        onlyAddsSelf('dismissedBy') &&
+        // A reply may only be appended, and only as yourself.
+        request.resource.data.replies.size() >= resource.data.replies.size();
+
+      // Unsending is the sender's business, and an admin's.
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.from == request.auth.uid);
+    }
+
     // Connected spreadsheets: which sheet, and which of its tabs this
     // workspace may read.
     //

@@ -400,14 +400,20 @@ aside.fixed.right-0 {
  * the label matters most, and exactly when it used to disappear.
  *
  * `:has` rather than a marker class on thirteen components: every widget
- * already wraps its title in one direct child of the card, and a rule that
- * finds that wrapper works on the widgets nobody has touched since -- and on
- * the next one somebody writes.
+ * already puts its title in one direct child of the card, and a rule that
+ * finds it works on the widgets nobody has touched since -- and on the next
+ * one somebody writes.
  *
  * The negative margin plus matching padding pulls the strip out to the
  * card's edges and puts the padding back inside it, so scrolling content
- * passes UNDER the heading rather than appearing in the gap beside it. */
-.widget-sized > .card > *:has(.widget-title) {
+ * passes UNDER the heading rather than appearing in the gap beside it.
+ *
+ * Two shapes, because widgets write their headings both ways: most wrap the
+ * title in a row with a count or an export button beside it, and the canvas
+ * furniture -- a note, an image, a countdown -- makes the heading the child
+ * itself. `:is` rather than `:where` so the rule keeps its specificity and a
+ * utility class cannot quietly undo the offsets below. */
+.widget-sized > .card > :is(.widget-title, *:has(.widget-title)) {
   position: sticky;
   top: 0;
   z-index: 3;
@@ -415,6 +421,10 @@ aside.fixed.right-0 {
      layer only -- the sheen is a gradient anchored to the card, and
      repeating it here would draw a second highlight partway down. */
   background-color: var(--card-bg, rgb(255 255 255 / 0.92));
+  /* A card surface may be translucent -- the default one is -- and a
+     heading you can read the chart through is not a heading. The blur is
+     what the page's own floating chrome already does for the same reason. */
+  backdrop-filter: blur(6px);
   margin-inline: calc(var(--card-padding, 1rem) * -1);
   margin-top: calc(var(--card-padding, 1rem) * -1);
   padding: var(--card-padding, 1rem) var(--card-padding, 1rem) 0.5rem;
@@ -845,4 +855,151 @@ aside.fixed.right-0 {
 }
 .page-canvas :where(.card, .page-chrome) {
   zoom: var(--font-scale, 1);
+}
+
+/* ------------------------------------------------------------------ */
+/* Paper                                                               */
+/* ------------------------------------------------------------------ */
+/* A dashboard that cannot leave the browser gets screenshotted into a
+   slide, and a screenshot has no record of what it was showing. So the page
+   prints -- and prints the thing a screenshot cannot: which filters were on
+   when it was taken (see lib/printView.js).
+
+   Landscape, because the layout model is a row of widgets that wraps and
+   portrait turns every two-across row into two pages. Written plainly
+   rather than through a custom property: `@page` does not read them, and a
+   `var()` there is a declaration the browser drops -- which would leave the
+   default silently unchanged and look like the rule was working. The print
+   dialogue still lets anyone choose otherwise. */
+@page {
+  size: landscape;
+  margin: 12mm;
+}
+
+@media print {
+  /* Colour is not decoration on a chart -- a red bar IS the finding -- so
+     the browser is told to print what it is shown rather than its own idea
+     of an economical version. */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  html,
+  body {
+    background: #fff;
+  }
+
+  /* The chrome exists to CHANGE the page. On paper there is nothing to
+     change, and every pixel of it is a pixel not spent on the report.
+     ONE marker, put on the real elements in the components rather than a
+     list of class names guessed at from here -- a selector that matches
+     nothing is dead CSS that looks like a working rule. */
+  .no-print {
+    display: none !important;
+  }
+
+  /* The sidebar reserves space with padding on the content; on paper there
+     is no sidebar to reserve it for. */
+  .app-content {
+    padding-left: 0 !important;
+  }
+
+  /* A widget an admin pinned to 320px is 320px because of the screen it
+     was designed on. On paper the constraint is the sheet, and a pinned
+     height that clipped its own content would print a chart cut in half. */
+  .widget-sized {
+    height: auto !important;
+  }
+  .widget-sized > .card {
+    overflow: visible !important;
+  }
+  /* ...which also means there is nothing left to stick to. */
+  .widget-sized > .card > :is(.widget-title, *:has(.widget-title)) {
+    position: static;
+    backdrop-filter: none;
+  }
+
+  /* A card split across a page break is two halves of a chart, neither of
+     which is a chart. */
+  .card,
+  .print-header {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+  }
+
+  /* Anything that scrolled on screen has to be as tall as its contents on
+     paper, or the printout shows the first screenful and silently drops the
+     rest -- which is the failure mode where a printed table is wrong rather
+     than merely short. */
+  .card [class*='overflow-'],
+  .card [style*='overflow'] {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* The page's own backdrop is a fixed layer, and a fixed layer prints on
+     the first sheet only -- as a band of colour across the top of page one
+     and nothing after it. */
+  .page-canvas {
+    background: none !important;
+  }
+
+  a[href]::after {
+    content: none !important;
+  }
+}
+
+/* The header the paper gets and the screen does not: the page's name, the
+   moment it was taken, and every filter that was in force. */
+.print-header {
+  display: none;
+}
+@media print {
+  .print-header {
+    display: block;
+    margin-bottom: 8mm;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 3mm;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Waiting                                                             */
+/* ------------------------------------------------------------------ */
+/* A shape where a card is about to be, rather than a spinner in a box: a
+   spinner says "wait", a skeleton says "a card is coming and this is where
+   it goes", and the second one is the difference between a page that is
+   loading and a page that is broken.
+
+   The sheen moves, because a static grey block is indistinguishable from a
+   card that rendered empty. */
+.skeleton {
+  background: linear-gradient(90deg, rgb(241 245 249) 25%, rgb(226 232 240) 37%, rgb(241 245 249) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-sheen 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-sheen {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+.card-invert .skeleton {
+  background: linear-gradient(90deg, rgb(30 41 59) 25%, rgb(51 65 85) 37%, rgb(30 41 59) 63%);
+  background-size: 400% 100%;
+}
+
+/* Somebody who has asked for less motion gets less motion -- and a
+   skeleton still reads as a skeleton without the sheen travelling across
+   it, which is not true of a spinner. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }

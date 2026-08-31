@@ -10,6 +10,7 @@ import {
   visibleChips,
   controlWidth,
   isButton,
+  menuWidthFor,
   partitionByProminence,
   viewIsActive,
 } from '../lib/pageControls'
@@ -50,8 +51,15 @@ function MultiSelect({ control, value, options, onChange, fill = '' }) {
         <ChevronDown size={13} />
       </button>
 
+      {/* The list is as wide as the admin asked for, and never narrower
+          than the button it drops from -- see menuWidthFor in
+          lib/pageControls.js. It used to be a hard-coded 256, which cut the
+          end off every value long enough to matter. */}
       {open && (
-        <div className="absolute z-[9999] mt-1 w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+        <div
+          className="absolute z-[9999] mt-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl"
+          style={{ width: menuWidthFor(control) }}
+        >
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -68,7 +76,10 @@ function MultiSelect({ control, value, options, onChange, fill = '' }) {
                     onChange(selected.includes(opt) ? selected.filter((v) => v !== opt) : [...selected, opt])
                   }
                 />
-                <span className="truncate">{opt}</span>
+                {/* Wrapped rather than truncated: a wider menu was asked
+                    for so the whole value could be read, and cutting it off
+                    at the new edge would have missed the point. */}
+                <span className="break-words">{opt}</span>
               </label>
             ))}
             {shown.length === 0 && <p className="py-2 text-center text-xs text-slate-300">No options</p>}

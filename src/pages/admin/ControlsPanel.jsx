@@ -12,7 +12,11 @@ import {
   controlColumns,
   controlMode,
   controlWidth,
+  DEFAULT_MENU_WIDTH,
+  MAX_MENU_WIDTH,
+  MIN_MENU_WIDTH,
   emptyView,
+  menuWidthFor,
   isButton,
   kindMeta,
   kindNeedsColumn,
@@ -30,6 +34,7 @@ import {
 } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import { conditionCount, emptyRowCondition } from '../../lib/rowConditions'
+import EmojiPicker from './EmojiPicker.jsx'
 
 const KIND_OPTIONS = CONTROL_GROUPS.flatMap((group) =>
   group.kinds.map((kind) => ({ value: kind.value, label: `${group.label} · ${kind.label}` }))
@@ -557,6 +562,25 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         </div>
                       </div>
                     </Field>
+
+                    {/* A different measurement from the one above: the
+                        button says "Model: 3 selected" and fits in a bar,
+                        while the list behind it holds the whole value and
+                        does not. Only the kind that HAS a list is asked. */}
+                    {control.kind === 'multi' && (
+                      <Field
+                        label="Open list width (px)"
+                        className="w-40"
+                        hint={`${MIN_MENU_WIDTH}–${MAX_MENU_WIDTH}. Blank is ${DEFAULT_MENU_WIDTH}; never narrower than the control (${menuWidthFor(control)}px now).`}
+                      >
+                        <TextInput
+                          type="number"
+                          value={control.menuWidth ?? ''}
+                          onChange={(v) => set({ menuWidth: v === '' ? null : Number(v) })}
+                          placeholder={String(DEFAULT_MENU_WIDTH)}
+                        />
+                      </Field>
+                    )}
                   </div>
 
                   {/* --- Button specifics -------------------------------- */}
@@ -564,7 +588,7 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                     <>
                       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                         <Field label="Icon">
-                          <TextInput value={control.icon} onChange={(v) => set({ icon: v })} placeholder="⏳" />
+                          <EmojiPicker value={control.icon} onChange={(v) => set({ icon: v })} placeholder="⏳" />
                         </Field>
                         <Field label="Colour">
                           <input
@@ -1010,7 +1034,7 @@ function ViewsEditor({ views, setViews, controls }) {
             <div key={view.id} className="rounded-lg border border-slate-200 bg-white p-2">
               <div className="flex flex-wrap items-center gap-1.5">
                 <TextInput value={view.label} onChange={(v) => set({ label: v })} placeholder="View name" className="w-44" />
-                <TextInput value={view.icon} onChange={(v) => set({ icon: v })} placeholder="⭐" className="w-14" />
+                <EmojiPicker value={view.icon} onChange={(v) => set({ icon: v })} placeholder="⭐" className="w-14" />
                 <input
                   type="color"
                   value={view.color || PALETTE[0]}

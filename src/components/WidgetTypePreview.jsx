@@ -60,6 +60,44 @@ const SKETCHES = {
       <div className={`h-1 w-14 ${FAINT}`} />
     </Frame>
   ),
+  dumbbell: () => (
+    <Frame>
+      <div className="flex h-full flex-col justify-around">
+        {[[10, 70], [30, 55], [15, 90]].map((pair, i) => (
+          <div key={i} className="relative h-2">
+            <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-slate-200" />
+            <span
+              className="absolute top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-indigo-300"
+              style={{ left: `${pair[0]}%`, width: `${pair[1] - pair[0]}%` }}
+            />
+            <span
+              className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-500"
+              style={{ left: `${pair[0]}%` }}
+            />
+            <span
+              className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-400"
+              style={{ left: `${pair[1]}%` }}
+            />
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  sunburst: () => (
+    <Frame className="items-center justify-center">
+      <div className="relative h-14 w-14">
+        <span
+          className="absolute inset-0 rounded-full"
+          style={{ background: 'conic-gradient(rgb(99 102 241 / .8) 0 55%, rgb(129 140 248 / .7) 55% 80%, rgb(165 180 252) 80% 100%)' }}
+        />
+        <span
+          className="absolute inset-[22%] rounded-full"
+          style={{ background: 'conic-gradient(rgb(79 70 229) 0 30%, rgb(99 102 241) 30% 55%, rgb(129 140 248) 55% 100%)' }}
+        />
+        <span className="absolute inset-[46%] rounded-full bg-white" />
+      </div>
+    </Frame>
+  ),
   chart: () => (
     <Frame>
       <Bars heights={[40, 75, 55, 95, 30, 60]} />

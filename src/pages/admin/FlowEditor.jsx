@@ -18,6 +18,7 @@ import BlendEditor from './BlendEditor.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, optValue, useWorkspaceCtx } from './ui.jsx'
 import { BucketPicker } from './WidgetEditors.jsx'
+import EmojiPicker from './EmojiPicker.jsx'
 
 /**
  * Authoring a flow.
@@ -319,7 +320,7 @@ function TreeEditor({ tree, index, count, widget, tabs, tabHeaders, labelFor, se
           placeholder={labelFor(tree.tab) || 'Tree name'}
           className="w-40"
         />
-        <TextInput value={tree.icon} onChange={(v) => setTree({ icon: v })} placeholder="🌳" className="w-14" />
+        <EmojiPicker value={tree.icon} onChange={(v) => setTree({ icon: v })} placeholder="🌳" className="w-14" />
         <Select
           value={tree.tab || ''}
           onChange={(v) => setTree({ tab: v, levels: [], conditions: [], measure: { ...tree.measure, column: null } })}
@@ -574,7 +575,7 @@ function MeasuresLevel({ level, tab, cols, tabHeaders, setLevel }) {
                 placeholder="Label"
                 className="w-32"
               />
-              <TextInput value={m.icon} onChange={(v) => setMeasure({ icon: v })} placeholder="💰" className="w-14" />
+              <EmojiPicker value={m.icon} onChange={(v) => setMeasure({ icon: v })} placeholder="💰" className="w-14" />
               <Select
                 value={m.aggregation || 'count'}
                 onChange={(v) => setMeasure({ aggregation: v })}
@@ -744,7 +745,7 @@ function TablesLevel({ level, tabs, tabHeaders, setLevel, labelFor }) {
                 placeholder={labelFor(src.tab) || 'Label'}
                 className="w-36"
               />
-              <TextInput value={src.icon} onChange={(v) => setSource({ icon: v })} placeholder="🗂️" className="w-14" />
+              <EmojiPicker value={src.icon} onChange={(v) => setSource({ icon: v })} placeholder="🗂️" className="w-14" />
               <button
                 onClick={() => setOpenId(open ? null : src.id)}
                 className="text-[10px] text-indigo-600 underline"
@@ -878,7 +879,7 @@ function RulesLevel({ level, tab, tabHeaders, setLevel }) {
                 placeholder="Branch name"
                 className="w-36"
               />
-              <TextInput value={branch.icon} onChange={(v) => setBranch({ icon: v })} placeholder="🔥" className="w-14" />
+              <EmojiPicker value={branch.icon} onChange={(v) => setBranch({ icon: v })} placeholder="🔥" className="w-14" />
               <input
                 type="color"
                 value={branch.color || STAGE_PALETTE[i % STAGE_PALETTE.length]}

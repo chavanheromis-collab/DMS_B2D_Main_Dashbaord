@@ -1445,7 +1445,22 @@ export function pivotTree(rows, {
     grandTotal: capped.reduce((sum, row) => sum + row.value, 0),
     grandTotals,
     measureCount: measured.length,
+    // The hierarchy the flattening was made from, kept rather than thrown
+    // away: a sunburst is the same nesting drawn as rings, and rebuilding
+    // it from the flat rows would be a second hierarchy to disagree with
+    // this one. `source` is stripped for the same reason it is above --
+    // a renderer handed every row behind a group will walk it on every
+    // frame.
+    tree: pruneSource(tree),
   }
+}
+
+/** The tree with each node's row list removed, depth first. */
+function pruneSource(nodes) {
+  return (nodes || []).map(({ source, children, ...node }) => ({
+    ...node,
+    children: children ? pruneSource(children) : null,
+  }))
 }
 
 /**

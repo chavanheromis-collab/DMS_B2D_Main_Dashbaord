@@ -362,6 +362,179 @@ value, so anything that isn't plainly an image location is dropped rather than
 escaped. A rejected URL falls back to the app default rather than painting a
 blank slab.
 
+### Messages
+
+*"The Nashik figures are wrong, don't quote them."* *"Stock take at 4, log
+your deliveries first."* Things that are **about** the dashboard, need to
+reach the person reading it, and otherwise go out on WhatsApp where they are
+read by everyone except the two people who needed them.
+
+Anyone signed in can send one — from the **bell** at the bottom right of every
+screen. To **one person**, **several**, or **everyone with an account**.
+
+#### What you are asking of them
+
+The sender picks an **obligation**, not a volume. Loudness is a decision about
+the sender's feelings; the obligation is the thing the reader actually needs
+to know — *may I carry on, do I have to look, do I have to answer.* Everything
+else follows from that one field.
+
+| | what it does | comes back |
+|---|---|---|
+| **Can be ignored** | a banner at the top of the page; nothing has to happen | never |
+| **Should be seen** | covers the page until they close it | never |
+| **Should reply** | covers the page until they **answer** | **after 5 minutes** |
+| **Urgent — reply now** | the same | after 1 minute |
+
+#### Covering the page, and getting out from under it
+
+A covering message genuinely covers: the backdrop takes the clicks, so
+nothing behind can be read or pressed. A notification that can be scrolled
+past is a notification that gets scrolled past.
+
+But it can be **minimised**, and minimising gives the dashboard straight back.
+Somebody who needs the number in order to answer the question has to be able
+to get at the number — a message that makes its own answer impossible is a
+message that will not be answered.
+
+What minimising costs is said on the dialogue **before** it is pressed, rather
+than discovered five minutes later: *"This returns in 5 minutes unless you
+reply."*
+
+And it does return. A question you can put away for ever by pressing minimise
+is a question you can ignore by pressing minimise. One that asks for nothing
+back stays minimised, because covering the page again would be nagging about
+something already dealt with.
+
+There is **no Escape and no click-away**. Those are the two ways a dialogue
+gets dismissed without being read; every button here — minimise, close,
+answer — is a decision worth making on purpose.
+
+Minimising is remembered for the **session**, not written to the database. It
+is *"not right now"*, not a decision worth recording, and a document write
+behind a gesture people make while reaching for something else is a write
+nobody asked for. A reload puts an unanswered one back, which is the right
+answer for something still unanswered.
+
+Five more decisions worth knowing:
+
+**"Everyone" is a flag, not a list.** Store the uids and you have a snapshot:
+send it Monday, and the person who joins Tuesday never sees it — which is not
+what anybody means by everyone.
+
+**Closing is per person.** One recipient putting a banner away cannot put it
+away for the other eleven, so the state is `dismissedBy: [uid]` on the message.
+
+**Closing a question is not answering it.** A *Should reply* banner has no
+close button for the people it asks — offering both makes the answer optional.
+That rule lives in the model, not the markup: a rule enforced only in the UI is
+a rule enforced nowhere. Answering it *does* close it, though — leaving a
+banner up after the thing it asked for has been done is the other way to teach
+people to ignore banners.
+
+**Only one thing covers the page at a time.** Three dialogues stacked on a
+dashboard is not urgency, it's an obstacle — and somebody who has to dismiss
+three things before they can read a number will dismiss the third without
+looking at it. The newest one covers; the rest wait in the banner.
+
+**The sender is never interrupted by their own message.** They wrote it. And
+an unrecognised tone falls back to *can be ignored*, so a message stored with
+a value nobody recognises cannot end up covering everybody's screen.
+
+**Dismissing is not deleting.** Everything stays in the inbox behind the bell,
+because *"where did that go"* is the first thing somebody asks after closing
+one by accident.
+
+#### What the rules enforce
+
+This is the second collection an ordinary user may write to, and the first
+where what they write is seen by somebody else — so `firestore.rules` does more
+work here than anywhere else in the file:
+
+- **You can only read what was sent to you.** A `list` rule is evaluated per
+  document and rejects the whole query if any of them fails, so the client asks
+  two constrained questions — *addressed to me* and *addressed to everyone* —
+  and merges them. Do not "optimise" that into one query; it will fail for
+  everyone who is not an admin.
+- **You cannot send as somebody else.** `from` must be your own uid.
+- **A recipient may only mark and reply.** Every other field is frozen, and the
+  two id lists may grow by *at most the writer's own uid* — so nobody can
+  dismiss on another person's behalf or edit the body of something already
+  delivered.
+- **A new message arrives unread, unclosed and unanswered**, so it cannot be
+  posted pre-dismissed for everybody.
+- **Unsending is the sender's**, and an admin's.
+
+The message centre is mounted on the **shell**, not on a page: a message about
+the workspace should not vanish because somebody navigated to the admin panel.
+
+### When something breaks
+
+A dashboard draws thirty-odd widget types over whatever a spreadsheet happens
+to contain that morning — a column renamed, a date that is now the word
+"pending", a chart pointed at a tab somebody deleted. React's answer to a
+render error is to unmount the whole tree, so **any one of those turned the
+page white**: no widgets, no header, no sidebar, and the one widget that broke
+invisible along with the twenty-nine that were fine.
+
+Every widget is now drawn inside its own boundary. One that fails becomes a
+card saying which widget it was and what the message said; the rest of the
+page carries on.
+
+Three details decide whether that is useful or merely tidy:
+
+- **The boundary sits inside the edit chrome.** A widget that cannot draw is
+  exactly the one an admin needs to open, so its Edit pill and arrange pill
+  are outside the boundary and survive the failure.
+- **Fixing it clears it.** The reset key is the widget object, and every save
+  builds a new one — so the card recovers in the same render as the new
+  config. Without that it stays stuck on an error from a minute ago and only a
+  reload shows the fix.
+- **The message, not the stack.** "Cannot read properties of undefined" often
+  tells an admin which setting is empty. Forty minified frames tell nobody
+  anything. The full error still goes to the console.
+
+The page's own scaffolding — the layout, the control bar, the header — has a
+second boundary, because a widget boundary cannot catch a failure there and
+that is the failure that produced the white screen.
+
+### What a reader downloads
+
+The admin panel is the largest thing in the app, and it was landing in the
+bundle **every visitor** downloads before seeing a single number — most of them
+readers who cannot open it at all.
+
+The admin route and the three on-page editor panels are now fetched when
+somebody opens one. Both had to move: they share the same editor tree, so
+splitting one and not the other leaves it in the main bundle regardless.
+
+| | before | after |
+|---|---|---|
+| First-load bundle | 874 kB (242 kB gzipped) | **602 kB (177 kB gzipped)** |
+
+Roughly a third off what a reader waits for, and Vite's chunk-size warning is
+gone. `WorkspaceCtx` stays eager — it is a few lines of context object, and the
+provider wraps the page whether or not anything is being edited.
+
+### Waiting
+
+It was the word "Loading…" in grey, centred on white. Not wrong, exactly — just
+indistinguishable from a page that has given up, and a dashboard's first load
+(auth, then the workspace, then every tab of every sheet) is long enough for
+somebody to start wondering.
+
+Three things fix that, and none of them is a bigger spinner:
+
+- **Motion**, so the app reads as working rather than stuck.
+- **A reason** — *Signing you in*, *Finding that page*, *Opening the admin
+  panel* — so a long wait is explained rather than mysterious.
+- **A shape** where the thing being waited for will appear. A canvas with no
+  widgets yet shows card skeletons: a spinner says *wait*, a skeleton says *a
+  card is coming and this is where it goes*.
+
+The sheen stops for anyone with `prefers-reduced-motion` set, and every
+skeleton is `aria-hidden` — it is a picture of a card, not a card.
+
 ### View mode and edit mode
 
 A dashboard is a thing you look at, so it **opens as one** — for everybody,
@@ -892,6 +1065,20 @@ pie and a flow canvas all stretch to the height you set instead of keeping
 their own default and leaving the rest of the card empty. A table or a pivot
 scrolls inside it instead, which is what a fixed height means for a list.
 
+**The heading stays put while the body scrolls under it.** Shrink a widget far
+enough and the card becomes a scroll container; without this the title, the
+count beside it and the export button scrolled away with the chart, and a
+widget whose name you have to scroll back up to read is one you cannot tell
+apart from its neighbour. Shrinking a widget is exactly when the label matters
+most, and exactly when it used to disappear.
+
+One CSS rule does it for every widget, found by what the card's first child
+*contains* rather than by a marker class on thirteen components — so it works
+on the ones nobody has touched since, and on the next one somebody writes. It
+matches both shapes a heading is written in: the usual row with a count or a
+button beside the title, and the canvas furniture (a note, an image, a
+countdown) where the heading is the child itself.
+
 #### Why a pinned widget can leave a hole beside it — and the `+n` that closes it
 
 The canvas is twelve columns. A widget pinned to **260px** on a canvas whose
@@ -1051,6 +1238,30 @@ Every ref a page needs is fetched in one request. The server groups them by
 spreadsheet and issues one Google `batchGet` per spreadsheet, then caches
 briefly in the serverless function and at the CDN edge. A page drawing on
 three sheets costs three round-trips, not one per tab.
+
+### How wide a dropdown opens
+
+A control has two widths, and they are not the same measurement. The button
+says **"Model: 3 selected"** and has to fit in a bar; the list behind it holds
+**"SPLENDOR PLUS DRUM BRAKE ALLOY WHEEL"** and does not.
+
+That list was one hard-coded 256px, so every value long enough to matter
+arrived with its end cut off — and a truncated option is one a reader cannot
+choose between and one that may as well not be there.
+
+**Open list width (px)** sits beside the control's own width, on the
+multi-choice control — the only kind with a list of its own to size. Blank is
+the same 256 it has always been, so nothing on a page moves until somebody
+types a number. It is bounded 160–720: a menu narrower than a phrase is the
+problem it was added to fix, and one wider than most windows is not a menu.
+
+It is also **never narrower than the control it drops from**. A 320px button
+with a 160px list under it reads as a rendering fault rather than as a choice,
+so the button's width is the floor and the 720 cap still wins over both.
+
+And a wider menu **wraps** its values rather than truncating them further out.
+Widening it was asked for so the value could be read; cutting it off at the
+new edge would have missed the point.
 
 ### How far a control reaches
 
@@ -1555,6 +1766,71 @@ stacking two contradictory filters.
 | **Image / Media** | A picture, logo or diagram from any image link, including a Google Drive share link. Optionally with no card around it. |
 | **Countdown / Clock** | Time left to a date, time since one, or the time now. Colours change as a deadline approaches, and it redraws only as often as a digit can change. |
 
+### Two shapes about relation, not size
+
+Most charts answer *how big*. Two of them answer *how far apart* and *what
+sits inside what*, and the catalogue had neither.
+
+#### Dumbbell / Gap
+
+*"Quoted 140, booked 96"* per branch. A grouped bar chart draws that as six
+bars and asks you to subtract them in your head, twelve times. A dumbbell
+draws the **gap** — two dots and the line between them — and the eye reads the
+widest line first, which is the branch the meeting is actually about.
+
+The same shape answers before-and-after, target-and-actual, this-month against
+last, and plan against spend. What they have in common is that the question is
+the *distance*, not either end.
+
+- **The rows are ordered by the widest gap** by default, which is the reason
+  the chart exists. Any other order buries the finding.
+- **The gap is signed** — 96 → 140 and 140 → 96 are the same distance and
+  opposite meanings — but the *ordering* uses the unsigned distance, because a
+  branch that fell 40 is as interesting as one that rose 40.
+- **The cap falls after the ordering.** Otherwise "the twelve widest gaps"
+  would mean "the widest gaps among whichever twelve groups were biggest".
+- **The axis is not anchored at zero**, and that is deliberate: the chart is
+  about a distance, and forcing zero in squashes every gap into the same short
+  line. It is the one case where a truncated axis is the honest choice, because
+  there are no bars claiming to be proportional.
+- **The gap is written as a number too**, green up and rose down. Reading a
+  distance off a line is exactly what this chart saves you from.
+
+Drawn by hand rather than through the chart library: there is no chart type for
+this, and the library version is a stacked bar with a transparent base plus two
+scatter series — three components pretending to be one shape, each with its own
+idea of the axis.
+
+#### Sunburst Rings
+
+Region, then branch, then model. A treemap answers *which is biggest* and loses
+the levels; a pivot keeps the levels and makes you read forty numbers. A
+sunburst keeps both: the ring says which level, the sweep says how much, and a
+wedge is **always exactly as wide as its children add up to**.
+
+Up to four rings. The nesting is the **pivot table's own** — the same
+`pivotTree` that already sorts every level, buckets every column and knows
+about measures. Rebuilding it here would be a second hierarchy to disagree with
+the first.
+
+- **A wedge carries its whole path.** Hovering says `West › Pune › SPLENDOR`,
+  and clicking filters by *every* level above it — otherwise clicking "Pune"
+  inside "West" would filter to every Pune in the sheet.
+- **Colour comes from the top-level ancestor**, in lighter shades outward. A
+  palette colour per wedge would make a region and one of its branches look
+  unrelated, which is the one thing a ring chart is drawn to show.
+- **The middle holds the total**, or whatever is under the pointer with its
+  share of everything. A ring chart with nothing in the middle has a hole where
+  its own headline should be.
+- **A wedge too thin to see is left out and counted** — "3 too small to draw" —
+  rather than drawn as a hairline that cannot be hovered, labelled, or told
+  from the stroke beside it. It still takes its room, so the ring does not
+  shift. A **negative** value is not counted there: it is impossible to draw,
+  not too small to see.
+- **The editor will not let a hierarchy have a hole in it.** Ring three is
+  disabled until ring two has a column, and clearing a ring clears the ones
+  outside it.
+
 ### Compared to what?
 
 The single most useful thing a dashboard can add to a number is a second
@@ -2052,6 +2328,60 @@ Two states are excluded from the count of active filters and from the *More*
 badge: a rule the reader cannot see, reach or clear would otherwise send them
 hunting for a control that doesn't exist.
 
+### Print, and Save as PDF
+
+The people who decide things are not the people looking at the screen. A
+dashboard that cannot leave the browser gets screenshotted into a slide — and
+a screenshot has no record of what it was showing.
+
+The **printer button** in the page header opens the browser's own print
+dialogue, which is also its *Save as PDF*. That is deliberate: the export
+**is** the page, so there is no second drawing of it to fall behind the first.
+
+**What the paper gets that the screen does not** is a header naming the page,
+the moment it was taken, and **every narrowing that was in force**:
+
+```
+Sales — August
+Vehicles · Quotations — printed 29 Aug 2026, 10:05
+
+Branch: Pune · Model: A, B · Amount: up to 500 ·
+Dealer: B2D (fixed) · Drilled into: West · Ravi (drill)
+```
+
+A printed chart reading 412 is not a fact — it is a fact *about* a filter.
+Print it without the filters and it is a number somebody quotes back at you in
+six weeks, wrongly.
+
+Three things make that header honest:
+
+- It reads the **effective** values, so a control the admin **fixed** appears
+  and says so. It is a rule of the page the reader never sees and cannot turn
+  off, which is exactly what a printout has to disclose.
+- A **drill** appears too, marked as one. It is the filter the reader made by
+  clicking, and the only one nothing in the bar shows.
+- Nothing applied says **"No filters applied — the whole dataset"** rather than
+  leaving a blank, because a blank reads as *the filters did not print*.
+
+**What the paper does not get** is the chrome: the sidebar, the tab strip, the
+Add palette, the arrange banner, the header buttons and the edit split. They
+exist to *change* the page, and on paper there is nothing to change. It is one
+`no-print` marker put on the real elements — a stylesheet full of class names
+guessed at from a distance is dead CSS that looks like a working rule.
+
+Four details that decide whether a printout is right or merely short:
+
+| | |
+|---|---|
+| **Pinned heights are released** | 320px is a decision about a screen; on paper the constraint is the sheet, and a pinned height prints a chart cut in half |
+| **Everything that scrolled expands** | otherwise the sheet shows the first screenful and drops the rest, and a printed table is *wrong* rather than short |
+| **No card is split across two sheets** | two halves of a chart, neither of which is a chart |
+| **Colours print exactly** | a red bar *is* the finding, not decoration the browser may economise away |
+
+The sheet is **landscape**, because the layout model is a row of widgets that
+wraps and portrait turns every two-across row into two pages. The print
+dialogue still lets anyone choose otherwise.
+
 ### Saved views
 
 A **view** is a named one-click preset of every control: "This month's pending
@@ -2492,6 +2822,56 @@ controls appear, and how many buttons per row, per panel. Only dropdown,
 multi-choice and chip controls qualify — a date range drawn as a grid of
 buttons is a worse date range. A **fixed** control never appears, because it's
 a rule of the page rather than something anyone is meant to press.
+
+### Every emoji, in every icon field
+
+Every icon in this app — a widget's, a page's, a pipeline stage's, a KPI's, a
+flow branch's, a saved view's — was a text box with an emoji as its
+placeholder. Using one meant already knowing which you wanted, finding it
+somewhere else and pasting it in. In practice everybody used the placeholder,
+and a workspace of forty widgets was forty identical 📊.
+
+All **1,898** of them are now behind a `▾` beside each of those boxes, in
+thirteen places. It is still a text box — pasting one straight in has always
+worked and still does — with a searchable grid next to it.
+
+**Two sources, because one is not enough.**
+[`emoji-test.txt`](https://unicode.org/Public/emoji/15.1/emoji-test.txt) says
+which emoji exist, in what order and under which heading. CLDR's
+[annotations](https://github.com/unicode-org/cldr-json) say what people
+**call** them — and that second file is what makes the picker usable, because
+Unicode's own name for 🚗 is *"automobile"*. A picker where searching "car"
+returns a carrot is one nobody opens twice.
+
+Search is ranked, not just filtered:
+
+| | |
+|---|---|
+| **Every word must match** | "red heart" finds ❤️, not every red thing followed by every heart |
+| **Words are matched at their start** | "art" finds 🎭, not ❤️ — a search that finds "heart" inside "art" feels broken |
+| **An exact word beats a prefix** | "car" legitimately prefixes *cardio* and *carrot*, so without ranking you get 💓 and 🥕 first |
+| **The name beats the keywords** | which keeps "bird" ahead of "birdie" |
+
+Beyond that: **fully-qualified sequences only** (the minimally-qualified rows
+are the same pictures missing a presentation selector, and they render as tofu
+on half the devices that matter); **no skin-tone variants**, because one emoji
+times five tones is five rows of the same picture and this is a picker for a
+widget icon; and a **recently-used row**, per browser, because a set of 1,898
+is only usable when most of the time you want one of six.
+
+Pasting a whole line — which is what happens when you copy out of a chat —
+keeps the picture and drops the sentence. That uses `Intl.Segmenter`, because
+an emoji is not a character: a flag is two regional indicators, a family is
+four people and three joiners, and `text[0]` on either is half a symbol.
+
+The data file is **146KB behind a dynamic import** (35KB gzipped, its own
+chunk), so a page that never opens a picker never downloads it — which is
+every page except an admin's, and every admin session except the one where
+they set an icon.
+
+`src/lib/emojiData.js` is **generated**. Rerun the generator against newer
+source files rather than editing it, or the next regeneration silently reverts
+whatever was typed in.
 
 ### Themes
 

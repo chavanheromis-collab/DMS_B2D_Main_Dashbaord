@@ -31,6 +31,7 @@ import { clashingPins, nextPinColor } from '../../lib/valueColors'
 import { DEFAULT_REDUCER, GROUP_SORTS, SORT_REDUCERS, sortsByColumn } from '../../lib/groupSort'
 import { defaultMeasureLabel, emptyMeasure } from '../../lib/pivotMeasures'
 import ConditionBuilder from './ConditionBuilder.jsx'
+import EmojiPicker from './EmojiPicker.jsx'
 
 /**
  * Pipeline stages. Each stage is a label + colour + a condition set, so
@@ -161,7 +162,7 @@ function StageList({ stages, onChange, widget, tabs, tabHeaders, depth = 0, pare
                     placeholder="Stage name"
                     className="w-40"
                   />
-                  <TextInput
+                  <EmojiPicker
                     value={stage.icon}
                     onChange={(v) => setStage({ icon: v })}
                     placeholder="🏍️"
@@ -511,7 +512,7 @@ export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
                         placeholder="Label"
                         className="w-36"
                       />
-                      <TextInput
+                      <EmojiPicker
                         value={kpi.icon}
                         onChange={(v) => update(kpi.id, { icon: v })}
                         placeholder="💰"
@@ -1683,7 +1684,7 @@ export function GaugeEditor({ widget, cols, tabs, tabHeaders, set }) {
           <TextInput type="number" value={widget.target} onChange={(v) => set({ target: v })} placeholder="1000" />
         </Field>
         <Field label="Icon">
-          <TextInput value={widget.icon} onChange={(v) => set({ icon: v })} placeholder="🎯" />
+          <EmojiPicker value={widget.icon} onChange={(v) => set({ icon: v })} placeholder="🎯" />
         </Field>
         <Field label="Colour">
           <input

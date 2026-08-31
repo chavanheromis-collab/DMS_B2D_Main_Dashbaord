@@ -106,6 +106,64 @@ test('a spanning widget is drawn as tall as the rows it covers', () => {
   assert.ok(css.includes('.widget-fit > * > .card'), 'and the card inside it fills that height')
 })
 
+test('a shrunk widget keeps its heading; only the body scrolls', () => {
+  // The card is the scroll container, so the title, the count beside it and
+  // the export button used to scroll away with the chart -- and a widget
+  // whose name you have to scroll back up to read is one you cannot tell
+  // apart from its neighbour. Shrinking a widget is exactly when the label
+  // matters most, and exactly when it disappeared.
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  const at = css.indexOf('.widget-sized > .card > :is(.widget-title, *:has(.widget-title))')
+  assert.ok(at > 0, 'the heading is found by what it contains, not by a marker class')
+
+  const rule = css.slice(at, css.indexOf('}', at))
+  assert.ok(rule.includes('position: sticky'))
+  assert.ok(rule.includes('top: 0'))
+  assert.ok(rule.includes('background-color: var(--card-bg'), 'or the body reads through it')
+  assert.ok(rule.includes('backdrop-filter'), 'and a translucent card surface still hides it')
+
+  // Pulled out to the card's edges and re-padded inside, so scrolling
+  // content passes UNDER the heading rather than appearing beside it.
+  assert.ok(rule.includes('margin-inline: calc(var(--card-padding, 1rem) * -1)'))
+  assert.ok(rule.includes('margin-top: calc(var(--card-padding, 1rem) * -1)'))
+  assert.ok(rule.includes('padding: var(--card-padding, 1rem)'))
+
+  // And it only applies where the card actually scrolls -- a heading has
+  // nothing to stick to unless the card is the scrollport.
+  const cardAt = css.indexOf('.widget-sized > .card {')
+  assert.ok(cardAt > 0)
+  assert.ok(css.slice(cardAt, css.indexOf('}', cardAt)).includes('overflow: auto'))
+})
+
+test('the sticky heading sits above the widget’s own content', () => {
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  const at = css.indexOf('.widget-sized > .card > :is(.widget-title, *:has(.widget-title))')
+  assert.ok(css.slice(at, css.indexOf('}', at)).includes('z-index: 3'))
+})
+
+test('the rule covers BOTH shapes a heading is written in', () => {
+  // Most widgets wrap the title in a row with a count or an export button
+  // beside it; the canvas furniture -- a note, an image, a countdown --
+  // makes the heading the child itself. A rule that knew only the first
+  // would leave three widgets scrolling their titles away.
+  const dir = path.join(SRC, 'components', 'widgets')
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsx'))
+  const withTitle = files.filter((f) => fs.readFileSync(path.join(dir, f), 'utf8').includes('widget-title'))
+  assert.ok(withTitle.length >= 12, `only ${withTitle.length} widgets have a title`)
+
+  const canvas = fs.readFileSync(path.join(dir, 'CanvasWidgets.jsx'), 'utf8')
+  const titles = (canvas.match(/widget-title/g) || []).length
+  assert.ok(titles >= 3, 'the canvas furniture has headings')
+  assert.equal(
+    (canvas.match(/className="widget-title mb-/g) || []).length,
+    titles,
+    'and every one of them is the child itself, which is the shape the rule’s first branch matches'
+  )
+
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  assert.ok(css.includes(':is(.widget-title, *:has(.widget-title))'), 'so both are matched')
+})
+
 test('the pill says which rows a widget covers, not just where it starts', () => {
   assert.ok(bar.includes('spans > 1 ?'))
 })

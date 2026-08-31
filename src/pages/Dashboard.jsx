@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Layers, Palette, Redo2, RefreshCw, RotateCcw, Undo2 } from 'lucide-react'
+import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Layers, Palette, Printer, Redo2, RefreshCw, RotateCcw, Undo2 } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
 import { usePageData, useLocalState } from '../hooks/usePageData'
@@ -18,11 +18,25 @@ import { makeWidget, WIDGET_TYPES } from '../lib/newWidget'
 import EditSplit from '../components/EditSplit.jsx'
 import WidgetTypePreview from '../components/WidgetTypePreview.jsx'
 import { hasVariants, variantHint, variantPatch, variantTitle, variantsFor } from '../lib/widgetVariants'
+import { appliedFilters, printStamp } from '../lib/printView'
 import { DEFAULT_FRACTION, DEFAULT_SIDE, previewKind, targetTitle } from '../lib/editLayout'
-import { PageSettings } from './admin/PagesPanel.jsx'
 import { WorkspaceCtx } from './admin/ui.jsx'
-import ControlsPanel from './admin/ControlsPanel.jsx'
-import WidgetsPanel from './admin/WidgetsPanel.jsx'
+
+/**
+ * The three editor panels, fetched when an admin first opens one.
+ *
+ * They are the biggest thing in the app -- every widget editor, every
+ * control editor, every condition builder -- and they were landing in the
+ * bundle EVERY visitor downloads before seeing a number. Most visitors are
+ * readers who cannot open an editor at all, and even an admin spends most
+ * of their time reading rather than editing.
+ *
+ * `WorkspaceCtx` stays eager: it is a context object of a few lines, and
+ * the provider wraps the page whether or not anything is being edited.
+ */
+const WidgetsPanel = lazy(() => import('./admin/WidgetsPanel.jsx'))
+const ControlsPanel = lazy(() => import('./admin/ControlsPanel.jsx'))
+const PageSettings = lazy(() => import('./admin/PagesPanel.jsx').then((m) => ({ default: m.PageSettings })))
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
 import { MAX_ROW_SPAN } from '../lib/flowPack'
@@ -64,6 +78,9 @@ import KpiWidget from '../components/widgets/KpiWidget.jsx'
 import PipelineWidget from '../components/widgets/PipelineWidget.jsx'
 import FlowWidget from '../components/widgets/FlowWidget.jsx'
 import FilterPanelWidget from '../components/widgets/FilterPanelWidget.jsx'
+import DumbbellWidget, { SunburstWidget } from '../components/widgets/RelationWidgets.jsx'
+import ErrorBoundary from '../components/ErrorBoundary.jsx'
+import { CanvasSkeleton } from '../components/Booting.jsx'
 import LeaderboardWidget from '../components/widgets/LeaderboardWidget.jsx'
 import TableWidget from '../components/widgets/TableWidget.jsx'
 import ChartWidget from '../components/widgets/ChartWidget.jsx'
@@ -1282,12 +1299,35 @@ export default function Dashboard() {
       >
         <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
       </button>
+      {/* The browser's own print dialogue, which is also its Save as PDF --
+          so this is the export without a second implementation of the page
+          to keep in step with the first. */}
+      <button
+        onClick={() => window.print()}
+        className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
+        title="Print, or save as PDF"
+      >
+        <Printer size={15} />
+      </button>
     </>
   )
 
   const sourceNames = (page?.sourceIds || [])
     .map((id) => sourcesById[id]?.name)
     .filter(Boolean)
+
+  /**
+   * Every narrowing in force, for the header the paper gets.
+   *
+   * `effectiveValues` rather than the user's own, so a control the ADMIN
+   * fixed appears too -- it is a rule of the page the reader never sees and
+   * cannot turn off, which makes it exactly the thing a printout has to
+   * disclose. See lib/printView.js.
+   */
+  const printFilters = useMemo(
+    () => appliedFilters(pageControls, effectiveValues, effectiveButtonIds, crossFilters),
+    [pageControls, effectiveValues, effectiveButtonIds, crossFilters]
+  )
 
   const bgLayers = backgroundLayers(page?.background)
   // Chrome that sits directly on the backdrop -- the heading, the tab strip,
@@ -1514,191 +1554,217 @@ export default function Dashboard() {
                         />
                       )}
 
-                      {/* This widget's own controls, above its card. Living
-                          here rather than inside each widget is what lets
-                          every type has them. */}
-                      <WidgetControls
-                        controls={myControls}
-                        values={myValues}
-                        rows={preControl}
-                        dateOrder={dateOrder}
-                        onChange={(controlId, value) =>
-                          setControlValues((all) => ({
-                            ...all,
-                            [widget.id]: { ...(all[widget.id] || {}), [controlId]: value },
-                          }))
-                        }
-                        onReset={() =>
-                          setControlValues((all) => ({ ...all, [widget.id]: initialControlValues(myControls) }))
-                        }
-                      />
+                      {/* One widget failing must not take the page with
+                          it. A dashboard draws thirty-odd types over
+                          whatever the sheet happens to contain that
+                          morning, and React's answer to a render error is
+                          to unmount the whole tree -- which turned any one
+                          of them into a white screen with the other
+                          twenty-nine gone too.
 
-                      {widget.type === 'kpi' && (
-                        <KpiWidget
-                          {...common}
-                          rowsByTab={rowsByLabel}
-                          rawRowsByTab={rawRowsByLabel}
-                          onCrossFilter={drill}
-                          isDrilled={crossFilters.some((c) => c.id === `kpi_${widget.id}`)}
-                        />
-                      )}
-                      {widget.type === 'chart' && (
-                        <ChartWidget
-                          {...common}
-                          crossFilters={crossFilters}
-                          onCrossFilter={drill}
-                          canExport={canExport}
+                          Outside the edit chrome on purpose: a widget that
+                          cannot draw is exactly the one an admin needs to
+                          open, so its Edit pill has to survive.
+
+                          `resetKey` is the widget object itself. Every save
+                          builds a new one, so fixing the config clears the
+                          error in the same render -- without it the card
+                          stays stuck on the error it threw a minute ago. */}
+                      <ErrorBoundary label={widget.title || 'This widget'} resetKey={widget}>
+                        {/* This widget's own controls, above its card. Living
+                            here rather than inside each widget is what lets
+                            every type has them. */}
+                        <WidgetControls
+                          controls={myControls}
+                          values={myValues}
+                          rows={preControl}
                           dateOrder={dateOrder}
-                        />
-                      )}
-                      {widget.type === 'trend' && (
-                        <TrendWidget
-                          {...common}
-                          dateOrder={dateOrder}
-                          crossFilters={crossFilters}
-                          onCrossFilter={drill}
-                          canExport={canExport}
-                        />
-                      )}
-                      {widget.type === 'gauge' && (
-                        <GaugeWidget
-                          {...common}
-                          onCrossFilter={drill}
-                          isDrilled={crossFilters.some((c) => c.id === `gauge_${widget.id}`)}
-                        />
-                      )}
-                      {widget.type === 'pivot' && (
-                        <PivotWidget {...common} onCrossFilter={drill} canExport={canExport} dateOrder={dateOrder} />
-                      )}
-                      {widget.type === 'heatmap' && (
-                        <HeatmapWidget {...common} onCrossFilter={drill} dateOrder={dateOrder} />
-                      )}
-                      {widget.type === 'stacked' && (
-                        <StackedWidget
-                          {...common}
-                          crossFilters={crossFilters}
-                          onCrossFilter={drill}
-                          dateOrder={dateOrder}
-                        />
-                      )}
-                      {widget.type === 'combo' && (
-                        <ComboWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} dateOrder={dateOrder} />
-                      )}
-                      {widget.type === 'scatter' && <ScatterWidget {...common} />}
-                      {widget.type === 'activity' && <ActivityFeedWidget {...common} dateOrder={dateOrder} />}
-                      {widget.type === 'scorecard' && <ScorecardWidget {...common} dateOrder={dateOrder} />}
-                      {widget.type === 'pipeline' && (
-                        <PipelineWidget
-                          widget={widget}
-                          rowsByTab={rowsByLabel}
-                          rawRowsByTab={rawRowsByLabel}
-                          crossFilters={crossFilters}
-                          onCrossFilter={drill}
-                          dateOrder={dateOrder}
-                        />
-                      )}
-                      {widget.type === 'flow' && (
-                        <FlowWidget
-                          widget={widget}
-                          rowsByTab={rowsByLabel}
-                          rawRowsByTab={rawRowsByLabel}
-                          headersByTab={headersByLabel}
-                          crossFilters={crossFilters}
-                          onCrossFilter={toggleCrossFilter}
-                          dateOrder={dateOrder}
-                          canExport={canExport}
-                          fillHeight={fillHeight}
-                        />
-                      )}
-                      {widget.type === 'filters' && (
-                        <FilterPanelWidget
-                          widget={widget}
-                          controls={view.controls}
-                          values={filterValues}
-                          onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
-                          tabsData={dataByLabel}
-                          optionRows={optionRowsByControl}
-                          dateOrder={dateOrder}
-                        />
-                      )}
-                      {widget.type === 'leaderboard' && (
-                        <LeaderboardWidget
-                          {...common}
-                          crossFilters={crossFilters}
-                          onCrossFilter={drill}
-                          canExport={canExport}
-                          dateOrder={dateOrder}
-                        />
-                      )}
-                      {widget.type === 'table' && (
-                        <TableWidget
-                          {...common}
-                          tabHeaders={headers}
-                          // Only the LEFT tab's own columns are ever
-                          // editable: a blended column is a copy of a cell
-                          // that lives in a different spreadsheet, and
-                          // writing it back here would silently edit the
-                          // wrong sheet (or several rows at once).
-                          editableColumns={
-                            widget.editable
-                              ? grantFor('editable', widget.tab).filter((c) =>
-                                  (tabData?.headers || []).includes(c)
-                                )
-                              : []
+                          onChange={(controlId, value) =>
+                            setControlValues((all) => ({
+                              ...all,
+                              [widget.id]: { ...(all[widget.id] || {}), [controlId]: value },
+                            }))
                           }
-                          downloadableColumns={
-                            widget.downloadButtons ? grantFor('downloadable', widget.tab) : []
+                          onReset={() =>
+                            setControlValues((all) => ({ ...all, [widget.id]: initialControlValues(myControls) }))
                           }
-                          onEditCell={handleEditCell}
-                          saving={saving}
-                          dateOrder={dateOrder}
-                          canExport={canExport}
-                          canPersistLayout={isAdmin}
-                          onSaveColumnOrder={(cols) => saveColumnOrder(widget.id, cols)}
                         />
-                      )}
 
-                      {/* --- metrics ------------------------------------ */}
-                      {widget.type === 'stat' && <StatGridWidget {...common} dateOrder={dateOrder} />}
-                      {widget.type === 'bullet' && <BulletWidget {...common} dateOrder={dateOrder} />}
-                      {widget.type === 'movers' && (
-                        <MoversWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
-                      )}
-                      {widget.type === 'waffle' && <WaffleWidget {...common} onCrossFilter={drill} />}
+                        {widget.type === 'kpi' && (
+                          <KpiWidget
+                            {...common}
+                            rowsByTab={rowsByLabel}
+                            rawRowsByTab={rawRowsByLabel}
+                            onCrossFilter={drill}
+                            isDrilled={crossFilters.some((c) => c.id === `kpi_${widget.id}`)}
+                          />
+                        )}
+                        {widget.type === 'chart' && (
+                          <ChartWidget
+                            {...common}
+                            crossFilters={crossFilters}
+                            onCrossFilter={drill}
+                            canExport={canExport}
+                            dateOrder={dateOrder}
+                          />
+                        )}
+                        {widget.type === 'trend' && (
+                          <TrendWidget
+                            {...common}
+                            dateOrder={dateOrder}
+                            crossFilters={crossFilters}
+                            onCrossFilter={drill}
+                            canExport={canExport}
+                          />
+                        )}
+                        {widget.type === 'gauge' && (
+                          <GaugeWidget
+                            {...common}
+                            onCrossFilter={drill}
+                            isDrilled={crossFilters.some((c) => c.id === `gauge_${widget.id}`)}
+                          />
+                        )}
+                        {widget.type === 'pivot' && (
+                          <PivotWidget {...common} onCrossFilter={drill} canExport={canExport} dateOrder={dateOrder} />
+                        )}
+                        {widget.type === 'heatmap' && (
+                          <HeatmapWidget {...common} onCrossFilter={drill} dateOrder={dateOrder} />
+                        )}
+                        {widget.type === 'stacked' && (
+                          <StackedWidget
+                            {...common}
+                            crossFilters={crossFilters}
+                            onCrossFilter={drill}
+                            dateOrder={dateOrder}
+                          />
+                        )}
+                        {widget.type === 'combo' && (
+                          <ComboWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} dateOrder={dateOrder} />
+                        )}
+                        {widget.type === 'scatter' && <ScatterWidget {...common} />}
+                        {widget.type === 'activity' && <ActivityFeedWidget {...common} dateOrder={dateOrder} />}
+                        {widget.type === 'scorecard' && <ScorecardWidget {...common} dateOrder={dateOrder} />}
+                        {widget.type === 'pipeline' && (
+                          <PipelineWidget
+                            widget={widget}
+                            rowsByTab={rowsByLabel}
+                            rawRowsByTab={rawRowsByLabel}
+                            crossFilters={crossFilters}
+                            onCrossFilter={drill}
+                            dateOrder={dateOrder}
+                          />
+                        )}
+                        {widget.type === 'flow' && (
+                          <FlowWidget
+                            widget={widget}
+                            rowsByTab={rowsByLabel}
+                            rawRowsByTab={rawRowsByLabel}
+                            headersByTab={headersByLabel}
+                            crossFilters={crossFilters}
+                            onCrossFilter={toggleCrossFilter}
+                            dateOrder={dateOrder}
+                            canExport={canExport}
+                            fillHeight={fillHeight}
+                          />
+                        )}
+                        {widget.type === 'filters' && (
+                          <FilterPanelWidget
+                            widget={widget}
+                            controls={view.controls}
+                            values={filterValues}
+                            onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
+                            tabsData={dataByLabel}
+                            optionRows={optionRowsByControl}
+                            dateOrder={dateOrder}
+                          />
+                        )}
+                        {widget.type === 'leaderboard' && (
+                          <LeaderboardWidget
+                            {...common}
+                            crossFilters={crossFilters}
+                            onCrossFilter={drill}
+                            canExport={canExport}
+                            dateOrder={dateOrder}
+                          />
+                        )}
+                        {widget.type === 'table' && (
+                          <TableWidget
+                            {...common}
+                            tabHeaders={headers}
+                            // Only the LEFT tab's own columns are ever
+                            // editable: a blended column is a copy of a cell
+                            // that lives in a different spreadsheet, and
+                            // writing it back here would silently edit the
+                            // wrong sheet (or several rows at once).
+                            editableColumns={
+                              widget.editable
+                                ? grantFor('editable', widget.tab).filter((c) =>
+                                    (tabData?.headers || []).includes(c)
+                                  )
+                                : []
+                            }
+                            downloadableColumns={
+                              widget.downloadButtons ? grantFor('downloadable', widget.tab) : []
+                            }
+                            onEditCell={handleEditCell}
+                            saving={saving}
+                            dateOrder={dateOrder}
+                            canExport={canExport}
+                            canPersistLayout={isAdmin}
+                            onSaveColumnOrder={(cols) => saveColumnOrder(widget.id, cols)}
+                          />
+                        )}
 
-                      {/* --- time -------------------------------------- */}
-                      {widget.type === 'calendar' && (
-                        <CalendarHeatWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
-                      )}
-                      {widget.type === 'gantt' && <GanttWidget {...common} dateOrder={dateOrder} />}
-                      {widget.type === 'cohort' && (
-                        <CohortWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
-                      )}
+                        {/* --- metrics ------------------------------------ */}
+                        {widget.type === 'stat' && <StatGridWidget {...common} dateOrder={dateOrder} />}
+                        {widget.type === 'bullet' && <BulletWidget {...common} dateOrder={dateOrder} />}
+                        {widget.type === 'movers' && (
+                          <MoversWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
+                        )}
+                        {widget.type === 'waffle' && <WaffleWidget {...common} onCrossFilter={drill} />}
 
-                      {/* --- distribution ------------------------------ */}
-                      {widget.type === 'boxplot' && <BoxPlotWidget {...common} onCrossFilter={drill} />}
-                      {widget.type === 'sankey' && <SankeyWidget {...common} onCrossFilter={drill} />}
-                      {widget.type === 'wordcloud' && <WordCloudWidget {...common} onCrossFilter={drill} />}
-                      {widget.type === 'profile' && (
-                        // The one widget whose subject is the SHEET rather
-                        // than the business, so it is handed the headers as
-                        // well as the rows.
-                        <ProfileWidget {...common} tabHeaders={headers} dateOrder={dateOrder} />
-                      )}
+                        {/* --- time -------------------------------------- */}
+                        {widget.type === 'calendar' && (
+                          <CalendarHeatWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
+                        )}
+                        {widget.type === 'gantt' && <GanttWidget {...common} dateOrder={dateOrder} />}
+                        {widget.type === 'cohort' && (
+                          <CohortWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
+                        )}
 
-                      {/* --- canvas furniture, which reads no rows ----- */}
-                      {widget.type === 'note' && <NoteWidget widget={widget} />}
-                      {widget.type === 'media' && <MediaWidget widget={widget} />}
-                      {widget.type === 'countdown' && <CountdownWidget widget={widget} />}
+                        {/* --- relation --------------------------------- */}
+                        {widget.type === 'dumbbell' && (
+                          <DumbbellWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} dateOrder={dateOrder} />
+                        )}
+                        {widget.type === 'sunburst' && (
+                          <SunburstWidget {...common} crossFilters={crossFilters} onCrossFilter={drill} dateOrder={dateOrder} />
+                        )}
 
-                      {/* Where the extra columns on a blended widget came
-                          from, stated on the card itself so nobody has to
-                          open the admin panel to find out. */}
-                      {blendIsReady(widget.blend) && (
-                        <p className="mt-1 px-1 text-[10px] text-slate-400">
-                          🔗 {describeBlend(widget.blend, labelFor)}
-                        </p>
-                      )}
+                        {/* --- distribution ------------------------------ */}
+                        {widget.type === 'boxplot' && <BoxPlotWidget {...common} onCrossFilter={drill} />}
+                        {widget.type === 'sankey' && <SankeyWidget {...common} onCrossFilter={drill} />}
+                        {widget.type === 'wordcloud' && <WordCloudWidget {...common} onCrossFilter={drill} />}
+                        {widget.type === 'profile' && (
+                          // The one widget whose subject is the SHEET rather
+                          // than the business, so it is handed the headers as
+                          // well as the rows.
+                          <ProfileWidget {...common} tabHeaders={headers} dateOrder={dateOrder} />
+                        )}
+
+                        {/* --- canvas furniture, which reads no rows ----- */}
+                        {widget.type === 'note' && <NoteWidget widget={widget} />}
+                        {widget.type === 'media' && <MediaWidget widget={widget} />}
+                        {widget.type === 'countdown' && <CountdownWidget widget={widget} />}
+
+                        {/* Where the extra columns on a blended widget came
+                            from, stated on the card itself so nobody has to
+                            open the admin panel to find out. */}
+                        {blendIsReady(widget.blend) && (
+                          <p className="mt-1 px-1 text-[10px] text-slate-400">
+                            🔗 {describeBlend(widget.blend, labelFor)}
+                          </p>
+                        )}
+                      </ErrorBoundary>
                     </div>
                   ),
                 }
@@ -1832,6 +1898,35 @@ export default function Dashboard() {
           ...(design.maxWidth > 0 ? { maxWidth: design.maxWidth, marginInline: 'auto' } : null),
         }}
       >
+        {/* --- The header the paper gets, and the screen does not -------
+            A printed chart reading 412 is not a fact, it is a fact ABOUT a
+            filter. Print it without the filters and it is a number somebody
+            quotes back at you in six weeks, wrongly. */}
+        <div className="print-header">
+          <p className="text-lg font-semibold text-slate-900">{page?.name || 'Dashboard'}</p>
+          <p className="text-[11px] text-slate-500">
+            {sourceNames.length > 0 && `${sourceNames.join(' · ')} — `}
+            printed {printStamp()}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-700">
+            {printFilters.length === 0 ? (
+              <span className="text-slate-500">No filters applied — the whole dataset.</span>
+            ) : (
+              printFilters.map((f, i) => (
+                <span key={`${f.label}-${i}`}>
+                  {i > 0 && <span className="text-slate-300"> · </span>}
+                  <strong>{f.label}:</strong> {f.value}
+                  {/* A fixed control is one the reader cannot see or clear,
+                      and a drill is one they made by clicking -- both are
+                      easy to forget and both change what the number means. */}
+                  {f.fixed && <span className="text-slate-400"> (fixed)</span>}
+                  {f.drilled && <span className="text-slate-400"> (drill)</span>}
+                </span>
+              ))
+            )}
+          </p>
+        </div>
+
         {/* --- Page header (desktop; mobile gets AppShell's top bar) ----- */}
         <div className="page-chrome hidden flex-wrap items-center justify-between gap-3 lg:flex">
           <div className="min-w-0">
@@ -1845,12 +1940,12 @@ export default function Dashboard() {
               {lastLoaded && ` · updated ${lastLoaded.toLocaleTimeString()}`}
             </p>
           </div>
-          <div className="flex items-center gap-2">{headerActions}</div>
+          <div className="no-print flex items-center gap-2">{headerActions}</div>
         </div>
 
         {/* --- Canvas tabs: this page's sub-canvases ---------------------- */}
         {canvas && (
-          <div className="page-chrome page-chrome-surface flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white/80 p-1 backdrop-blur">
+          <div className="no-print page-chrome page-chrome-surface flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white/80 p-1 backdrop-blur">
             {canvas.tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -1874,7 +1969,7 @@ export default function Dashboard() {
 
         {/* --- Arrange mode banner ---------------------------------------- */}
         {arranging && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-800">
+          <div className="no-print flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-800">
             <ArrowUpDown size={13} />
             <span>
               <strong>Drag the ⣿ handle</strong> to move a widget — that reorders the page for everyone. Every
@@ -1968,7 +2063,7 @@ export default function Dashboard() {
             )}
 
             {editing && isAdmin && (
-              <div className="page-chrome page-chrome-surface flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-2.5 py-2">
+              <div className="no-print page-chrome page-chrome-surface flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-2.5 py-2">
                 {/* Sixteen names tell you nothing about the difference
                     between a combo chart and a stacked one, and the way
                     anybody finds out is by adding both and deleting one. The
@@ -2130,8 +2225,13 @@ export default function Dashboard() {
               </p>
             )}
 
+            {/* The shape of what is coming, rather than the word
+                "Loading". A dashboard's first fetch reads every tab of
+                every sheet the page touches, which is long enough for a
+                grey word centred on white to read as a page that has given
+                up. */}
             {loading && view.widgets.length === 0 && (
-              <div className="card py-10 text-center text-slate-400">Loading…</div>
+              <CanvasSkeleton />
             )}
           </>
         )}
@@ -2145,7 +2245,7 @@ export default function Dashboard() {
         <button
           onClick={() => setHeaderOpen((v) => !v)}
           title={headerOpen ? 'Hide the filters' : 'Filters and buttons, without scrolling back up'}
-          className="page-chrome fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-lg backdrop-blur transition-all hover:border-indigo-300 hover:text-indigo-600"
+          className="no-print page-chrome fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-lg backdrop-blur transition-all hover:border-indigo-300 hover:text-indigo-600"
         >
           <ChevronUp size={13} className={headerOpen ? 'rotate-180' : ''} />
           {headerOpen ? 'Hide filters' : 'Filters'}
@@ -2201,6 +2301,7 @@ export default function Dashboard() {
               )
             }
           >
+            <Suspense fallback={<p className="py-8 text-center text-xs text-slate-400">Opening the editor…</p>}>
             {editTarget.kind === 'widget' && editedWidget && (
               <WidgetsPanel
                 compact
@@ -2247,6 +2348,7 @@ export default function Dashboard() {
                 }}
               />
             )}
+            </Suspense>
           </EditSplit>
         </WorkspaceCtx.Provider>
       )}

@@ -251,7 +251,12 @@ export default function StageKpiPopup({
               <Filter size={11} />
               {isDrilled ? 'Filtering by this' : 'Filter dashboard'}
             </button>
-            <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 hover:text-slate-600">
+            <button
+              onClick={onClose}
+              title="Close"
+              aria-label="Close"
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 hover:text-slate-600"
+            >
               <X size={15} />
             </button>
           </div>

@@ -56,7 +56,12 @@ export default function RowDetailPanel({ open, row, columns, title, editableColu
               {saving && ' · saving…'}
             </p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 hover:text-slate-700">
+          <button
+            onClick={onClose}
+            title="Close"
+            aria-label="Close"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 hover:text-slate-700"
+          >
             <X size={18} />
           </button>
         </div>

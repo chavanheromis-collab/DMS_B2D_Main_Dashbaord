@@ -3,6 +3,7 @@ import { Menu } from 'lucide-react'
 import Sidebar, { SIDEBAR_RAIL, SIDEBAR_WIDTH } from './Sidebar.jsx'
 import { useLocalState } from '../hooks/usePageData'
 import { CLOSE_DELAY, EDGE, OPEN_DELAY, canPeek, contentOffset } from '../lib/sidebarPeek'
+import MessageCenter from './MessageCenter.jsx'
 
 /**
  * The frame every signed-in screen sits in: sidebar on the left, content on
@@ -134,7 +135,13 @@ export default function AppShell({
           <div className="ml-auto flex items-center gap-1.5">{actions}</div>
         </div>
 
-        <main className="app-content">{children}</main>
+        {/* Mounted on the SHELL rather than on a page: a message about the
+            workspace should not vanish because somebody navigated to the
+            admin panel, and the bell has to be reachable from everywhere. */}
+        <main className="app-content">
+          <MessageCenter />
+          {children}
+        </main>
       </div>
     </div>
   )

@@ -304,6 +304,41 @@ export function controlWidth(control) {
   return PRESET_WIDTHS[control?.width] ?? null
 }
 
+/**
+ * How wide the LIST is when a multi-choice control opens.
+ *
+ * A different measurement from the control's own width, and deliberately
+ * so: the button says "Model: 3 selected" and fits in a bar, while the list
+ * behind it holds "SPLENDOR PLUS DRUM BRAKE ALLOY WHEEL" and does not. They
+ * were one hard-coded 256px, which meant every value long enough to matter
+ * arrived with its end cut off -- and a truncated option is one a reader
+ * cannot choose between and one that is not there.
+ *
+ * Unset is that same 256, so nothing already on a page moves.
+ */
+export const DEFAULT_MENU_WIDTH = 256
+export const MIN_MENU_WIDTH = 160
+export const MAX_MENU_WIDTH = 720
+
+export function menuWidth(control) {
+  const px = Number(control?.menuWidth)
+  if (!Number.isFinite(px) || px <= 0) return DEFAULT_MENU_WIDTH
+  return Math.min(MAX_MENU_WIDTH, Math.max(MIN_MENU_WIDTH, Math.round(px)))
+}
+
+/**
+ * ...and never narrower than the control it drops from.
+ *
+ * A 320px button with a 160px list under it reads as a rendering fault
+ * rather than as a choice, so the button's own width is the floor. The cap
+ * still wins over both: a menu wider than most windows is not a menu.
+ */
+export function menuWidthFor(control) {
+  const own = controlWidth(control)
+  const asked = menuWidth(control)
+  return Number.isFinite(own) && own > asked ? Math.min(MAX_MENU_WIDTH, own) : asked
+}
+
 // ---------------------------------------------------------------------
 // Reading a page
 // ---------------------------------------------------------------------

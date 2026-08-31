@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { useAuth } from './context/AuthContext.jsx'
 import { useEntrance, useWorkspace } from './hooks/useWorkspace'
@@ -5,8 +6,23 @@ import Login from './components/Login.jsx'
 import PendingApproval from './components/PendingApproval.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import Dashboard from './pages/Dashboard.jsx'
-import Admin from './pages/Admin.jsx'
 import SplashScreen, { useSplash } from './components/SplashScreen.jsx'
+import { PageErrorBoundary } from './components/ErrorBoundary.jsx'
+import Booting from './components/Booting.jsx'
+
+/**
+ * The admin panel, fetched only when somebody opens it.
+ *
+ * It is the largest thing in the app -- every widget editor, every control
+ * editor, the data-source panel, the user table -- and it was landing in the
+ * bundle that EVERY visitor downloads before seeing a single number, most of
+ * whom are readers who cannot open it at all.
+ *
+ * A route boundary is the natural seam: nothing on a dashboard imports it,
+ * and an admin clicking Admin can afford the fetch that a reader waiting for
+ * their first page cannot.
+ */
+const Admin = lazy(() => import('./pages/Admin.jsx'))
 
 /**
  * Keeps v2 bookmarks working. `/dashboard/PREMIA` was a real URL people had
@@ -18,7 +34,7 @@ function LegacyPageRedirect() {
   const { page: name } = useParams()
   const { pages, loading } = useWorkspace()
 
-  if (loading) return <div className="flex h-screen items-center justify-center text-slate-400">Loading…</div>
+  if (loading) return <Booting label="Finding that page" />
 
   const match = pages.find((p) => p.name === name || p.id === name)
   return <Navigate to={match ? `/d/${match.id}` : '/'} replace />
@@ -39,9 +55,14 @@ export default function App() {
     <>
       {splash.show && <SplashScreen onDone={splash.dismiss} entrance={entrance} />}
       {authLoading ? (
-        <div className="flex h-screen items-center justify-center text-slate-400">Loading…</div>
+        <Booting label="Signing you in" />
       ) : (
-        <AppRoutes />
+        /* The scaffolding a widget boundary cannot reach -- the layout, the
+           control bar, the header. A failure there is the one that produced
+           the white screen, and this at least leaves something on it. */
+        <PageErrorBoundary>
+          <AppRoutes />
+        </PageErrorBoundary>
       )}
     </>
   )
@@ -87,7 +108,9 @@ function AppRoutes() {
         path="/admin"
         element={
           <ProtectedRoute adminOnly>
-            <Admin />
+            <Suspense fallback={<Booting label="Opening the admin panel" />}>
+              <Admin />
+            </Suspense>
           </ProtectedRoute>
         }
       />

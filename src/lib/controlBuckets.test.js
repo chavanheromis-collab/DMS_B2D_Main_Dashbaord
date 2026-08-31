@@ -2,7 +2,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { bucketedCell, bucketedValues, dateBucket } from './dataUtils.js'
-import { controlColumns, controlOptions, optionRows, visibleChips } from './pageControls.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import {
+  DEFAULT_MENU_WIDTH,
+  MAX_MENU_WIDTH,
+  MIN_MENU_WIDTH,
+  controlColumns,
+  controlOptions,
+  menuWidth,
+  menuWidthFor,
+  optionRows,
+  visibleChips,
+} from './pageControls.js'
+
+const ROOT = path.resolve(import.meta.dirname, '..', '..')
 import { applyFilters } from './filterEngine.js'
 
 const ROWS = [
@@ -258,4 +272,65 @@ test('a joined control still narrows with the rest of the page', () => {
     values: { r: 'West' },
   })
   assert.deepEqual(controlOptions(joined, rows), ['West · Ravi', 'West · Sunil'])
+})
+
+// ---------------------------------------------------------------------
+// How wide the list is when a control opens
+// ---------------------------------------------------------------------
+
+test('an untouched control opens exactly as wide as it always did', () => {
+  assert.equal(menuWidth({}), DEFAULT_MENU_WIDTH)
+  assert.equal(menuWidth(undefined), DEFAULT_MENU_WIDTH)
+  assert.equal(menuWidth({ menuWidth: null }), DEFAULT_MENU_WIDTH)
+  assert.equal(DEFAULT_MENU_WIDTH, 256, 'which is the 256 it was hard-coded to')
+})
+
+test('a number typed into the box cannot make a menu nobody can use', () => {
+  assert.equal(menuWidth({ menuWidth: 20 }), MIN_MENU_WIDTH)
+  assert.equal(menuWidth({ menuWidth: 9999 }), MAX_MENU_WIDTH)
+  assert.equal(menuWidth({ menuWidth: 'wide' }), DEFAULT_MENU_WIDTH)
+  assert.equal(menuWidth({ menuWidth: -40 }), DEFAULT_MENU_WIDTH)
+  assert.equal(menuWidth({ menuWidth: 400.6 }), 401, 'and half a pixel is not a width')
+})
+
+test('a menu is never narrower than the control it drops from', () => {
+  // A 320px button with a 160px list under it reads as a rendering fault
+  // rather than as a choice.
+  assert.equal(menuWidthFor({ widthPx: 320 }), 320)
+  assert.equal(menuWidthFor({ widthPx: 320, menuWidth: 180 }), 320)
+  assert.equal(menuWidthFor({ widthPx: 320, menuWidth: 400 }), 400, 'but a wider ask still wins')
+  assert.equal(menuWidthFor({ widthPx: 100 }), DEFAULT_MENU_WIDTH, 'a narrow control does not shrink it')
+  assert.equal(menuWidthFor({}), DEFAULT_MENU_WIDTH)
+})
+
+test('the cap wins over the control too', () => {
+  // A menu wider than most windows is not a menu.
+  assert.equal(menuWidthFor({ widthPx: 1200 }), MAX_MENU_WIDTH)
+})
+
+// --- wiring --------------------------------------------------------------
+
+test('the dropdown is sized by the setting, not by a class', () => {
+  const bar = fs.readFileSync(path.join(ROOT, 'src/components/ControlBar.jsx'), 'utf8')
+  assert.ok(bar.includes('style={{ width: menuWidthFor(control) }}'))
+  assert.ok(!bar.includes('mt-1 w-64 rounded-xl'), 'the hard-coded 256 is gone')
+})
+
+test('a wider menu shows the whole value rather than a longer truncation', () => {
+  // Widening it was asked for so the value could be READ; cutting it off at
+  // the new edge would have missed the point.
+  const bar = fs.readFileSync(path.join(ROOT, 'src/components/ControlBar.jsx'), 'utf8')
+  const at = bar.indexOf('{shown.map((opt) => (')
+  assert.ok(at > 0)
+  const list = bar.slice(at, at + 900)
+  assert.ok(list.includes('<span className="break-words">{opt}</span>'))
+  assert.ok(!list.includes('<span className="truncate">{opt}</span>'))
+})
+
+test('only the control that HAS a list is asked how wide its list is', () => {
+  const panel = fs.readFileSync(path.join(ROOT, 'src/pages/admin/ControlsPanel.jsx'), 'utf8')
+  assert.ok(panel.includes("{control.kind === 'multi' && ("))
+  assert.ok(panel.includes("set({ menuWidth: v === '' ? null : Number(v) })"))
+  const at = panel.indexOf("{control.kind === 'multi' && (")
+  assert.ok(panel.slice(at, at + 900).includes('Open list width (px)'))
 })

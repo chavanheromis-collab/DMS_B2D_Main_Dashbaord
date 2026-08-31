@@ -213,7 +213,7 @@ export default function ArrangeBar({
           anchorTo(e)
           setOpen(true)
         }}
-        className={`absolute -left-1 -top-1 z-20 inline-flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[10px] font-medium tabular-nums shadow-sm backdrop-blur transition-colors ${
+        className={`no-print absolute -left-1 -top-1 z-20 inline-flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[10px] font-medium tabular-nums shadow-sm backdrop-blur transition-colors ${
           pinned
             ? 'border-indigo-300 bg-indigo-50/90 text-indigo-700 hover:bg-indigo-100'
             : 'border-slate-200 bg-white/85 text-slate-500 hover:bg-white'

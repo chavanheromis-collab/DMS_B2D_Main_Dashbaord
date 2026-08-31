@@ -59,6 +59,22 @@ export const WIDGET_TYPES = [
   { value: 'cohort', label: 'Cohort / Retention', icon: '🪜', hint: 'Groups by when they joined, tracked across the periods after' },
 
   // -------------------------------------------------------------------
+  // Relation -- how things sit against each other, not how big they are
+  // -------------------------------------------------------------------
+  {
+    value: 'dumbbell',
+    label: 'Dumbbell / Gap',
+    icon: '⟷',
+    hint: 'Two numbers per category and the distance between them — quoted vs booked, target vs actual',
+  },
+  {
+    value: 'sunburst',
+    label: 'Sunburst Rings',
+    icon: '◎',
+    hint: 'A hierarchy as rings — region, then branch, then model, each wedge as wide as its children',
+  },
+
+  // -------------------------------------------------------------------
   // Distribution -- the shape of a column, not its total
   // -------------------------------------------------------------------
   { value: 'boxplot', label: 'Box Plot / Spread', icon: '📦', hint: 'Median, quartiles and outliers, per group' },

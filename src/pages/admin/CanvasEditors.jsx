@@ -4,6 +4,7 @@ import { CALLOUT_TONES, MEDIA_FITS, NOTE_STYLES } from '../../components/widgets
 import { safeImageUrl } from '../../lib/imageUrl'
 import { plainText } from '../../lib/richText'
 import { Field, Select, TextInput, Toggle } from './ui.jsx'
+import EmojiPicker from './EmojiPicker.jsx'
 
 // =====================================================================
 // Editors for the three widgets that carry no data
@@ -45,7 +46,7 @@ export function NoteEditor({ widget, set }) {
           <TextInput value={widget.title || ''} onChange={(v) => set({ title: v })} placeholder="What this section is" />
         </Field>
         <Field label="Icon" hint="An emoji. Optional.">
-          <TextInput value={widget.icon || ''} onChange={(v) => set({ icon: v })} placeholder="📌" />
+          <EmojiPicker value={widget.icon || ''} onChange={(v) => set({ icon: v })} placeholder="📌" />
         </Field>
         <Field label="Align">
           <Select value={widget.align || 'left'} onChange={(v) => set({ align: v })} options={ALIGNMENTS} />

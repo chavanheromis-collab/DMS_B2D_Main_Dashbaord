@@ -8,6 +8,7 @@ import { backgroundIsSet } from '../../lib/pageBackground'
 import { WIDGET_THEMES } from '../../lib/widgetStyle'
 import { PageIcon } from '../../components/PageIcon.jsx'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
+import EmojiPicker from './EmojiPicker.jsx'
 
 /**
  * Creates and organises the dashboard pages that make up the sidebar.
@@ -297,7 +298,7 @@ export function PageSettings({ page, pages, sources, onSave, onDraft }) {
         </Field>
         <Field label="Icon">
           <div className="flex gap-1">
-            <TextInput value={draft.icon || ''} onChange={(v) => set({ icon: v })} placeholder="📊" className="w-16" />
+            <EmojiPicker value={draft.icon || ''} onChange={(v) => set({ icon: v })} placeholder="📊" className="w-16" />
             <div className="flex flex-wrap gap-0.5">
               {PAGE_ICONS.map((icon) => (
                 <button

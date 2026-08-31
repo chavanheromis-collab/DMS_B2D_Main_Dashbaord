@@ -56,6 +56,7 @@ import { ComboEditor, HeatmapEditor, ScatterEditor, StackedEditor } from './Comp
 import { BulletEditor, MoversEditor, StatGridEditor, WaffleEditor } from './MetricEditors.jsx'
 import { CalendarEditor, CohortEditor, GanttEditor } from './TimeEditors.jsx'
 import { BoxPlotEditor, ProfileEditor, SankeyEditor, WordCloudEditor } from './DistributionEditors.jsx'
+import { DumbbellEditor, SunburstEditor } from './RelationEditors.jsx'
 import { CountdownEditor, MediaEditor, NoteEditor } from './CanvasEditors.jsx'
 import {
   BucketPicker,
@@ -71,6 +72,7 @@ import {
   SortFields,
   ValueColorEditor,
 } from './WidgetEditors.jsx'
+import EmojiPicker from './EmojiPicker.jsx'
 
 // Every widget that reads ONE tab can blend a second one into itself. The
 // pipeline is the exception: each of its stages already picks its own tab,
@@ -78,6 +80,9 @@ import {
 const BLENDABLE = new Set([
   'kpi', 'table', 'chart', 'leaderboard', 'trend', 'pivot', 'gauge',
   'activity', 'scorecard', 'heatmap', 'stacked', 'combo', 'scatter',
+  // They group one tab's rows exactly the way a chart does, so a second
+  // tab's columns are as useful here as anywhere else.
+  'dumbbell', 'sunburst',
 ])
 
 /**
@@ -415,6 +420,10 @@ export default function WidgetsPanel({
               {widget.type === 'gantt' && <GanttEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'cohort' && <CohortEditor widget={widget} cols={cols} set={set} />}
 
+              {/* --- relation -------------------------------------- */}
+              {widget.type === 'dumbbell' && <DumbbellEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'sunburst' && <SunburstEditor widget={widget} cols={cols} set={set} />}
+
               {/* --- distribution ---------------------------------- */}
               {widget.type === 'boxplot' && <BoxPlotEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'sankey' && <SankeyEditor widget={widget} cols={cols} set={set} />}
@@ -670,7 +679,7 @@ function KpiEditor({ widget, cols, tabs, tabHeaders, set }) {
       </Field>
       <div className="grid grid-cols-2 gap-2">
         <Field label="Icon">
-          <TextInput value={widget.icon} onChange={(v) => set({ icon: v })} placeholder="🚗" />
+          <EmojiPicker value={widget.icon} onChange={(v) => set({ icon: v })} placeholder="🚗" />
         </Field>
         <Field label="Colour">
           <input

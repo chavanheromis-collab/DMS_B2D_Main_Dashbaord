@@ -88,7 +88,7 @@ export default function EditSplit({
   const vertical = split.side !== 'bottom'
 
   return createPortal(
-    <div ref={frameRef} className="fixed inset-0 z-[70]">
+    <div ref={frameRef} className="no-print fixed inset-0 z-[70]">
       {/* --- what is being edited ------------------------------------- */}
       <div
         className="absolute overflow-auto bg-slate-100/70"

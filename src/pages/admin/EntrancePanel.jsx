@@ -14,6 +14,7 @@ import { BRAND_NAME, BRAND_TAGLINE } from '../../components/SplashScreen.jsx'
 import { stripUndefined } from '../../lib/firestoreSafe'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, stableEqual } from './ui.jsx'
+import EmojiPicker from './EmojiPicker.jsx'
 
 /**
  * The entrance animation's content: the wordmark, and the campaigns,
@@ -188,7 +189,7 @@ export default function EntrancePanel() {
                   />
                 </Field>
                 <Field label="Icon">
-                  <TextInput value={item.icon} onChange={(v) => setItem({ icon: v })} placeholder="🏆" />
+                  <EmojiPicker value={item.icon} onChange={(v) => setItem({ icon: v })} placeholder="🏆" />
                 </Field>
                 <Field label="Headline" className="md:col-span-2">
                   <TextInput

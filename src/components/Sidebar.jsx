@@ -338,7 +338,7 @@ export default function Sidebar({
       <aside
         onPointerEnter={onPeekEnter}
         onPointerLeave={onPeekLeave}
-        className={`fixed inset-y-0 left-0 z-30 hidden border-r border-slate-200/70 bg-white/85 backdrop-blur-xl transition-[width] duration-200 lg:block ${
+        className={`no-print fixed inset-y-0 left-0 z-30 hidden border-r border-slate-200/70 bg-white/85 backdrop-blur-xl transition-[width] duration-200 lg:block ${
           peeking ? 'shadow-2xl' : ''
         }`}
         // A peek draws at full width without changing the content offset --
@@ -350,7 +350,7 @@ export default function Sidebar({
 
       {/* --- Mobile / tablet: off-canvas drawer -------------------------- */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className="no-print fixed inset-0 z-40 lg:hidden">
           <button
             aria-label="Close navigation"
             onClick={onCloseMobile}

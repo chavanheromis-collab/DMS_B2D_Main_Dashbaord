@@ -287,6 +287,37 @@ export function makeWidget({ type = 'table', tab, name, cols = [], kpiCount = 0 
       height: 280,
       showLegend: true,
     })
+  } else if (type === 'dumbbell') {
+    Object.assign(base, {
+      title: `${name} gap`,
+      groupBy: cols[0] || '',
+      // Two measures, and by default the plainest pair that says anything:
+      // how many rows, against how many have the second column filled.
+      column: null,
+      aggregation: 'count',
+      secondaryColumn: cols[1] || null,
+      secondaryAggregation: 'count_filled',
+      fromLabel: 'All',
+      toLabel: cols[1] || 'Filled',
+      limit: 12,
+      spanSort: 'gap_desc',
+      format: 'comma',
+      height: 300,
+    })
+  } else if (type === 'sunburst') {
+    Object.assign(base, {
+      title: `${name} breakdown`,
+      groupBy: cols[0] || '',
+      groupBy2: cols[1] || '',
+      groupBy3: '',
+      column: null,
+      aggregation: 'count',
+      sort: 'value_desc',
+      showLabels: true,
+      palette: 'default',
+      format: 'comma',
+      height: 320,
+    })
   } else if (type === 'scatter') {
     Object.assign(base, {
       title: `${name} scatter`,
