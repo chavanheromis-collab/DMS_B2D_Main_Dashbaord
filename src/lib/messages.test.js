@@ -23,7 +23,7 @@ import {
   openFor,
   replyDoc,
   toneOf,
-  unreadCount,
+  pendingCount,
   whenText,
   withId,
   DEFAULT_TONE,
@@ -243,10 +243,10 @@ test('the soonest one wins the timer', () => {
 })
 
 test('the bell counts what is unread and not yours', () => {
-  assert.equal(unreadCount([msg()], ME), 1)
-  assert.equal(unreadCount([msg({ readBy: [ME] })], ME), 0)
-  assert.equal(unreadCount([msg({ from: ME })], ME), 0, 'your own is not news to you')
-  assert.equal(unreadCount([msg({ to: [YOU] })], ME), 0)
+  assert.equal(pendingCount([msg()], ME), 1)
+  assert.equal(pendingCount([msg({ readBy: [ME] })], ME), 0)
+  assert.equal(pendingCount([msg({ from: ME })], ME), 0, 'your own is not news to you')
+  assert.equal(pendingCount([msg({ to: [YOU] })], ME), 0)
 })
 
 test('a dismissed message is still unread until it is read', () => {
@@ -362,6 +362,7 @@ const read = (p) =>
 const hook = read('src/hooks/useMessages.js')
 const shell = read('src/components/AppShell.jsx')
 const centre = read('src/components/MessageCenter.jsx')
+const chat = read('src/components/Conversations.jsx')
 
 const messageRule = rules.slice(rules.indexOf('match /messages/'), rules.indexOf('match /dataSources/'))
 
@@ -478,10 +479,23 @@ test('the clock is set for the moment it is due, not polled', () => {
 })
 
 test('a failed send says so', () => {
+  // In the chat's own composer now -- the separate compose form is gone.
+  assert.ok(chat.includes("setFailed(e?.message || 'That could not be sent')"))
+})
+
+test('the old compose form is gone, not left behind', () => {
+  // Two ways to send the same message is two places to fix the next bug in
+  // sending it.
+  assert.ok(!centre.includes('function Composer('))
+  assert.ok(!centre.includes('function Inbox('))
+})
+
+test('a rejected read is surfaced too, and by the centre', () => {
   // A rejected write is almost always a rule, and silence means somebody
-  // believes they sent something they did not.
-  assert.ok(centre.includes("setFailed(e?.message || 'That could not be sent')"))
+  // believes they sent something they did not. The write half is asserted
+  // on the chat's own composer, just above.
   assert.ok(hook.includes("setError(e?.message || 'Messages could not be loaded')"))
+  assert.ok(centre.includes('{error && ('))
 })
 
 test('every tone the picker offers is one the renderer can draw', () => {
@@ -563,13 +577,13 @@ test('an unknown tone still goes away by itself', () => {
   assert.ok(autoHideAfter(null) > 0)
 })
 
-test('the composer opens on a tone that exists', () => {
+test('the chat opens on a tone that exists', () => {
   // It opened on 'note', which is not one: no tone was highlighted, the
   // hint under the picker was blank, and messageDoc normalised it to fyi on
   // the way out -- so the screen and the send disagreed.
   assert.ok(TONES.some((t) => t.value === DEFAULT_TONE))
-  assert.ok(centre.includes('tone: DEFAULT_TONE'))
-  assert.ok(!centre.includes("tone: 'note'"))
+  assert.ok(chat.includes('useState(DEFAULT_TONE)'))
+  assert.ok(!chat.includes("tone: 'note'"))
 })
 
 // ---------------------------------------------------------------------
@@ -599,17 +613,22 @@ test('somebody switched off is not offered the centre at all', () => {
   assert.ok(centre.includes('const mayReceive = canReceiveMessages(userDoc)'))
 })
 
-test('and somebody who may not send is not offered a compose button', () => {
-  assert.ok(centre.includes('maySend'))
-  const header = centre.slice(centre.indexOf('<p className="text-sm font-semibold text-slate-800">Messages</p>'))
-  assert.ok(header.slice(0, 300).includes('{onCompose && ('), 'the New button must be conditional')
-  assert.ok(centre.includes('maySend ? () => { setInboxOpen(false) setComposing(true) } : null'))
+test('and somebody who may not send is offered nothing to send with', () => {
+  // Both ways in: the button that starts a chat, and the box at the foot of
+  // one they are already in.
+  assert.ok(centre.includes('maySend={maySend}'))
+  assert.ok(chat.includes('onStart={maySend ? () => setStarting(true) : null}'))
+  assert.ok(chat.includes('{onStart && ('))
+  assert.ok(
+    chat.includes('{maySend ? ( <div className="border-t border-slate-100 p-2">'),
+    'and no box at the foot of an open chat'
+  )
 })
 
 test('nobody is offered as a recipient who cannot receive', () => {
   // Sending into a hole: it would go, it would be stored, and the sender
   // would never learn it was not delivered.
-  assert.ok(centre.includes('p.id !== me && canReceiveMessages(p)'))
+  assert.ok(chat.includes('p.id !== me && canReceiveMessages(p)'))
 })
 
 test('sending is fenced in the rules, not only in the form', () => {
@@ -695,10 +714,11 @@ test('three at a time, and the rest are counted', () => {
 })
 
 test('the corner is shared, not fought over', () => {
-  // The bell sits there, and the notification offer or the listener error
-  // sits above it. A stack pinned to a fixed offset lands on top of
-  // whichever of those is showing.
-  assert.ok(centre.includes('const cornerTaken = offering || Boolean(error)'))
+  // The bell sits there, and the listener error sits above it. A stack
+  // pinned to a fixed offset lands on top of whichever is showing. (The
+  // permission ask no longer competes for this corner -- it covers the
+  // page.)
+  assert.ok(centre.includes('const cornerTaken = Boolean(error)'))
   assert.ok(stack.includes("cornerTaken ? 'bottom-28' : 'bottom-20'"))
 })
 
@@ -745,4 +765,56 @@ test('what never hides by itself can still be put down', () => {
   // message owed; the nag brings it back.
   assert.ok(toast.includes('{!life && ('))
   assert.ok(toast.includes('Later'))
+})
+
+// ---------------------------------------------------------------------
+// The number on the bell
+// ---------------------------------------------------------------------
+
+test('a question you have read is still waiting on you', () => {
+  // Counting only unread makes the badge vanish the moment somebody glances
+  // at a question -- which is exactly when it starts being owed.
+  const read = msg({ tone: 'ask', readBy: [ME] })
+  assert.equal(pendingCount([read], ME), 1)
+})
+
+test('answering it is what clears it', () => {
+  const answered = msg({
+    tone: 'ask',
+    readBy: [ME],
+    replies: [{ from: ME, name: 'Me', text: 'done', at: '2026-08-20T11:00:00.000Z' }],
+  })
+  assert.equal(pendingCount([answered], ME), 0)
+})
+
+test('one message waiting two ways is still one', () => {
+  // Unread AND unanswered. Counted per message, or the badge says 2 for a
+  // single question.
+  assert.equal(pendingCount([msg({ tone: 'ask' })], ME), 1)
+})
+
+test('a notice you have read is not waiting on anything', () => {
+  assert.equal(pendingCount([msg({ tone: 'fyi', readBy: [ME] })], ME), 0)
+  assert.equal(pendingCount([msg({ tone: 'seen', readBy: [ME] })], ME), 0)
+})
+
+test('your own question is not waiting on you', () => {
+  assert.equal(pendingCount([msg({ tone: 'ask', from: ME })], ME), 0)
+})
+
+test('nothing at all counts nothing', () => {
+  assert.equal(pendingCount(null, ME), 0)
+  assert.equal(pendingCount([msg()], ''), 0)
+})
+
+test('the bell and the tab title show one number, from one place', () => {
+  // Two counts of "how many" that can disagree is somebody seeing 3 in the
+  // tab and 1 on the bell.
+  assert.ok(centre.includes('const unread = useMemo(() => pendingCount(messages, uid), [messages, uid])'))
+  assert.ok(centre.includes('document.title = titleWithBadge(unread)'))
+  // With the condition. The label survives the branch around it being
+  // wired to `false`, and then no badge is drawn at all.
+  assert.ok(centre.includes('{unread > 0 && ('), 'the badge must actually be drawn')
+  assert.ok(centre.includes('{unread > 9 ? \'9+\' : unread}'), 'and show the number itself')
+  assert.ok(!centre.includes('unreadCount('), 'one counter, not two')
 })

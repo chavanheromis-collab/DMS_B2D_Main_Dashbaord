@@ -281,8 +281,22 @@ export function nextNagIn(messages, uid, snoozed = {}, now = Date.now()) {
 }
 
 /** How many are waiting, for the bell. */
-export function unreadCount(messages, uid) {
-  return (messages || []).filter((m) => addressedTo(m, uid) && m.from !== uid && !isRead(m, uid)).length
+/**
+ * What is waiting on you, as a number for the bell.
+ *
+ * PENDING, not unread. Two different things are waiting:
+ *
+ *   something you have not opened, and
+ *   a question you HAVE opened and not answered.
+ *
+ * Counting only the first makes the badge disappear the moment somebody
+ * glances at a question -- which is precisely when it starts being owed.
+ * Counted per message, so one that is both is one, not two.
+ */
+export function pendingCount(messages, uid) {
+  return (messages || []).filter(
+    (m) => addressedTo(m, uid) && m.from !== uid && (!isRead(m, uid) || needsReplyFrom(m, uid))
+  ).length
 }
 
 /**

@@ -180,10 +180,15 @@ service cloud.firestore {
     //   by another -- which, on a note colleagues make decisions from, is the
     //   whole game.
     //
-    //   YOU CANNOT TOUCH WHAT IS ALREADY THERE. An update may add exactly one
-    //   remark or take away exactly one of your own, and nothing else moves.
-    //   A remark somebody has already acted on must not quietly become a
-    //   different sentence, and nobody deletes anybody else's words.
+    //   YOU CHANGE ONLY YOUR OWN, AND ONLY THE WORDS. An update may add one
+    //   remark, take away one of your own, or reword one of your own -- and
+    //   nothing else moves. A reworded remark must keep its author and the
+    //   moment it was first written, or "edit" becomes a way to put words in
+    //   somebody else's mouth or to make a remark look older than the thing
+    //   it is about. It must also arrive carrying `editedAt`: a remark
+    //   colleagues have already acted on quietly becoming a different
+    //   sentence is the hazard; one that says it was changed is a
+    //   correction.
     //
     // Both are checked by set DIFFERENCE rather than by counting: `hasAll`
     // alone would prove a list did not shrink while saying nothing about
@@ -222,7 +227,18 @@ service cloud.firestore {
           // Added one of my own, and took nothing away.
           (added().size() == 1 && added()[0].by == request.auth.uid && gone().size() == 0) ||
           // Or took away one of my own, and added nothing.
-          (gone().size() == 1 && gone()[0].by == request.auth.uid && added().size() == 0)
+          (gone().size() == 1 && gone()[0].by == request.auth.uid && added().size() == 0) ||
+          // Or reworded one of my own: one out, one in, and the one that
+          // came in is the SAME REMARK -- same author, same name against it,
+          // same moment it was first written -- now stamped as edited.
+          (
+            added().size() == 1 && gone().size() == 1 &&
+            gone()[0].by == request.auth.uid &&
+            added()[0].by == gone()[0].by &&
+            added()[0].byName == gone()[0].byName &&
+            added()[0].at == gone()[0].at &&
+            'editedAt' in added()[0]
+          )
         );
 
       // Sweeping up a whole note is an admin's job. One person deleting the

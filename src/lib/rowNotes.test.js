@@ -4,10 +4,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   MAX_REMARK,
+  authorTooltip,
+  editProblem,
+  editedRemark,
+  editedTooltip,
   countLabel,
   exactWhen,
-  hash32,
-  initialsOf,
+  isEdited,
   isMine,
   latestSummary,
   noteDoc,
@@ -19,8 +22,8 @@ import {
   remarkProblem,
   remarksOf,
   rowKeyOf,
-  tintFor,
 } from './rowNotes.js'
+import { hash32 } from './avatar.js'
 
 const ME = 'u_me'
 const BOSS = 'u_boss'
@@ -82,6 +85,11 @@ test('an id with no scope is no id', () => {
 // The id itself
 // ---------------------------------------------------------------------
 
+test('the id hash is stable, or every remark moves note on the next deploy', () => {
+  assert.equal(noteId('s::T', 'D-1042'), noteId('s::T', 'D-1042'))
+  assert.equal(hash32('D-1042'), hash32('D-1042'))
+})
+
 test('keys that clean up the same way still get different notes', () => {
   // "A/B" and "A_B" both sanitise to "A_B". Two records sharing one note is
   // the failure nobody would think to look for, so the hash is taken over
@@ -107,14 +115,6 @@ test('an id is legal wherever a sheet value is not', () => {
 test('a very long key still produces a workable id', () => {
   const id = noteId('src_a::MASTER', 'x'.repeat(5000))
   assert.ok(id.length < 200)
-})
-
-test('the hash is stable and spread', () => {
-  // Stable, or every remark moves to a new note on the next deploy.
-  assert.equal(hash32('D-1042'), hash32('D-1042'))
-  const seen = new Set()
-  for (let i = 0; i < 500; i += 1) seen.add(hash32(`D-${i}`))
-  assert.equal(seen.size, 500)
 })
 
 // ---------------------------------------------------------------------
@@ -213,32 +213,36 @@ test('only the author owns a remark', () => {
 // Reading it at a glance
 // ---------------------------------------------------------------------
 
-test('initials, from whatever there is', () => {
-  assert.equal(initialsOf('Ravi Kumar'), 'RK')
-  assert.equal(initialsOf('Ravi Shankar Kumar'), 'RK', 'first and last, not first two')
-  assert.equal(initialsOf('ravi'), 'R')
-  assert.equal(initialsOf('  '), '?')
-  assert.equal(initialsOf(undefined), '?')
-})
-
-test('the same person is the same colour, every time', () => {
-  // It is what makes a thread skimmable without reading a single name, and
-  // it must not change because somebody else wrote first.
-  // Over MANY people, not one: with eight tints, a random implementation
-  // agrees with itself one time in eight, and a test that catches a bug
-  // seven times in eight is a test that goes green on the run that matters.
-  const people = Array.from({ length: 40 }, (_, i) => `u_${i}`)
-  assert.deepEqual(people.map(tintFor), people.map(tintFor))
-  assert.notDeepEqual(tintFor('u_a'), tintFor('u_zzzz'))
-  assert.ok(tintFor('').bg)
-  assert.ok(tintFor(undefined).fg)
-})
-
 test('the exact moment is always available, not just "2d ago"', () => {
   // A remark is a record. "2d ago" is not a date anybody can quote back.
   assert.ok(exactWhen('2026-08-20T10:00:00.000Z').length > 6)
   assert.equal(exactWhen('nonsense'), '')
   assert.equal(exactWhen(undefined), '')
+})
+
+test('pointing at the picture says who, in full, and exactly when', () => {
+  const NL = String.fromCharCode(10)
+  const tip = authorTooltip(remark({ byName: 'Ravi Kumar', at: '2026-08-20T10:00:00.000Z' }))
+  const [who, when] = tip.split(NL)
+  assert.equal(who, 'Ravi Kumar')
+  // The exact moment, not "2d ago" -- a remark is a record, and the avatar
+  // is what people point at when they ask who wrote this and when.
+  assert.equal(when, exactWhen('2026-08-20T10:00:00.000Z'))
+  assert.ok(when.length > 6)
+})
+
+test('the full name even on your own, where the line above says only "You"', () => {
+  // This is the one place the author's real name appears on their own
+  // remark, which is most of the reason to hover it at all.
+  assert.ok(authorTooltip(remark({ byName: 'Asha Patil', by: ME })).startsWith('Asha Patil'))
+})
+
+test('a nameless or undated remark still says something', () => {
+  const NL = String.fromCharCode(10)
+  assert.equal(authorTooltip({ byName: '', at: 'nonsense' }), 'Someone')
+  assert.equal(authorTooltip(undefined), 'Someone')
+  assert.equal(authorTooltip({ byName: '  ' }), 'Someone', 'and whitespace is not a name')
+  assert.ok(!authorTooltip({ byName: 'Asha', at: 'nonsense' }).includes(NL), 'no dangling separator')
 })
 
 test('the tooltip shows the newest remark, which is the one worth knowing', () => {
@@ -302,7 +306,11 @@ test('you cannot write a remark signed by somebody else', () => {
 })
 
 test('and you cannot delete anybody else’s', () => {
-  assert.ok(noteRule.includes('gone()[0].by == request.auth.uid'))
+  // The whole delete branch: the edit branch says the same words, so a bare
+  // search for them is satisfied with the deletion rule unguarded.
+  assert.ok(
+    noteRule.includes("(gone().size() == 1 && gone()[0].by == request.auth.uid && added().size() == 0)")
+  )
 })
 
 test('the difference is taken both ways, not counted', () => {
@@ -453,10 +461,14 @@ test('scrolling inside the note does not close the note', () => {
 })
 
 test('the box is focused and Enter saves', () => {
-  // The button was pressed to write something.
+  // The button was pressed to write something. Asserted on the COMPOSER at
+  // the foot of the panel: `EditBox` carries the same Enter handling, so a
+  // bare search of the file passes with this one's deleted.
+  const composer = popover.slice(popover.indexOf('border-t border-slate-100 bg-slate-50/70'))
+  assert.ok(composer.length > 0)
   assert.ok(popover.includes('useEffect(() => { boxRef.current?.focus() }, [])'), 'on mount, not only after a save')
-  assert.ok(popover.includes("if (e.key === 'Enter' && !e.shiftKey)"), 'and Shift+Enter is a new line')
-  assert.ok(popover.includes('e.preventDefault()'))
+  assert.ok(composer.includes("if (e.key === 'Enter' && !e.shiftKey)"), 'and Shift+Enter is a new line')
+  assert.ok(composer.includes('e.preventDefault()'))
 })
 
 test('a failed write is said, not swallowed', () => {
@@ -469,9 +481,23 @@ test('a remark is never printed onto a report', () => {
   assert.ok(popover.includes('no-print'))
 })
 
-test('the delete button is offered only on your own', () => {
-  assert.ok(popover.includes('{mine && ('))
+test('the picture is what you point at to see who and when', () => {
+  assert.ok(popover.includes('title={authorTooltip(r)}'))
+  // A native tooltip, because the thread SCROLLS -- and a container that
+  // scrolls clips both axes, so a styled bubble drawn inside it would be cut
+  // off on the first and last remarks, which are the ones people reach for.
+  assert.ok(popover.includes('cursor-help'), 'and it looks hoverable')
+  // The DIV, not the querySelector that finds it -- `data-thread` appears
+  // in both, and the first one is the string in the scroll effect.
+  const thread = popover.slice(popover.indexOf('data-thread className'))
+  assert.ok(thread.slice(0, 120).includes('overflow-y-auto'), 'the clipping this avoids')
+})
+
+test('edit and delete are offered only on your own', () => {
+  assert.ok(popover.includes('{mine && !editing && ('))
   assert.ok(popover.includes('isMine(r, uid)'))
+  assert.ok(popover.includes('aria-label="Edit this remark"'))
+  assert.ok(popover.includes('aria-label="Delete this remark"'))
 })
 
 test('the admin has the switch, and a column to attach remarks to', () => {
@@ -487,4 +513,163 @@ test('and is told what no column costs, where the decision is made', () => {
 
 test('the note is headed by whatever identifies the record', () => {
   assert.ok(table.includes('const noteTitleColumn = noteKeyColumn || titleColumn'))
+})
+
+// ---------------------------------------------------------------------
+// Editing your own
+// ---------------------------------------------------------------------
+
+test('an edit changes the words and nothing else', () => {
+  // "Edit" must not become a way to put your words in somebody else's
+  // mouth, or to make a remark look older than the thing it is about.
+  const original = remark({ by: ME, byName: 'Asha', at: '2026-08-20T10:00:00.000Z' })
+  const next = editedRemark(original, '  actually the 15th  ', new Date('2026-08-22T09:00:00.000Z'))
+  assert.equal(next.text, 'actually the 15th')
+  assert.equal(next.by, original.by, 'the author is carried over')
+  assert.equal(next.byName, original.byName, 'and the name against it')
+  assert.equal(next.at, original.at, 'and the moment it was first written')
+  assert.equal(next.editedAt, '2026-08-22T09:00:00.000Z')
+})
+
+test('an edit is trimmed and capped like anything else written', () => {
+  assert.equal(editedRemark(remark(), 'x'.repeat(900)).text.length, MAX_REMARK)
+})
+
+test('an edit says it happened', () => {
+  // A remark colleagues have already acted on quietly becoming a different
+  // sentence is the hazard. One that says it was changed is a correction.
+  assert.equal(isEdited(remark()), false)
+  assert.equal(isEdited(editedRemark(remark(), 'new words')), true)
+  assert.equal(isEdited({ editedAt: 'nonsense' }), false, 'a broken stamp is not a claim')
+  assert.equal(isEdited(undefined), false)
+})
+
+test('and when', () => {
+  const tip = editedTooltip(editedRemark(remark(), 'new', new Date('2026-08-22T09:00:00.000Z')))
+  assert.ok(tip.startsWith('Edited '))
+  assert.ok(tip.includes(exactWhen('2026-08-22T09:00:00.000Z')))
+  assert.equal(editedTooltip(remark()), '', 'nothing to say about an unedited one')
+})
+
+test('the same words back is not an edit', () => {
+  // Saving it would stamp `editedAt` on a remark nobody changed, which is
+  // the marker crying wolf.
+  const original = remark({ text: 'postponed to the 14th' })
+  assert.ok(editProblem(original, 'postponed to the 14th'))
+  assert.ok(editProblem(original, '  postponed to the 14th  '), 'and whitespace is not a change')
+  assert.equal(editProblem(original, 'postponed to the 15th'), '')
+})
+
+test('an edit is refused on the same grounds as a new remark', () => {
+  assert.ok(editProblem(remark(), ''))
+  assert.ok(editProblem(remark(), 'x'.repeat(MAX_REMARK + 1)).includes(String(MAX_REMARK)))
+})
+
+// ---------------------------------------------------------------------
+// The rules, for editing
+// ---------------------------------------------------------------------
+
+test('a reworded remark keeps its author', () => {
+  assert.ok(noteRule.includes('added()[0].by == gone()[0].by'))
+  assert.ok(noteRule.includes('gone()[0].by == request.auth.uid'))
+})
+
+test('...and the name against it, so an edit cannot re-sign it', () => {
+  assert.ok(noteRule.includes('added()[0].byName == gone()[0].byName'))
+})
+
+test('...and the moment it was first written, so it cannot be re-dated', () => {
+  // Without this, one out and one in is just a delete and an unrelated add
+  // wearing a disguise -- which is how somebody deletes their own remark and
+  // replaces it with a different one dated to last week.
+  assert.ok(noteRule.includes('added()[0].at == gone()[0].at'))
+})
+
+test('and it must arrive stamped as edited', () => {
+  assert.ok(noteRule.includes("'editedAt' in added()[0]"))
+})
+
+test('an edit is one out and one in, in the same write', () => {
+  assert.ok(noteRule.includes('added().size() == 1 && gone().size() == 1'))
+})
+
+// ---------------------------------------------------------------------
+// Wiring an edit
+// ---------------------------------------------------------------------
+
+test('an edit is a transaction, because it has to send the whole list', () => {
+  // `arrayUnion` and `arrayRemove` are transforms on the same field and
+  // Firestore will not apply two in one write. A plain get-then-set would
+  // discard whatever somebody else added in between; a transaction re-reads
+  // and retries.
+  const fn = hook.slice(hook.indexOf('const editRemark'), hook.indexOf('return { addRemark'))
+  assert.ok(fn.length > 0)
+  assert.ok(fn.includes('runTransaction(db, async (tx) =>'))
+  assert.ok(fn.includes('await tx.get(ref)'))
+  assert.ok(fn.includes('tx.update(ref, { remarks: updated })'))
+})
+
+test('an edit finds its remark by author, moment and words', () => {
+  // An identical sentence written by somebody else at a different moment is
+  // a different remark and must be left alone.
+  const fn = hook.slice(hook.indexOf('const editRemark'), hook.indexOf('return { addRemark'))
+  assert.ok(fn.includes('r.by === remark.by && r.at === remark.at && r.text === remark.text'))
+})
+
+test('editing something already gone says so rather than recreating it', () => {
+  const fn = hook.slice(hook.indexOf('const editRemark'), hook.indexOf('return { addRemark'))
+  assert.ok(fn.includes("if (!snap.exists()) throw new Error('That remark is no longer there')"))
+  assert.ok(fn.includes("if (at === -1) throw new Error('That remark is no longer there')"))
+})
+
+test('the table hands the panel a way to edit', () => {
+  assert.ok(table.includes('onEdit={(remark, text) =>'))
+  assert.ok(table.includes('editRemark(noteIdFor(noteScope, noteOpen.row, noteKeyColumn), remark, text)'))
+})
+
+test('a remark is edited where it sits, not in the box at the bottom', () => {
+  // An edit is a correction to something with a position in the
+  // conversation; moving it to the end would lose what it was answering.
+  assert.ok(popover.includes('{editing ? ( <EditBox'))
+  assert.ok(popover.includes('function EditBox('))
+})
+
+test('the remark being edited is tracked by its moment, not its position', () => {
+  // An index would follow the wrong remark the instant somebody else's
+  // arrives and the thread re-sorts underneath it.
+  assert.ok(popover.includes('const [editingAt, setEditingAt] = useState(null)'))
+  assert.ok(popover.includes('const editing = mine && editingAt === r.at'))
+})
+
+test('escape cancels the edit without closing the whole note', () => {
+  // The panel has its own Escape listener on the document; without stopping
+  // the event, one keystroke would cancel the edit AND shut the note.
+  const box = popover.slice(popover.indexOf('function EditBox('), popover.indexOf('export default function'))
+  assert.ok(box.includes("if (e.key === 'Escape') { e.stopPropagation() onCancel() }"))
+})
+
+test('the edit box opens with the cursor at the end, not selecting everything', () => {
+  // An edit is usually a few words added. Select-all means one keystroke
+  // destroys the lot.
+  const box = popover.slice(popover.indexOf('function EditBox('), popover.indexOf('export default function'))
+  assert.ok(box.includes('box.setSelectionRange(box.value.length, box.value.length)'))
+  assert.ok(box.includes('box.focus()'))
+})
+
+test('Enter saves an edit, Shift+Enter is a new line', () => {
+  const box = popover.slice(popover.indexOf('function EditBox('), popover.indexOf('export default function'))
+  assert.ok(box.includes("if (e.key === 'Enter' && !e.shiftKey)"))
+  assert.ok(box.includes('e.preventDefault()'))
+})
+
+test('an unchanged edit cannot be saved, and says why', () => {
+  const box = popover.slice(popover.indexOf('function EditBox('), popover.indexOf('export default function'))
+  assert.ok(box.includes('const problem = editProblem(remark, text)'))
+  assert.ok(box.includes('disabled={Boolean(problem) || saving}'))
+  assert.ok(box.includes("{problem || 'Enter to save'}"), 'the reason is shown, not just a dead button')
+})
+
+test('an edited remark is marked as such in the thread', () => {
+  assert.ok(popover.includes('{isEdited(r) && ('))
+  assert.ok(popover.includes('title={editedTooltip(r)}'))
 })

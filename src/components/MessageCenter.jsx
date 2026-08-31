@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Bell, BellRing, Check, CornerUpLeft, Eye, Megaphone, Minus, Send, Trash2, X } from 'lucide-react'
 import {
   AUDIENCES,
@@ -16,13 +16,16 @@ import {
   needsReplyFrom,
   nextNagIn,
   openFor,
+  pendingCount,
   toneOf,
-  unreadCount,
   whenText,
 } from '../lib/messages'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useMessageActions, useMessages, usePeople } from '../hooks/useMessages'
+import Conversations from './Conversations.jsx'
+import { draftFor } from '../lib/conversations'
 import {
+  askIsDue,
   askPermission,
   pageIsVisible,
   pendingNotifications,
@@ -69,10 +72,9 @@ const styleFor = (tone) => TONE_STYLE[tone] || TONE_STYLE.fyi
 export default function MessageCenter() {
   const { userDoc } = useAuth()
   const { messages, error } = useMessages()
-  const { markRead, dismiss, reply, unsend, sender } = useMessageActions()
+  const { send, markRead, dismiss, reply, unsend, sender } = useMessageActions()
   const { people, byId } = usePeople()
 
-  const [composing, setComposing] = useState(false)
   const [inboxOpen, setInboxOpen] = useState(false)
 
   /**
@@ -105,6 +107,25 @@ export default function MessageCenter() {
   const mayReceive = canReceiveMessages(userDoc)
   const maySend = canSendMessages(userDoc)
 
+  /**
+   * Typing into a conversation.
+   *
+   * IT MIGHT BE AN ANSWER. If the newest thing in this chat is a question
+   * somebody asked you and you have not answered it, what you type is the
+   * answer -- which is what closes it and stops it covering the page again
+   * five minutes later. In a chat nobody presses "Reply"; they type. So
+   * typing has to count, or every answer would leave its question open.
+   *
+   * Otherwise it is a new message to the same people.
+   */
+  const sendInChat = useCallback(
+    ({ conversationId, text, tone, replyTo }) => {
+      if (replyTo) return reply(replyTo, text)
+      return send({ ...draftFor(conversationId, tone), body: text })
+    },
+    [reply, send]
+  )
+
   const open = useMemo(() => openFor(messages, uid), [messages, uid])
 
   /**
@@ -122,7 +143,10 @@ export default function MessageCenter() {
     [open, hidden, blocking],
   )
   const toasts = useMemo(() => pending.slice(0, 3), [pending])
-  const unread = useMemo(() => unreadCount(messages, uid), [messages, uid])
+  // What the bell shows and what the tab title shows are one number, from
+   // one place: two counts of "how many" that can disagree is somebody
+   // seeing 3 in the tab and 1 on the bell.
+  const unread = useMemo(() => pendingCount(messages, uid), [messages, uid])
 
   /**
    * A timer that fires when the next minimised message is due back.
@@ -146,6 +170,18 @@ export default function MessageCenter() {
   const [visible, setVisible] = useState(() => pageIsVisible())
   const [permission, setPermission] = useState(() => permissionState())
   const notified = useRef(new Set())
+  // Put off, not dismissed. Kept per browser rather than in the database:
+  // permission IS per browser, so "not now" on the office desktop should not
+  // silence the ask on somebody's laptop.
+  const [deferredAt, setDeferredAt] = useState(() => {
+    try {
+      return Number(window.localStorage.getItem(ASK_KEY)) || 0
+    } catch {
+      // A private window, or site data switched off. Asking is the safe
+      // side of that: the worst case is one prompt too many.
+      return 0
+    }
+  })
 
   useEffect(() => {
     const check = () => setVisible(pageIsVisible())
@@ -168,9 +204,11 @@ export default function MessageCenter() {
       // that wants a service worker, and retrying it on every snapshot for
       // the rest of the session would be a loop nobody can see.
       notified.current.add(m.id)
-      raise(m, toneOf(m), () => setInboxOpen(true))
+      // The context is what lets a notification say WHERE it came from and
+      // show the sender's face -- see lib/notify.js.
+      raise(m, toneOf(m), () => setInboxOpen(true), { uid, usersById: byId })
     }
-  }, [messages, uid, visible, permission])
+  }, [messages, uid, visible, permission, byId])
 
   // The count in the tab title. No permission, survives a denied prompt, and
   // it is what somebody actually sees glancing along a row of tabs.
@@ -187,16 +225,16 @@ export default function MessageCenter() {
   // listener error above it, and the toasts above those. The first two are
   // a fixed height each, so the stack starts higher when one of them is
   // there rather than sitting on top of it.
-  const offering = shouldOfferNotifications(permission, messages.length > 0)
-  const cornerTaken = offering || Boolean(error)
+  const asking = askIsDue(permission, deferredAt, now)
+  const cornerTaken = Boolean(error)
 
   return (
     <>
       {/* --- the bell, always reachable ----------------------------- */}
       <button
         onClick={() => setInboxOpen(true)}
-        title={unread > 0 ? `${unread} unread` : 'Messages'}
-        aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'}
+        title={unread > 0 ? `${unread} waiting` : 'Messages'}
+        aria-label={unread > 0 ? `Messages, ${unread} waiting` : 'Messages'}
         className="no-print fixed bottom-4 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-600 shadow-lg backdrop-blur transition-colors hover:border-indigo-300 hover:text-indigo-600"
       >
         <Bell size={17} />
@@ -207,17 +245,24 @@ export default function MessageCenter() {
         )}
       </button>
 
-      {/* Asked for by a button, after something has actually arrived --
-          never on page load. A denied prompt is permanent, and a prompt
-          nobody understands gets denied. */}
-      {offering && (
-        <button
-          onClick={async () => setPermission(await askPermission())}
-          className="no-print fixed bottom-16 right-4 z-40 flex max-w-[15rem] items-center gap-1.5 rounded-lg border border-indigo-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-indigo-700 shadow-lg backdrop-blur hover:bg-indigo-50"
-        >
-          <BellRing size={13} className="shrink-0" />
-          Get these when the tab is closed
-        </button>
+      {/* Asked on every session until it is settled, because a message
+          that only arrives if the right tab happens to be open is a message
+          that does not arrive. The browser's own prompt is still raised from
+          the CLICK: Safari and everything on iOS refuse it without a
+          gesture, so asking on load is how you get no prompt at all. */}
+      {asking && (
+        <PermissionAsk
+          onAllow={async () => setPermission(await askPermission())}
+          onLater={() => {
+            const now = Date.now()
+            setDeferredAt(now)
+            try {
+              window.localStorage.setItem(ASK_KEY, String(now))
+            } catch {
+              // Nothing to do. It will ask again sooner than it meant to.
+            }
+          }}
+        />
       )}
 
       {error && (
@@ -278,27 +323,70 @@ export default function MessageCenter() {
       )}
 
       {inboxOpen && (
-        <Inbox
-          messages={inboxFor(messages, uid)}
+        <Conversations
+          messages={messages}
           uid={uid}
-          people={byId}
+          people={people}
+          byId={byId}
+          maySend={maySend}
           onClose={() => setInboxOpen(false)}
-          onCompose={
-            maySend
-              ? () => {
-                  setInboxOpen(false)
-                  setComposing(true)
-                }
-              : null
-          }
           onRead={markRead}
-          onReply={reply}
+          onSend={sendInChat}
           onUnsend={unsend}
         />
       )}
-
-      {composing && <Composer people={people} me={uid} onClose={() => setComposing(false)} />}
     </>
+  )
+}
+
+/** Where "not now" is remembered. Per browser, because permission is. */
+const ASK_KEY = 'dash_notify_ask_deferred'
+
+/**
+ * The ask.
+ *
+ * It covers the page, because this is not a preference -- it is the
+ * difference between a message arriving and a message sitting in a tab
+ * nobody has open. It says what it is for BEFORE the browser's own prompt,
+ * which is the whole reason people say yes to that prompt rather than
+ * reflexively blocking it.
+ *
+ * "Not now" exists, and means an hour. A prompt with no way out is a prompt
+ * people answer by closing the tab.
+ */
+function PermissionAsk({ onAllow, onLater }) {
+  return (
+    <div className="no-print fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-2xl">
+        <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+          <BellRing size={22} />
+        </span>
+        <p className="text-sm font-semibold text-slate-800">Turn on notifications</p>
+        <p className="mt-1.5 text-[12px] leading-snug text-slate-500">
+          Messages here can need an answer. Without this you only see them while this
+          tab is open — so anything sent while you are in another tab, in a meeting, or
+          with the browser minimised waits until you happen to come back.
+        </p>
+        <div className="mt-4 flex flex-col gap-1.5">
+          <button
+            onClick={onAllow}
+            className="w-full rounded-xl bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            Turn on notifications
+          </button>
+          <button
+            onClick={onLater}
+            className="w-full rounded-xl px-3 py-1.5 text-[12px] text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+          >
+            Not now
+          </button>
+        </div>
+        <p className="mt-3 text-[10px] leading-snug text-slate-300">
+          Your browser will ask next. You can change it any time from the padlock in the
+          address bar.
+        </p>
+      </div>
+    </div>
   )
 }
 
@@ -607,244 +695,6 @@ function Blocking({ message, uid, people, onMinimise, onDismiss, onReply }) {
               } unless you reply.`
             : 'Minimising gives you the dashboard back. It stays in the banner.'}
         </p>
-      </div>
-    </div>
-  )
-}
-
-/** Everything addressed to you, including what you have already put away. */
-function Inbox({ messages, uid, people, onClose, onCompose, onRead, onReply, onUnsend }) {
-  useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose()
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return (
-    <div className="fixed inset-0 z-[70] flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
-          <p className="text-sm font-semibold text-slate-800">Messages</p>
-          <div className="flex items-center gap-1.5">
-            {onCompose && (
-              <button
-                onClick={onCompose}
-                className="flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
-              >
-                <Send size={11} /> New
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              title="Close"
-              aria-label="Close"
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-          {messages.length === 0 && (
-            <p className="py-10 text-center text-xs text-slate-400">
-              Nothing yet.{' '}
-              {onCompose && (
-                <button onClick={onCompose} className="text-indigo-600 underline">
-                  Send the first one.
-                </button>
-              )}
-            </p>
-          )}
-          {messages.map((m) => (
-            <Banner
-              key={m.id}
-              message={m}
-              uid={uid}
-              people={people}
-              onRead={() => onRead(m)}
-              onDismiss={() => {}}
-              onReply={(text) => onReply(m, text)}
-              onUnsend={() => onUnsend(m)}
-            />
-          ))}
-        </div>
-      </aside>
-    </div>
-  )
-}
-
-/**
- * Writing one.
- *
- * The audience comes first, because it is the decision that changes what
- * you write -- "everyone" and "Ravi" are not the same message.
- */
-function Composer({ people, me, onClose }) {
-  const { send } = useMessageActions()
-  const [draft, setDraft] = useState({ audience: 'people', to: [], body: '', tone: DEFAULT_TONE })
-  const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState('')
-  const [query, setQuery] = useState('')
-  const bodyRef = useRef(null)
-
-  useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose()
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
-  const problem = draftProblem(draft)
-
-  // Everybody but you: a message to yourself is a note, and there is nowhere
-  // for it to usefully go.
-  //
-  // And nobody an admin has switched off. Their message centre does not
-  // appear, so listing them is offering to send into a hole -- the sender
-  // would watch it go and never learn it was not delivered.
-  const shown = useMemo(() => {
-    const others = people.filter((p) => p.id !== me && canReceiveMessages(p))
-    const q = query.trim().toLowerCase()
-    if (!q) return others
-    return others.filter((p) => `${p.name || ''} ${p.email || ''} ${p.jobRole || ''}`.toLowerCase().includes(q))
-  }, [people, me, query])
-
-  const toggle = (id) =>
-    set({ to: draft.to.includes(id) ? draft.to.filter((x) => x !== id) : [...draft.to, id] })
-
-  async function submit() {
-    if (problem || busy) return
-    setBusy(true)
-    setFailed('')
-    try {
-      await send(draft)
-      onClose()
-    } catch (e) {
-      // A rejected write is almost always a rule, and silence here means
-      // somebody believes they sent something they did not.
-      setFailed(e?.message || 'That could not be sent')
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-          <p className="text-sm font-semibold text-slate-800">New message</p>
-          <button
-            onClick={onClose}
-            title="Close"
-            aria-label="Close"
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-          <div className="flex flex-wrap gap-1.5">
-            {AUDIENCES.map((a) => (
-              <button
-                key={a.value}
-                onClick={() => set({ audience: a.value })}
-                className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-                  draft.audience === a.value
-                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {a.label}
-              </button>
-            ))}
-          </div>
-
-          {draft.audience === 'people' && (
-            <div className="rounded-xl border border-slate-200 p-2">
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search people…"
-                className="mb-1.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-indigo-400 focus:outline-none"
-              />
-              <div className="max-h-44 space-y-0.5 overflow-y-auto">
-                {shown.length === 0 && <p className="py-4 text-center text-[11px] text-slate-400">Nobody matches</p>}
-                {shown.map((p) => (
-                  <label
-                    key={p.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-slate-50"
-                  >
-                    <input type="checkbox" checked={draft.to.includes(p.id)} onChange={() => toggle(p.id)} />
-                    <span className="min-w-0 flex-1 truncate text-xs text-slate-700">
-                      {p.name || p.email}
-                      {p.jobRole && <span className="ml-1 text-[10px] text-slate-400">· {p.jobRole}</span>}
-                    </span>
-                    {p.role === 'admin' && (
-                      <span className="rounded-full bg-slate-100 px-1.5 text-[9px] font-semibold text-slate-500">
-                        admin
-                      </span>
-                    )}
-                  </label>
-                ))}
-              </div>
-              {draft.to.length > 0 && (
-                <p className="mt-1 text-[10px] text-slate-400">{draft.to.length} selected</p>
-              )}
-            </div>
-          )}
-
-          <div>
-            <textarea
-              ref={bodyRef}
-              autoFocus
-              value={draft.body}
-              onChange={(e) => set({ body: e.target.value.slice(0, MAX_BODY) })}
-              rows={4}
-              placeholder="What do they need to know?"
-              className="w-full resize-y rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none"
-            />
-            <p className="mt-0.5 text-right text-[10px] text-slate-400">
-              {draft.body.length}/{MAX_BODY}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {TONES.map((t) => (
-              <button
-                key={t.value}
-                onClick={() => set({ tone: t.value })}
-                title={t.hint}
-                className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-                  draft.tone === t.value
-                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-[10px] leading-snug text-slate-400">
-            {toneOf(draft).hint}
-          </p>
-
-          {failed && (
-            <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] text-rose-600">{failed}</p>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-3">
-          <p className="text-[11px] text-slate-400">{problem}</p>
-          <button
-            onClick={submit}
-            disabled={!!problem || busy}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
-          >
-            <Send size={12} /> {busy ? 'Sending…' : 'Send'}
-          </button>
-        </div>
       </div>
     </div>
   )

@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { arrayRemove, arrayUnion, collection, doc, onSnapshot, query, setDoc, where } from 'firebase/firestore'
+import {
+  arrayRemove,
+  arrayUnion,
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  runTransaction,
+  setDoc,
+  where,
+} from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
-import { noteDoc, remarkDoc } from '../lib/rowNotes'
+import { editedRemark, noteDoc, remarkDoc } from '../lib/rowNotes'
 
 /**
  * Every note on one tab, live.
@@ -94,5 +104,44 @@ export function useRowNoteActions() {
     []
   )
 
-  return { addRemark, removeRemark, me }
+  /**
+   * Changing the words of one of your own.
+   *
+   * A TRANSACTION, and the only one in this file. `arrayUnion` and
+   * `arrayRemove` are transforms on the same field, and Firestore will not
+   * apply two of them in one write -- so an edit has to send the whole list,
+   * which means reading it first. Doing that with a plain get-then-set would
+   * quietly discard any remark somebody else added in between; a transaction
+   * re-reads and retries instead.
+   *
+   * The replacement keeps `by`, `byName` and `at` (see `editedRemark`), so
+   * this cannot re-sign or re-date anything. The rules check that too --
+   * see firestore.rules.
+   */
+  const editRemark = useCallback(
+    async (id, remark, text) => {
+      if (!id || !remark || !me.uid) return null
+      const next = editedRemark(remark, text)
+      await runTransaction(db, async (tx) => {
+        const ref = doc(db, 'rowNotes', id)
+        const snap = await tx.get(ref)
+        if (!snap.exists()) throw new Error('That remark is no longer there')
+        const list = Array.isArray(snap.data().remarks) ? snap.data().remarks : []
+        // Matched on the whole remark, so an identical sentence written by
+        // somebody else at a different moment is a different object and is
+        // left alone.
+        const at = list.findIndex(
+          (r) => r.by === remark.by && r.at === remark.at && r.text === remark.text
+        )
+        if (at === -1) throw new Error('That remark is no longer there')
+        const updated = [...list]
+        updated[at] = next
+        tx.update(ref, { remarks: updated })
+      })
+      return next
+    },
+    [me]
+  )
+
+  return { addRemark, editRemark, removeRemark, me }
 }

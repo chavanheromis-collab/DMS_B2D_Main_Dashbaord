@@ -117,7 +117,7 @@ export default function TableWidget({
   const showNotes = notesEnabled(widget)
   const noteKeyColumn = widget.noteKeyColumn || ''
   const { notes, error: noteError } = useRowNotes(noteScope, showNotes)
-  const { addRemark, removeRemark, me } = useRowNoteActions()
+  const { addRemark, editRemark, removeRemark, me } = useRowNoteActions()
   const uid = me.uid
 
   const pageSize = widget.pageSize || 25
@@ -714,6 +714,9 @@ export default function TableWidget({
               key: rowKeyOf(noteOpen.row, noteKeyColumn),
               text,
             })
+          }
+          onEdit={(remark, text) =>
+            editRemark(noteIdFor(noteScope, noteOpen.row, noteKeyColumn), remark, text)
           }
           onRemove={(remark) =>
             removeRemark(noteIdFor(noteScope, noteOpen.row, noteKeyColumn), remark)

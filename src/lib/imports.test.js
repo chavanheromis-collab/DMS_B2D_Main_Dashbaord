@@ -58,8 +58,19 @@ function bindings(text) {
   }
   for (const [, name] of text.matchAll(/(?:function|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g)) names.add(name)
   // Destructured bindings: props, options objects, hook results.
+  //
+  // BOTH sides of a colon. In `{ icon: Icon }` the binding introduced is
+  // `Icon` -- the right -- and taking only the left reported every renamed
+  // prop as an undeclared component. A scanner that cries wolf is a scanner
+  // people learn to ignore, which is worse than not having one.
   for (const [, block] of text.matchAll(/\{([^{}]*)\}\s*(?:=|\)|,)/g)) {
-    for (const part of block.split(',')) names.add(part.trim().split(':')[0].split('=')[0].trim())
+    for (const part of block.split(',')) {
+      const [left, right] = part.split(':')
+      for (const half of [left, right]) {
+        const name = String(half || '').split('=')[0].trim().replace(/^\.\.\./, '')
+        if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name)
+      }
+    }
   }
   return names
 }
@@ -154,4 +165,132 @@ test('no hook depends on something declared below it', () => {
   }
 
   assert.deepEqual(Array.from(new Set(problems)), [], `\n${problems.join('\n')}\n`)
+})
+
+// ---------------------------------------------------------------------
+// Hook results that were never destructured
+// ---------------------------------------------------------------------
+// The third way a free identifier has got into this codebase, after a
+// missing import and an unrendered component: a hook returns `{ send,
+// reply, ... }`, a file destructures some of them, and then uses one it
+// left out.
+//
+//     const { markRead, reply } = useMessageActions()
+//     ...
+//     send({ ... })          // ReferenceError, at render, in production
+//
+// Vite compiles it without a murmur -- it is a perfectly good reference to
+// a global that does not exist -- so nothing says a word until the page is
+// open. That is exactly what happened to `send` when the compose form moved
+// into the chat panel and took its own `useMessageActions()` call with it.
+
+/** Every `useX` the project defines, and the names it returns. */
+const hookResults = new Map()
+for (const file of files) {
+  const text = fs.readFileSync(file, 'utf8')
+  for (const [, name, body] of text.matchAll(
+    /export function (use[A-Z][\w$]*)\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/g
+  )) {
+    // The LAST plain `return { a, b, c }` in the body: a hook that returns
+    // early with a different shape is still described by its main one.
+    const returns = [...body.matchAll(/return \{\s*([A-Za-z0-9_$,\s]+?)\s*\}/g)]
+    if (returns.length === 0) continue
+    const names = returns[returns.length - 1][1]
+      .split(',')
+      .map((n) => n.trim())
+      .filter((n) => /^[A-Za-z_$][\w$]*$/.test(n))
+    // Keyed with the file that DEFINES it, so that file is skipped below:
+    // a hook naturally uses the state it returns, and flagging it would be
+    // the scanner reporting every hook in the project.
+    if (names.length) hookResults.set(name, { names: new Set(names), home: file })
+  }
+}
+
+test('the project has hooks whose shape can be checked', () => {
+  // If the regex above ever stops matching, every check below passes by
+  // finding nothing -- which is the quietest way for a scanner to die.
+  assert.ok(hookResults.size >= 3, `only found ${hookResults.size} hooks`)
+  assert.ok(hookResults.get('useMessageActions')?.names.has('send'))
+})
+
+/**
+ * Names one file takes from a hook without destructuring them.
+ *
+ * A function rather than a loop body so it can be aimed at a snippet whose
+ * answer is known -- see the positive control below.
+ */
+function unboundHookNames(text, hooks, self = null) {
+  const clean = text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ')
+  const known = bindings(clean)
+  const out = []
+  let checked = 0
+
+  for (const [hook, { names, home }] of hooks) {
+    if (home && home === self) continue
+    if (!clean.includes(`${hook}(`)) continue
+    checked += 1
+    for (const name of names) {
+      // Bare, and read as a value ANYWHERE -- called, passed, or handed to
+      // JSX as `notes={notes}`. Not `something.send`, not a longer
+      // identifier that happens to start with it, and not `send:` where it
+      // is a key rather than a reference.
+      const used = new RegExp(`(^|[^.\\w$])${name}(?![\\w$:])`, 'm')
+      if (!used.test(clean)) continue
+      if (known.has(name)) continue
+      out.push({ name, hook })
+    }
+  }
+  return { problems: out, checked }
+}
+
+test('the check itself reports a bug it is shown, and stays quiet otherwise', () => {
+  // The positive control. Every other assertion here is about real files
+  // being clean, and "clean" is exactly what a check that has stopped
+  // working also reports. This one fails unless the thing actually detects.
+  const hooks = new Map([['useThing', { names: new Set(['send', 'reply']), home: null }]])
+
+  const bad = 'const { reply } = useThing()\nfunction go() { send({ body: 1 }) }'
+  assert.deepEqual(
+    unboundHookNames(bad, hooks).problems.map((p) => p.name),
+    ['send'],
+    'a name used but not destructured must be reported'
+  )
+
+  const good = 'const { send, reply } = useThing()\nfunction go() { send({ body: 1 }) }'
+  assert.deepEqual(unboundHookNames(good, hooks).problems, [], 'and a correct file must not be')
+
+  const jsx = 'const { reply } = useThing()\nconst el = <Row send={send} />'
+  assert.deepEqual(
+    unboundHookNames(jsx, hooks).problems.map((p) => p.name),
+    ['send'],
+    'a value handed to JSX is a use like any other'
+  )
+
+  const unused = 'const { reply } = useThing()\nconst x = other.send(1)'
+  assert.deepEqual(unboundHookNames(unused, hooks).problems, [], 'a property is not a bare name')
+})
+
+test('every name a file takes from a hook is a name it destructured', () => {
+  // NOTE the limit: `bindings` is file-scoped, not scope-aware, so a name
+  // bound anywhere in the file -- a prop of some other component in it, say
+  // -- counts as bound. It catches the destructure that was forgotten, not
+  // every possible shadowing.
+  const problems = []
+  let checked = 0
+
+  for (const file of files) {
+    const found = unboundHookNames(fs.readFileSync(file, 'utf8'), hookResults, file)
+    checked += found.checked
+    for (const { name, hook } of found.problems) {
+      problems.push(
+        `${path.relative(SRC, file)} uses \`${name}\` from ${hook}() without destructuring it`
+      )
+    }
+  }
+
+  // Widen the skip above by one character and this inspects nothing at all,
+  // then reports success. A scanner that has quietly died is worse than no
+  // scanner, because it is trusted.
+  assert.ok(checked >= 3, `only inspected ${checked} hook call sites`)
+  assert.deepEqual(problems, [])
 })

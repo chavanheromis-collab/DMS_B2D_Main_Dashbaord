@@ -3,7 +3,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  ASK_AGAIN_AFTER,
+  BADGE,
   BASE_TITLE,
+  askIsDue,
   notificationFor,
   pageIsVisible,
   pendingNotifications,
@@ -97,19 +100,59 @@ test('nothing at all is not an error', () => {
 
 test('the sender is the title, because that is what people scan for', () => {
   // "Ravi" tells somebody more than "New message" does.
-  const { title, options } = notificationFor(msg({ fromName: 'Ravi' }), toneOf(msg()))
-  assert.equal(title, 'Ravi')
+  const one = msg({ fromName: 'Ravi', to: [ME], from: BOSS })
+  const { title, options } = notificationFor(one, toneOf(one), { uid: ME, usersById: { [BOSS]: { name: 'Ravi' } } })
+  assert.equal(title, 'Ravi', 'a one-to-one chat is just the person')
   assert.equal(options.body, 'Nashik figures are wrong')
 })
 
+test('and where it came from, when that is not the same thing', () => {
+  // "Ravi" and "Ravi · Everyone" are two different things to be interrupted
+  // by, and only one of them is worth turning to.
+  const all = msg({ fromName: 'Ravi', audience: 'all', to: [] })
+  assert.equal(notificationFor(all, toneOf(all), { uid: ME }).title, 'Ravi · Everyone')
+
+  const group = msg({ fromName: 'Ravi', from: BOSS, to: [ME, 'u_third'] })
+  const people = { [BOSS]: { name: 'Ravi' }, u_third: { name: 'Asha' } }
+  assert.ok(notificationFor(group, toneOf(group), { uid: ME, usersById: people }).title.includes('Asha'))
+})
+
 test('an unnamed sender still has a title', () => {
-  assert.equal(notificationFor(msg({ fromName: '' }), toneOf(msg())).title, 'New message')
+  assert.equal(notificationFor(msg({ fromName: '', to: [ME] }), toneOf(msg()), { uid: ME }).title, 'New message')
   assert.equal(notificationFor(null, null).title, 'New message')
 })
 
-test('the same message replacing itself is one notification, not four', () => {
-  assert.equal(notificationFor(msg(), toneOf(msg())).options.tag, 'm1')
-  assert.equal(notificationFor(msg(), toneOf(msg())).options.renotify, false)
+test('six messages from one person are one stack, not six alerts', () => {
+  // Tagged by CONVERSATION rather than by message: what somebody wants to
+  // be told is "Ravi said something", once, not once per line he typed.
+  const a = msg({ id: 'm1', from: BOSS, to: [ME] })
+  const b = msg({ id: 'm2', from: BOSS, to: [ME] })
+  const tag = (m) => notificationFor(m, toneOf(m), { uid: ME }).options.tag
+  // Truthy first: with no tag at all both are `undefined`, which compares
+  // equal while every message in fact arrives as its own separate alert.
+  assert.ok(tag(a), 'a notification must carry a tag to be grouped by')
+  assert.equal(tag(a), tag(b))
+  assert.equal(notificationFor(a, toneOf(a), { uid: ME }).options.renotify, false)
+})
+
+test('a notification carries a face, not just words', () => {
+  // A desktop notification with no icon is a grey square with the browser's
+  // logo on it, indistinguishable from every other site that notifies.
+  // There is no canvas in a test, so the icon is absent rather than broken.
+  const { options } = notificationFor(msg(), toneOf(msg()), { uid: ME })
+  // The KEY, not its value: there is no canvas in a test, so the icon is
+  // `undefined` whether it was asked for or not.
+  assert.ok('icon' in options, 'a notification must ask for a face')
+  assert.equal(options.icon, undefined, 'and go plain rather than crash without one')
+  assert.ok(String(options.badge).startsWith('data:image/svg+xml'), 'the badge needs no canvas')
+  assert.ok(options.data.conversation)
+})
+
+test('a phone buzzes for what wants an answer and stays still otherwise', () => {
+  const ask = msg({ tone: 'ask' })
+  const fyi = msg({ tone: 'fyi' })
+  assert.ok(Array.isArray(notificationFor(ask, toneOf(ask)).options.vibrate))
+  assert.equal(notificationFor(fyi, toneOf(fyi)).options.vibrate, undefined)
 })
 
 test('the obligation follows the message onto the desktop', () => {
@@ -154,22 +197,37 @@ test('the title it falls back to is the one in the HTML', () => {
 // Asking
 // ---------------------------------------------------------------------
 
-test('the offer appears only when it can still be granted', () => {
-  assert.equal(shouldOfferNotifications('default', true), true)
-  assert.equal(shouldOfferNotifications('granted', true), false)
-  assert.equal(shouldOfferNotifications('unsupported', true), false)
+test('the ask appears whenever it can still be granted', () => {
+  assert.equal(shouldOfferNotifications('default'), true)
+  assert.equal(shouldOfferNotifications('granted'), false)
+  assert.equal(shouldOfferNotifications('unsupported'), false)
 })
 
 test('a denied prompt is never offered again', () => {
   // The browser will not re-prompt, so a button that appears to ask and
   // silently does nothing is worse than no button.
-  assert.equal(shouldOfferNotifications('denied', true), false)
+  assert.equal(shouldOfferNotifications('denied'), false)
 })
 
-test('and never before there is a reason for it', () => {
-  // Asking somebody who has never received a message is asking them to
-  // trust a promise about a thing they have not seen.
-  assert.equal(shouldOfferNotifications('default', false), false)
+test('it is asked without waiting for a first message to justify it', () => {
+  // Messages here carry obligations. One that only arrives if the right tab
+  // happens to be open is a message that does not arrive -- so the ask does
+  // not wait for somebody to miss one first.
+  assert.equal(askIsDue('default', 0, 0), true)
+})
+
+test('"not now" means an hour, not for ever', () => {
+  // A nag inside one sitting is how a prompt gets closed unread; a "no"
+  // that lasts for ever is how the feature quietly stops working.
+  const put_off = 1_000_000
+  assert.equal(askIsDue('default', put_off, put_off + 60_000), false)
+  assert.equal(askIsDue('default', put_off, put_off + ASK_AGAIN_AFTER), true)
+  assert.ok(ASK_AGAIN_AFTER >= 15 * 60 * 1000 && ASK_AGAIN_AFTER <= 24 * 60 * 60 * 1000)
+})
+
+test('and putting it off cannot resurrect a settled answer', () => {
+  assert.equal(askIsDue('granted', 0, Date.now()), false)
+  assert.equal(askIsDue('denied', 0, Date.now()), false)
 })
 
 // ---------------------------------------------------------------------
@@ -189,8 +247,32 @@ const centre = read('src/components/MessageCenter.jsx')
 const lib = read('src/lib/notify.js')
 
 test('permission is asked for by a button, never on load', () => {
-  assert.ok(centre.includes('onClick={async () => setPermission(await askPermission())}'))
+  // Not politeness: Safari and everything on iOS refuse `requestPermission`
+  // without a user gesture, so asking on load is how you get no prompt at
+  // all -- and a prompt somebody chose to open is the one they say yes to.
+  assert.ok(centre.includes('onAllow={async () => setPermission(await askPermission())}'))
   assert.ok(!centre.includes('useEffect(() => { askPermission'))
+})
+
+test('the ask covers the page rather than hiding in a corner', () => {
+  // It is not a preference. It is the difference between a message arriving
+  // and a message sitting in a tab nobody has open.
+  const ask = centre.slice(centre.indexOf('function PermissionAsk('), centre.indexOf('function Toast('))
+  assert.ok(ask.length > 0)
+  assert.ok(ask.includes('fixed inset-0'))
+  assert.ok(ask.includes('Turn on notifications'))
+  assert.ok(ask.includes('Not now'), 'a prompt with no way out is answered by closing the tab')
+})
+
+test('"not now" is remembered per browser, and survives having no storage', () => {
+  // Permission IS per browser, so putting it off on the office desktop must
+  // not silence the ask on somebody's laptop.
+  assert.ok(centre.includes('window.localStorage.setItem(ASK_KEY, String(now))'))
+  assert.ok(centre.includes('window.localStorage.getItem(ASK_KEY)'))
+  // A private window THROWS on access -- both ways. Unguarded, the read
+  // takes the whole message centre down on the first render.
+  assert.ok(centre.includes('try { return Number(window.localStorage.getItem(ASK_KEY)) || 0 } catch'))
+  assert.ok(centre.includes('try { window.localStorage.setItem(ASK_KEY, String(now)) } catch'))
 })
 
 test('the page knows when it is being looked at, three ways', () => {
@@ -239,7 +321,25 @@ test('a failed notification does not take the page with it', () => {
 
 test('clicking one brings the tab forward', () => {
   assert.ok(lib.includes('window.focus()'))
-  assert.ok(centre.includes('raise(m, toneOf(m), () => setInboxOpen(true))'), 'and opens what was clicked')
+  assert.ok(
+    centre.includes('raise(m, toneOf(m), () => setInboxOpen(true), { uid, usersById: byId })'),
+    'and opens what was clicked, knowing who everyone is'
+  )
+})
+
+test('the icon is drawn from the same place the app draws avatars', () => {
+  // Two ideas of what Ravi looks like is one of them being wrong.
+  assert.ok(lib.includes("import { avatarSpec } from './avatar.js'"))
+  assert.ok(lib.includes('avatarSpec(name, person)'))
+})
+
+test('a browser with no canvas gets a plain notification, not a broken one', () => {
+  assert.ok(lib.includes("if (typeof document === 'undefined') return undefined"))
+  assert.ok(lib.includes('if (!ctx) return undefined'))
+})
+
+test('the badge cannot 404 after a deploy', () => {
+  assert.ok(BADGE.startsWith('data:'))
 })
 
 test('nothing is raised without permission, checked at the moment', () => {

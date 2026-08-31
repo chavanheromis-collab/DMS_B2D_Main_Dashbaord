@@ -373,6 +373,62 @@ Anyone an admin has allowed can send one — from the **bell** at the bottom
 right of every screen. To **one person**, **several**, or **everyone with an
 account**.
 
+#### It reads as a chat
+
+The bell opens a list of **conversations**, newest first, and tapping one
+opens the thread: bubbles, yours on the right, theirs on the left, days
+marked between them. Type and press Enter. Text only — no attachments, by
+design.
+
+**Nothing is stored differently for this.** A conversation is *derived* from
+who a message is between, never written down as its own document: a message
+to one person is a chat with that person, to several is the group of those
+people, to everyone is the one channel called Everyone. Deriving it means no
+migration and — more to the point — no second source of truth about who is in
+a conversation, and so no way for the two to disagree.
+
+The id is the **sorted list of the other people in it**, which is what makes
+the chat you see when you write to Ravi the same one he sees when he writes
+back: his id from your side, yours from his. Sorted, because an id that
+depended on the order somebody happened to tick two names would give two
+conversations with exactly the same people in them.
+
+**A reply is just the next bubble.** In the database a reply is still nested
+inside the message it answers — that is what carries the obligation, since
+*should reply* is closed by a reply and not by any later message. It simply
+stops being a shape anybody has to look at.
+
+**Typing is answering.** In a chat nobody presses "Reply", they type. So if
+the newest thing in a conversation is a question somebody asked you and you
+have not answered it, what you type *is* the answer — which is what closes it
+and stops it covering the page again five minutes later. If nothing is
+waiting, the same keystroke starts a new message. Without this rule every
+answer would leave its question open.
+
+The obligation picker sits above the box, always on screen, with the chosen
+one filled in and a line under it saying what it will do. Folded away it was
+a setting nobody knew was there — and what you are asking of somebody is the
+one thing about a message that cannot be inferred from its words.
+
+A conversation with something still owed shows **reply** in red rather than
+an unread count — a question you have read and not answered is a different
+thing from a message you have not opened.
+
+#### The number on the bell
+
+The message icon carries a count — 1, 2, 3 — of what is **waiting on you**,
+capped at 9+ so it stays a badge rather than a width. Waiting, not unread,
+because two different things wait:
+
+- something you have not opened, and
+- a question you **have** opened and not answered.
+
+Counting only the first makes the badge vanish the moment somebody glances at
+a question, which is precisely when it starts being owed. Counted per message,
+so one that is waiting both ways is one and not two. The same number goes in
+the tab title, from the same function — two counts of "how many" that can
+disagree is somebody seeing 3 in the tab and 1 on the bell.
+
 #### What you are asking of them
 
 The sender picks an **obligation**, not a volume. Loudness is a decision about
@@ -518,6 +574,55 @@ a value nobody recognises cannot end up covering everybody's screen.
 because *"where did that go"* is the first thing somebody asks after closing
 one by accident.
 
+#### The ask, and why it is not optional
+
+Notifications are asked for on **every session until the answer is settled**,
+in a panel that covers the page rather than a button in a corner. Messages
+here carry obligations — somebody is waiting — and a message that only arrives
+if the right tab happens to be open is a message that does not arrive.
+
+Two details that decide whether anybody ever says yes:
+
+**The browser's own prompt is still raised from a click.** Not politeness:
+Safari and every browser on iOS refuse `requestPermission` without a user
+gesture, so asking on load is how you get no prompt at all. And a prompt
+somebody chose to open is the one they accept.
+
+**"Not now" exists, and means an hour.** A prompt with no way out is one
+people answer by closing the tab. It is remembered per browser — permission
+*is* per browser, so putting it off on the office desktop must not silence the
+ask on somebody's laptop — and in a private window, where storage throws, it
+simply asks again.
+
+A **denied** answer is never asked again. The browser will not re-prompt, so a
+button that appears to ask and silently does nothing is worse than no button;
+the app says where the switch is instead.
+
+#### What a notification looks like
+
+Not a wall of text. Each one carries:
+
+- **The sender's face** — the same coloured circle with their initials that
+  the app draws, rendered to a canvas. A notification with no icon is a grey
+  square with the browser's logo on it, indistinguishable from every other
+  site that notifies; the avatar makes it recognisable before it is read,
+  which is most of what a notification is for.
+- **Where it came from**, when that adds something. "Ravi" and
+  "Ravi · Everyone" are two different things to be interrupted by, and only
+  one of them is worth turning to. A one-to-one chat is just the name — the
+  conversation *is* the sender, so repeating it would read "Ravi · Ravi".
+- **One stack per conversation.** Tagged by conversation rather than by
+  message, so six lines from one person are one alert that updates, not six.
+- **A buzz only when something is wanted.** `vibrate` for a question,
+  silence for a notice — the obligation, carried out of the app.
+- A monochrome **badge** for the Android status bar, inlined so it costs no
+  request and cannot 404 after a deploy.
+
+The avatar comes from `lib/avatar.js`, which is also what the app and the
+remark threads draw from. Three copies of "which colour is Ravi" is three
+answers to that question, and the day two of them disagree is the day the
+picture stops meaning anything.
+
 #### Reaching somebody who is not looking
 
 A banner is only a banner to somebody who can see it. The person a message is
@@ -592,7 +697,8 @@ An admin switches it on per table — **Widgets → (a table) → Remarks**. Eve
 row then gets a small note button. Anyone who can see the table can open it,
 read what others have written and add their own; each remark carries the
 writer's **name** and the **time**, and several people write on the same
-note. It is a thread, not a field.
+note. It is a thread, not a field. You can reword or delete your own — and
+only your own.
 
 #### What a remark is attached to
 
@@ -623,7 +729,9 @@ A row nobody has written on has a faint outline that does not compete with
 the data. A row that has been talked about is **amber and carries a count**,
 so somebody scanning a table sees which records have a history before opening
 anything. Hovering shows the most recent remark — usually the only one anyone
-wanted. The count caps at 9+, the same rule the message bell follows.
+wanted. Hovering a **round avatar** in the thread gives the author's full name
+and the exact date and time — the full name matters most on your own remarks,
+where the line above says only *"You"*. The count caps at 9+, the same rule the message bell follows.
 
 The note itself is portalled out of the table and positioned fixed, because
 the table scrolls inside a card: a panel drawn in the row would be clipped by
@@ -638,16 +746,37 @@ it does not.
 `firestore.rules` refuses one that does not. On a note colleagues make
 decisions from, a remark signed by the wrong person is the whole game.
 
-**Nothing is edited after it is saved.** Not in the UI, and not in the rules —
-an edit is a delete plus an add, which fails both branches of the update rule.
-A remark somebody has already acted on must not quietly become a different
-sentence.
+**You reword your own, and it says so.** The pencil edits a remark where it
+sits — in place rather than in the box at the bottom, because a correction
+belongs at the point in the conversation it corrects. What an edit may change
+is the **words, and nothing else**: the author, the name against it and the
+moment it was first written are all carried over, so "edit" can never become a
+way to put your words in somebody else's mouth or to make a remark look older
+than the thing it is about. Every edit leaves an **"edited"** mark carrying the
+time it was changed.
+
+That mark is the point. A remark colleagues have already acted on quietly
+becoming a different sentence is the hazard; one that says it was changed, and
+when, is a correction. Saving the same words back is refused rather than
+stamped — the marker crying wolf would teach people to ignore it.
 
 **You delete your own and nobody else's.** The rule takes the set difference
 in *both* directions and looks at the `by` field of what actually changed;
 `hasAll` alone would prove a list had not shrunk while saying nothing about
-whose remark had gone. One remark moves per write, in one direction — an add
-and a delete in the same write would leave the delete unchecked.
+whose remark had gone. A write adds one, removes one of yours, or swaps one of
+yours for a reworded version of itself — never a mixture, because an add and a
+delete in the same write would leave the delete unchecked.
+
+An edit is checked as the *same remark coming back*: same author, same name,
+same original timestamp, now carrying `editedAt`. Without the timestamp
+comparison, "one out and one in" would just be a delete and an unrelated add
+wearing a disguise — which is how somebody replaces their own remark with a
+different one dated to last week.
+
+It is also the one write in the feature that is a **transaction**. `arrayUnion`
+and `arrayRemove` are transforms on the same field and Firestore will not apply
+two in one write, so an edit has to send the whole list — and a plain
+get-then-set would silently discard whatever somebody else added in between.
 
 **A note cannot be moved to another record.** `scope` and `key` are frozen on
 update, or a whole thread could be relocated onto somebody else's row.

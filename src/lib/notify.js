@@ -29,6 +29,9 @@
 //
 // Pure: state in, decisions out. The one impure function is marked.
 
+import { avatarSpec } from './avatar.js'
+import { conversationIdOf, kindOf, titleOf } from './conversations.js'
+
 /** The tab title, when nothing is waiting. */
 export const BASE_TITLE = 'Dealer Dashboard'
 
@@ -44,20 +47,41 @@ export function permissionState() {
 }
 
 /**
- * Should the app offer to turn notifications on?
+ * Should the app ask to turn notifications on?
  *
- * Only when it can still be granted, and only once there is something to
- * justify it. Asking a person who has never received a message to allow
- * notifications is asking them to trust a promise about a thing they have
- * not seen.
+ * Whenever it still can. Messages here carry obligations -- somebody is
+ * waiting on an answer -- and a message that only arrives if the right tab
+ * happens to be open is a message that does not arrive. So it is asked on
+ * every session until it is settled, rather than waiting for a first message
+ * to justify it.
  *
- * `denied` is deliberately not offered. The browser will not re-prompt, so a
- * button that appears to ask and silently does nothing is worse than no
- * button -- the app says where the switch is instead.
+ * `denied` is still not asked. The browser will not re-prompt, so a button
+ * that appears to ask and silently does nothing is worse than no button --
+ * the app says where the switch is instead.
+ *
+ * The prompt itself is still raised from a CLICK. Not politeness: Safari and
+ * every browser on iOS refuse `requestPermission` without a user gesture, so
+ * asking on load is how you get no prompt at all -- and a prompt somebody
+ * chose to open is the one they say yes to.
  */
-export function shouldOfferNotifications(state, everReceived) {
-  return state === 'default' && everReceived
+export function shouldOfferNotifications(state) {
+  return state === 'default'
 }
+
+/** Has the person put the ask off for now? */
+export function askIsDue(state, deferredAt, now = Date.now(), after = ASK_AGAIN_AFTER) {
+  if (!shouldOfferNotifications(state)) return false
+  if (!deferredAt) return true
+  return now - deferredAt >= after
+}
+
+/**
+ * How long "not now" lasts.
+ *
+ * Long enough not to be a nag inside one sitting, short enough that somebody
+ * who put it off in the morning is asked again before the day is out.
+ */
+export const ASK_AGAIN_AFTER = 60 * 60 * 1000
 
 /**
  * The messages that warrant a desktop notification right now.
@@ -97,20 +121,92 @@ function isFor(message, uid) {
  * difference between "should reply" and "can be ignored" carried out of the
  * app and onto the desktop.
  */
-export function notificationFor(message, tone) {
+export function notificationFor(message, tone, { uid = '', usersById = {} } = {}) {
+  const conversation = conversationIdOf(message, uid)
+  const kind = kindOf(conversation)
+  const name = message?.fromName || 'New message'
+  // Only where it ADDS something. In a one-to-one chat the conversation IS
+  // the sender, so appending it gives "Ravi · Ravi" -- or, for somebody with
+  // no name on their account, the nonsense "New message · Someone".
+  const where = kind === 'all' || kind === 'group' ? titleOf(conversation, usersById) : ''
+
   return {
-    title: message?.fromName || 'New message',
+    // In a group or the whole-workspace channel, WHO said it is not enough
+    // -- "Ravi" and "Ravi · Everyone" are two different things to be
+    // interrupted by, and only one of them is worth turning to.
+    title: where ? `${name} · ${where}` : name,
     options: {
       body: String(message?.body || '').slice(0, 240),
-      tag: message?.id,
+      tag: conversation || message?.id,
       requireInteraction: Boolean(tone?.needsReply),
       // Renotify would buzz again for a message already showing. The only
       // thing that changes on a delivered message is its replies.
       renotify: false,
       silent: !tone?.blocks,
+      // Grouped by conversation on the platforms that do that, so six
+      // messages from one person are one stack rather than six alerts.
+      data: { conversation, messageId: message?.id },
+      icon: avatarIcon(name, message?.from),
+      badge: BADGE,
+      // A phone buzzes for something that wants an answer, and stays still
+      // for something that does not.
+      vibrate: tone?.needsReply ? [120, 60, 120] : undefined,
     },
   }
 }
+
+/**
+ * The sender's avatar, as a picture a notification can show.
+ *
+ * A desktop notification with no icon is a grey square with the browser's
+ * logo on it -- indistinguishable from every other site that notifies. The
+ * same coloured circle the app draws makes it recognisable before it is
+ * read, which is most of what a notification is for.
+ *
+ * Drawn on a canvas rather than an SVG data URI because Chrome will not load
+ * SVG into a notification icon. Returns undefined where there is no canvas
+ * (a test, an old browser); the notification is then plain, not broken.
+ */
+export function avatarIcon(name, person, size = 192) {
+  try {
+    if (typeof document === 'undefined') return undefined
+    const spec = avatarSpec(name, person)
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return undefined
+
+    ctx.fillStyle = spec.bg
+    ctx.beginPath()
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2)
+    ctx.fill()
+
+    ctx.fillStyle = spec.fg
+    ctx.font = `bold ${Math.round(size * 0.4)}px system-ui, -apple-system, Segoe UI, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    // A hair below centre: text metrics put the baseline of capitals high,
+    // and initials sitting slightly high in a circle read as a mistake.
+    ctx.fillText(spec.initials, size / 2, size / 2 + size * 0.02)
+
+    return canvas.toDataURL('image/png')
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The small monochrome mark Android puts in the status bar.
+ *
+ * Inline so it costs no request and cannot 404 after a deploy.
+ */
+export const BADGE =
+  'data:image/svg+xml;charset=utf-8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white">' +
+      '<path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>'
+  )
 
 /**
  * The tab title, with a count.
@@ -146,9 +242,9 @@ export function pageIsVisible(doc = typeof document === 'undefined' ? null : doc
  * Chrome, notably -- and a dashboard must not break on a phone because it
  * tried to be helpful.
  */
-export function raise(message, tone, onClick) {
+export function raise(message, tone, onClick, context) {
   if (permissionState() !== 'granted') return null
-  const { title, options } = notificationFor(message, tone)
+  const { title, options } = notificationFor(message, tone, context)
   try {
     const note = new window.Notification(title, options)
     note.onclick = () => {

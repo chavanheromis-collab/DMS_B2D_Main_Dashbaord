@@ -33,6 +33,8 @@
 //
 // Pure: values in, values out. Firestore lives in hooks/useRowNotes.js.
 
+import { hash32 } from './avatar.js'
+
 /** Longest one remark may be. Past this it is a document, not a remark. */
 export const MAX_REMARK = 500
 
@@ -67,23 +69,14 @@ export function rowKeyOf(row, keyColumn) {
   return fallback || null
 }
 
-/**
- * A 32-bit FNV-1a of the raw address.
- *
- * Sanitising an id loses information -- "A/B" and "A_B" both become "A_B" --
- * and two different records sharing a note is the one failure nobody would
- * think to look for. The hash is taken over the RAW address, so distinct
- * records stay distinct however their ids are cleaned up.
- */
-export function hash32(text) {
-  let h = 0x811c9dc5
-  const s = String(text)
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 0x01000193) >>> 0
-  }
-  return h.toString(36)
-}
+// `hash32` is imported rather than kept here: the id it builds and the tint
+// the avatar picks are the same hash, and two copies of it is two answers to
+// "which colour is Ravi" waiting to disagree. See lib/avatar.js.
+//
+// Sanitising an id loses information -- "A/B" and "A_B" both become "A_B" --
+// and two different records sharing a note is the one failure nobody would
+// think to look for. So the hash is taken over the RAW address, and distinct
+// records stay distinct however their ids are cleaned up.
 
 /**
  * The document id for one note.
@@ -164,46 +157,53 @@ export function noteDoc(scope, key) {
   return { scope: String(scope || ''), key: String(key ?? ''), remarks: [] }
 }
 
-/** Whose remark this is. Only the author may take one back. */
+/** Whose remark this is. Only the author may change or take back one. */
 export function isMine(remark, uid) {
   return Boolean(uid) && remark?.by === uid
 }
 
 /**
- * Up to two initials, for the avatar.
+ * The same remark, with different words.
  *
- * Split on whitespace so "Ravi Kumar" is RK; an email falls back to its
- * first letter, which is still better than a grey circle.
+ * Four things are deliberately CARRIED OVER rather than rewritten: `by`,
+ * `byName` and `at`. An edit changes what was said -- it cannot change who
+ * said it, or when they first said it. Otherwise "edit" would be a way to
+ * put your words in somebody else's mouth, or to make a remark look older
+ * than the thing it is about.
+ *
+ * `editedAt` is what stops an edit being invisible. A remark colleagues have
+ * already acted on quietly becoming a different sentence is the real hazard
+ * here; a remark that says it was changed, and when, is a correction.
  */
-export function initialsOf(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+export function editedRemark(remark, text, now = new Date()) {
+  return {
+    ...remark,
+    text: String(text ?? '').trim().slice(0, MAX_REMARK),
+    editedAt: now.toISOString(),
+  }
+}
+
+/** Has this one been changed since it was written? */
+export function isEdited(remark) {
+  return Boolean(remark?.editedAt) && !Number.isNaN(new Date(remark.editedAt).getTime())
+}
+
+/** What the "edited" marker says on hover. */
+export function editedTooltip(remark) {
+  return isEdited(remark) ? `Edited ${exactWhen(remark.editedAt)}` : ''
 }
 
 /**
- * A stable colour per person.
+ * Is this edit worth writing?
  *
- * Same author, same tint, every time -- which is what makes a thread
- * skimmable without reading a single name. Hashed rather than assigned in
- * order, so it does not change when somebody else writes first.
+ * The same words back is not an edit -- saving it would stamp `editedAt` on
+ * a remark nobody changed, which is the marker crying wolf.
  */
-const AVATAR_TINTS = [
-  { bg: '#EEF2FF', fg: '#4338CA' },
-  { bg: '#ECFDF5', fg: '#047857' },
-  { bg: '#FFF7ED', fg: '#C2410C' },
-  { bg: '#FDF2F8', fg: '#BE185D' },
-  { bg: '#F0F9FF', fg: '#0369A1' },
-  { bg: '#FEFCE8', fg: '#A16207' },
-  { bg: '#F5F3FF', fg: '#6D28D9' },
-  { bg: '#F0FDFA', fg: '#0F766E' },
-]
-
-export function tintFor(person) {
-  const key = String(person || '')
-  if (!key) return AVATAR_TINTS[0]
-  return AVATAR_TINTS[parseInt(hash32(key), 36) % AVATAR_TINTS.length]
+export function editProblem(remark, text) {
+  const problem = remarkProblem(text)
+  if (problem) return problem
+  if (String(text ?? '').trim() === String(remark?.text ?? '').trim()) return 'Nothing changed'
+  return ''
 }
 
 /**
@@ -223,6 +223,23 @@ export function exactWhen(iso) {
     hour: 'numeric',
     minute: '2-digit',
   })
+}
+
+/**
+ * What the round picture says when somebody points at it: who, and exactly
+ * when.
+ *
+ * The FULL name, even on your own remark -- the line above it says only
+ * "You", so this is the one place the author's real name appears there. And
+ * the exact moment rather than "2d ago", because the avatar is what people
+ * point at when they ask who wrote this and when.
+ *
+ * Two lines, which a native tooltip renders and which no panel can clip.
+ */
+export function authorTooltip(remark) {
+  const name = String(remark?.byName || '').trim() || 'Someone'
+  const when = exactWhen(remark?.at)
+  return when ? `${name}\n${when}` : name
 }
 
 /**

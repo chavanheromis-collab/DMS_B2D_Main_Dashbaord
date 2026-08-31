@@ -1,19 +1,96 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { MessageSquarePlus, Send, StickyNote, Trash2, X } from 'lucide-react'
+import { Check, MessageSquarePlus, Pencil, Send, StickyNote, Trash2, X } from 'lucide-react'
 import {
   MAX_REMARK,
+  authorTooltip,
+  editProblem,
+  editedTooltip,
   exactWhen,
-  initialsOf,
+  isEdited,
   isMine,
   remarkProblem,
   remarksOf,
-  tintFor,
 } from '../lib/rowNotes'
+import { initialsOf, tintFor } from '../lib/avatar'
 import { whenText } from '../lib/messages'
 
 const MARGIN = 8
 const WIDTH = 320
+
+/**
+ * Rewording one remark, in place.
+ *
+ * In place rather than in the box at the bottom, because an edit is a
+ * correction to something with a position in the conversation -- moving it
+ * to the end would lose what it was answering.
+ *
+ * Escape cancels and STOPS THERE: without stopping the event, the panel's
+ * own Escape listener would close the whole note and lose the edit as well.
+ */
+function EditBox({ remark, onCancel, onSave }) {
+  const ref = useRef(null)
+  const [text, setText] = useState(remark.text || '')
+  const [saving, setSaving] = useState(false)
+  const problem = editProblem(remark, text)
+
+  useEffect(() => {
+    const box = ref.current
+    if (!box) return
+    box.focus()
+    // Cursor at the END, not selecting everything: an edit is usually a
+    // few words added, and select-all means one keystroke destroys the lot.
+    box.setSelectionRange(box.value.length, box.value.length)
+  }, [])
+
+  async function save() {
+    if (problem || saving) return
+    setSaving(true)
+    try {
+      await onSave(text)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg rounded-tl-none border border-indigo-200 bg-white p-1.5">
+      <textarea
+        ref={ref}
+        rows={2}
+        value={text}
+        onChange={(e) => setText(e.target.value.slice(0, MAX_REMARK))}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation()
+            onCancel()
+          }
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            save()
+          }
+        }}
+        className="w-full resize-none rounded-md border border-slate-200 px-1.5 py-1 text-[12px] focus:border-indigo-400 focus:outline-none"
+      />
+      <div className="mt-1 flex items-center justify-end gap-1.5">
+        <span className="mr-auto text-[10px] text-slate-400">{problem || 'Enter to save'}</span>
+        <button
+          onClick={onCancel}
+          className="rounded-md px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={save}
+          disabled={Boolean(problem) || saving}
+          className="flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
+        >
+          <Check size={11} /> {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
 
 /**
  * The note behind a row's button.
@@ -22,11 +99,16 @@ const WIDTH = 320
  * filter menu is: the table scrolls inside a card with `overflow: auto`, so
  * a panel rendered in the row would be clipped by the row below it.
  *
- * It is a THREAD, not a field. Several people write on the same note, each
- * remark keeps the name of whoever wrote it and the moment they did, and
- * nothing is ever edited -- taking your own back is the only way a remark
- * changes, because a remark somebody else has already acted on should not
- * quietly become a different sentence.
+ * It is a THREAD, not a field. Several people write on the same note, and
+ * each remark keeps the name of whoever wrote it and the moment they did.
+ *
+ * You may reword or take back YOUR OWN, and only your own. An edit keeps the
+ * author, the name against it and the moment it was first written -- so it
+ * changes what was said, never who said it or when -- and leaves an "edited"
+ * mark behind it. A remark colleagues have already acted on quietly becoming
+ * a different sentence is the hazard; one that says it was changed, and
+ * when, is a correction. Both halves are enforced in firestore.rules, not
+ * just here: a rule enforced only in the UI is a rule enforced nowhere.
  */
 export default function RowNotePopover({
   anchorRect,
@@ -34,6 +116,7 @@ export default function RowNotePopover({
   note,
   uid,
   onAdd,
+  onEdit,
   onRemove,
   onClose,
 }) {
@@ -43,6 +126,10 @@ export default function RowNotePopover({
   const [text, setText] = useState('')
   const [failed, setFailed] = useState('')
   const [sending, setSending] = useState(false)
+  // Which remark is being reworded, keyed by the moment it was written --
+  // an index would follow the wrong remark the instant somebody else's
+  // arrives and the thread re-sorts underneath it.
+  const [editingAt, setEditingAt] = useState(null)
 
   const remarks = useMemo(() => remarksOf(note), [note])
   const problem = remarkProblem(text)
@@ -165,11 +252,23 @@ export default function RowNotePopover({
         {remarks.map((r, i) => {
           const tint = tintFor(r.by || r.byName)
           const mine = isMine(r, uid)
+          const editing = mine && editingAt === r.at
           return (
             <div key={`${r.at}-${r.by}-${i}`} className="flex gap-2">
+              {/* `title`, not a styled bubble: the thread scrolls, and a
+                  container that scrolls clips BOTH axes -- so a tooltip
+                  drawn inside it would be cut off on exactly the remarks
+                  people reach for first, the one at the top and the one at
+                  the bottom. A native tooltip is drawn by the browser over
+                  everything and cannot be clipped by anything.
+
+                  Left out of the accessibility tree on purpose: the name is
+                  already the text beside it, and a screen reader announcing
+                  it twice is worse than not announcing the picture. */}
               <span
                 aria-hidden
-                className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                title={authorTooltip(r)}
+                className="mt-0.5 flex h-6 w-6 shrink-0 cursor-help items-center justify-center rounded-full text-[10px] font-bold ring-1 ring-transparent transition hover:ring-slate-300"
                 style={{ backgroundColor: tint.bg, color: tint.fg }}
               >
                 {initialsOf(r.byName)}
@@ -183,20 +282,53 @@ export default function RowNotePopover({
                   {/* Relative for skimming, exact on hover -- a remark is a
                       record, and "2d ago" is not a date anybody can quote. */}
                   <span title={exactWhen(r.at)}>{whenText(r.at)}</span>
-                  {mine && (
-                    <button
-                      onClick={() => onRemove(r)}
-                      title="Delete this remark"
-                      aria-label="Delete this remark"
-                      className="ml-auto rounded p-0.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500"
-                    >
-                      <Trash2 size={11} />
-                    </button>
+                  {/* Said, and dated, because an edit nobody can see is
+                      how a remark somebody acted on becomes a different
+                      sentence. */}
+                  {isEdited(r) && (
+                    <span className="italic text-slate-300" title={editedTooltip(r)}>
+                      · edited
+                    </span>
+                  )}
+                  {mine && !editing && (
+                    <span className="ml-auto flex items-center gap-0.5">
+                      <button
+                        onClick={() => {
+                          setEditingAt(r.at)
+                          setFailed('')
+                        }}
+                        title="Edit this remark"
+                        aria-label="Edit this remark"
+                        className="rounded p-0.5 text-slate-300 hover:bg-indigo-50 hover:text-indigo-500"
+                      >
+                        <Pencil size={11} />
+                      </button>
+                      <button
+                        onClick={() => onRemove(r)}
+                        title="Delete this remark"
+                        aria-label="Delete this remark"
+                        className="rounded p-0.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </span>
                   )}
                 </p>
-                <p className="whitespace-pre-wrap break-words rounded-lg rounded-tl-none bg-slate-50 px-2 py-1.5 text-[12px] leading-snug text-slate-700">
-                  {r.text}
-                </p>
+
+                {editing ? (
+                  <EditBox
+                    remark={r}
+                    onCancel={() => setEditingAt(null)}
+                    onSave={async (next) => {
+                      await onEdit(r, next)
+                      setEditingAt(null)
+                    }}
+                  />
+                ) : (
+                  <p className="whitespace-pre-wrap break-words rounded-lg rounded-tl-none bg-slate-50 px-2 py-1.5 text-[12px] leading-snug text-slate-700">
+                    {r.text}
+                  </p>
+                )}
               </div>
             </div>
           )
