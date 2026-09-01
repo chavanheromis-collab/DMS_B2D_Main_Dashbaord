@@ -30,6 +30,7 @@ import {
   TREND_KINDS,
 } from '../../lib/chartAnalytics'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
+import { blankChoice, choiceProblem } from '../../lib/columnChoices'
 import { SERIES_PALETTES } from '../../lib/valueColors'
 import AppImage from '../../components/PageIcon.jsx'
 import {
@@ -1543,6 +1544,106 @@ function ChartEditor({ widget, cols, set }) {
   )
 }
 
+/**
+ * Columns that pick from a list instead of being typed into.
+ *
+ * The list lives in another TAB, not in this editor: typing the salesmen in
+ * here would mean maintaining the same list in two places, and the
+ * spreadsheet is where the business already keeps it. Add a name to the
+ * sheet and it is in the dropdown, with nobody touching the dashboard.
+ */
+function ChoiceEditor({ widget, set, cols }) {
+  const { tabOptions, tabHeaders, labelFor } = useWorkspaceCtx()
+  const list = widget.columnChoices || []
+  const ops = listOps(list, (next) => set({ columnChoices: next }))
+
+  // Only editable columns can use one, and saying which are editable here
+  // saves an admin configuring a dropdown that will never appear.
+  const editableOn = widget.editable
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] leading-snug text-slate-400">
+        An editable cell is a free-text box, which is right for a note and wrong for a
+        status: typed by hand, “Delivered”, “delivered” and “Deliverd” are three statuses,
+        and every chart counting them says so. Point a column at a list on another tab and
+        the cell becomes a dropdown of whatever that tab holds today.
+      </p>
+
+      {!editableOn && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-700">
+          <strong>Inline editing is off for this table</strong>, so these dropdowns will not
+          appear. Turn on “Allow inline editing” under Rows — and remember each person still
+          needs the column granted to them under Users &amp; access.
+        </p>
+      )}
+
+      {list.map((choice, i) => {
+        const sourceColumns = tabHeaders?.[choice.tab] || []
+        const problem = choiceProblem(choice, cols, sourceColumns)
+        return (
+          <div key={choice.id || i} className="rounded-lg border border-slate-200 bg-white p-2">
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label="This column" className="w-40">
+                <Select
+                  value={choice.column || ''}
+                  onChange={(v) => ops.update(choice.id, { column: v })}
+                  options={cols}
+                  placeholder="— pick —"
+                />
+              </Field>
+              <span className="pb-1.5 text-[11px] text-slate-400">picks from</span>
+              <Field label="Tab" className="w-44">
+                <Select
+                  value={choice.tab || ''}
+                  onChange={(v) => ops.update(choice.id, { tab: v, valueColumn: '' })}
+                  options={tabOptions}
+                  placeholder="— pick a tab —"
+                />
+              </Field>
+              <Field label="Column" className="w-40">
+                <Select
+                  value={choice.valueColumn || ''}
+                  onChange={(v) => ops.update(choice.id, { valueColumn: v })}
+                  options={sourceColumns}
+                  placeholder={choice.tab ? '— pick —' : '— tab first —'}
+                />
+              </Field>
+              <div className="ml-auto pb-1">
+                <RowControls
+                  onUp={() => ops.move(i, -1)}
+                  onDown={() => ops.move(i, 1)}
+                  onDelete={() => ops.remove(choice.id)}
+                  isFirst={i === 0}
+                  isLast={i === list.length - 1}
+                />
+              </div>
+            </div>
+
+            {/* Said at the moment it is set up. A dropdown that turns out to
+                be empty is otherwise discovered by whoever tries to use the
+                table, which is a week later and somebody else. */}
+            {problem ? (
+              <p className="mt-1 text-[11px] text-rose-600">{problem}</p>
+            ) : (
+              <p className="mt-1 text-[11px] text-slate-400">
+                <strong className="text-slate-600">{choice.column}</strong> offers every value in{' '}
+                <strong className="text-slate-600">{choice.valueColumn}</strong> on{' '}
+                {labelFor(choice.tab)} — {(tabHeaders?.[choice.tab] || []).length > 0 ? 'live' : 'once that tab loads'}.
+                A cell already holding something that list has lost keeps it, marked in amber.
+              </p>
+            )}
+          </div>
+        )
+      })}
+
+      {/* An id, because `listOps` keys by one -- and two dropdowns on the
+          same column would otherwise edit each other. */}
+      <Btn onClick={() => ops.add({ ...blankChoice(''), id: uid('cc') })}>+ Dropdown column</Btn>
+    </div>
+  )
+}
+
 function TableEditor({ widget, cols, set }) {
   const selected = widget.columns?.length ? widget.columns : cols
   const [part, setPart] = useState('rows')
@@ -1565,6 +1666,12 @@ function TableEditor({ widget, cols, set }) {
             label: 'Remarks',
             badge: Boolean(widget.rowNotes),
             hint: 'A shared note on each row',
+          },
+          {
+            key: 'choices',
+            label: 'Dropdowns',
+            badge: (widget.columnChoices || []).length,
+            hint: 'Editable columns that pick from a list on another tab',
           },
           {
             key: 'files',
@@ -1684,6 +1791,9 @@ function TableEditor({ widget, cols, set }) {
           principle. Admins can always edit.
         </p>
       )}
+
+      {/* --- Dropdowns -------------------------------------------------- */}
+      {part === 'choices' && <ChoiceEditor widget={widget} set={set} cols={cols} />}
 
       {/* --- Remarks ---------------------------------------------------- */}
       {part === 'remarks' && (

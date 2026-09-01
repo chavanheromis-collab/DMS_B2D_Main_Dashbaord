@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
-import { imageCandidates } from '../lib/imageUrl'
+import { useImageFallback } from '../hooks/useImageFallback'
 
 /**
  * An admin-supplied image, presented properly and made to actually load.
@@ -33,16 +32,7 @@ export default function AppImage({
   className = '',
   style,
 }) {
-  const candidates = useMemo(() => imageCandidates(src, { width: size }), [src, size])
-  const [attempt, setAttempt] = useState(0)
-
-  // A new source deserves a fresh run through the candidates: without this,
-  // fixing a typo would leave the emoji showing until a full page reload.
-  useEffect(() => {
-    setAttempt(0)
-  }, [candidates.join('|')])
-
-  const url = candidates[attempt]
+  const { url, onError } = useImageFallback(src, size)
 
   if (!url) {
     if (!fallback) return null
@@ -69,7 +59,7 @@ export default function AppImage({
       // Google's image hosts refuse requests that carry a referrer from an
       // origin they don't know, which is every dashboard deployment.
       referrerPolicy="no-referrer"
-      onError={() => setAttempt((n) => n + 1)}
+      onError={onError}
       className={`shrink-0 bg-white ${fit === 'contain' ? 'object-contain' : 'object-cover'} ${rounded} ${
         ring ? 'shadow-sm ring-1 ring-slate-900/10' : ''
       } ${className}`}

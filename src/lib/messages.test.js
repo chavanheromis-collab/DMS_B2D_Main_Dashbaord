@@ -650,10 +650,14 @@ test('an admin has both switches, per person', () => {
   const users = read('src/pages/admin/UsersPanel.jsx')
   assert.ok(users.includes('saveUser(u.id, { canSendMessages: v })'))
   assert.ok(users.includes('saveUser(u.id, { canReceiveMessages: v })'))
-  // Drawn from the model, so the box shows ticked for an account that has
+  // Drawn from the model, so the switch shows ON for an account that has
   // never had the field.
-  assert.ok(users.includes('checked={canSendMessages(u)}'))
-  assert.ok(users.includes('checked={canReceiveMessages(u)}'))
+  assert.ok(users.includes('on={canSendMessages(u)}'))
+  assert.ok(users.includes('on={canReceiveMessages(u)}'))
+  // And a switch, announced as one: forty rows of these are read by their
+  // state, not by a label each.
+  assert.ok(users.includes('role="switch"'))
+  assert.ok(users.includes('aria-checked={on}'))
 })
 
 // ---------------------------------------------------------------------
@@ -815,6 +819,6 @@ test('the bell and the tab title show one number, from one place', () => {
   // With the condition. The label survives the branch around it being
   // wired to `false`, and then no badge is drawn at all.
   assert.ok(centre.includes('{unread > 0 && ('), 'the badge must actually be drawn')
-  assert.ok(centre.includes('{unread > 9 ? \'9+\' : unread}'), 'and show the number itself')
+  assert.ok(centre.includes('{unread > 99 ? \'99+\' : unread}'), 'and show the number itself')
   assert.ok(!centre.includes('unreadCount('), 'one counter, not two')
 })

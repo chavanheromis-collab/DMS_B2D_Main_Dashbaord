@@ -98,6 +98,10 @@ export default function MessageCenter() {
    * dialogue does not consult this at all.
    */
   const [hidden, setHidden] = useState({})
+  // The bell rings when the count GOES UP, which is the only moment worth
+  // an animation. Re-rendering for any other reason must not set it off, or
+  // the bell shakes every time somebody types in a filter box.
+  const [ringing, setRinging] = useState(false)
 
   const uid = sender.uid
   // An admin's decision about who uses this at all. Sending is enforced in
@@ -155,6 +159,19 @@ export default function MessageCenter() {
    * on this screen changes with the clock, so a ticking interval would be a
    * re-render a second forever to catch an event that happens twice a day.
    */
+  const lastCount = useRef(0)
+  useEffect(() => {
+    const grew = unread > lastCount.current
+    lastCount.current = unread
+    if (!grew) return undefined
+    setRinging(true)
+    // Cleared rather than left on: an element that is permanently mid-
+    // animation cannot animate again, so the SECOND message would arrive in
+    // silence.
+    const timer = setTimeout(() => setRinging(false), 2600)
+    return () => clearTimeout(timer)
+  }, [unread])
+
   const dueIn = useMemo(() => nextNagIn(messages, uid, snoozed, now), [messages, uid, snoozed, now])
   useEffect(() => {
     if (dueIn === null) return undefined
@@ -170,6 +187,10 @@ export default function MessageCenter() {
   const [visible, setVisible] = useState(() => pageIsVisible())
   const [permission, setPermission] = useState(() => permissionState())
   const notified = useRef(new Set())
+  // When this session started. Everything already in the database at that
+  // moment is history, not news -- without this, loading the dashboard into
+  // a background tab would fire one notification per unread thing at once.
+  const sessionStart = useRef(Date.now())
   // Put off, not dismissed. Kept per browser rather than in the database:
   // permission IS per browser, so "not now" on the office desktop should not
   // silence the ask on somebody's laptop.
@@ -199,14 +220,27 @@ export default function MessageCenter() {
 
   useEffect(() => {
     if (permission !== 'granted') return
-    for (const m of pendingNotifications(messages, uid, { notified: notified.current, visible })) {
+    const due = pendingNotifications(messages, uid, {
+      notified: notified.current,
+      visible,
+      since: sessionStart.current,
+    })
+    for (const event of due) {
       // Recorded before raising, not after: `raise` can fail on a platform
       // that wants a service worker, and retrying it on every snapshot for
       // the rest of the session would be a loop nobody can see.
-      notified.current.add(m.id)
-      // The context is what lets a notification say WHERE it came from and
-      // show the sender's face -- see lib/notify.js.
-      raise(m, toneOf(m), () => setInboxOpen(true), { uid, usersById: byId })
+      //
+      // By EVENT key, not message id: a message and each of its replies are
+      // separate things to be told about, and keying by the message alone
+      // would have one reply silence every one after it.
+      notified.current.add(event.key)
+      // The context is what lets a notification say WHERE it came from, who
+      // actually wrote it, and show their face -- see lib/notify.js.
+      raise(event.message, toneOf(event.message), () => setInboxOpen(true), {
+        uid,
+        usersById: byId,
+        reply: event.reply,
+      })
     }
   }, [messages, uid, visible, permission, byId])
 
@@ -235,13 +269,37 @@ export default function MessageCenter() {
         onClick={() => setInboxOpen(true)}
         title={unread > 0 ? `${unread} waiting` : 'Messages'}
         aria-label={unread > 0 ? `Messages, ${unread} waiting` : 'Messages'}
-        className="no-print fixed bottom-4 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-600 shadow-lg backdrop-blur transition-colors hover:border-indigo-300 hover:text-indigo-600"
+        className={`no-print fixed bottom-4 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur transition-colors ${
+          unread > 0
+            ? 'border-indigo-300 bg-white text-indigo-600'
+            : 'border-slate-200 bg-white/95 text-slate-600 hover:border-indigo-300 hover:text-indigo-600'
+        }`}
       >
-        <Bell size={17} />
+        {/* Only the bell swings. Rotating the button would take its badge
+            round with it, and a count that spins is unreadable. */}
+        <Bell size={17} className={ringing ? 'bell-ring' : ''} />
+
+        {/* Over its head, the way every phone does it: overlapping the
+            corner rather than tucked inside, so the number reads as ON the
+            bell and not as part of it. `tabular-nums` keeps 1 and 11 the
+            same width, so the badge does not jump about as the count
+            changes. */}
         {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-            {unread > 9 ? '9+' : unread}
+          <span
+            key={unread}
+            className="badge-pop pointer-events-none absolute -right-1.5 -top-1.5 flex h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-white bg-rose-500 px-1 text-[10px] font-bold leading-none text-white shadow-sm tabular-nums"
+          >
+            {unread > 99 ? '99+' : unread}
           </span>
+        )}
+
+        {/* A ring that spreads and fades, for the moment it arrives. Behind
+            the bell and taking no clicks, so it changes nothing you can do. */}
+        {ringing && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 animate-ping rounded-full bg-indigo-400/30"
+          />
         )}
       </button>
 

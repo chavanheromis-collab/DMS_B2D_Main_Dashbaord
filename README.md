@@ -414,6 +414,18 @@ A conversation with something still owed shows **reply** in red rather than
 an unread count — a question you have read and not answered is a different
 thing from a message you have not opened.
 
+#### Unseen, the way a chat app shows it
+
+An unread conversation is **bolder and darker**, its timestamp takes the
+accent colour, and its row is tinted — the way every chat app says *this one*
+without needing the badge to be read. Opening a chat draws an **Unread** line
+above the first thing you have not seen, so you know where to start rather
+than re-reading from the top.
+
+That line is **frozen when the conversation opens**. Opening marks everything
+read, so asked again a moment later it would correctly say "nothing new" — and
+the line the reader was looking for would vanish as they looked at it.
+
 #### The number on the bell
 
 The message icon carries a count — 1, 2, 3 — of what is **waiting on you**,
@@ -428,6 +440,19 @@ a question, which is precisely when it starts being owed. Counted per message,
 so one that is waiting both ways is one and not two. The same number goes in
 the tab title, from the same function — two counts of "how many" that can
 disagree is somebody seeing 3 in the tab and 1 on the bell.
+
+The badge sits **over the corner of the bell**, overlapping it with a white
+ring the way a phone does, so the number reads as *on* the bell rather than as
+part of it. `tabular-nums` keeps 1 and 11 the same width, so it does not jump
+about as the count changes.
+
+**And the bell rings.** When the count goes *up* — not on any other render, or
+it would shake every time somebody typed in a filter box — the bell swings from
+its mounting three times and stops. Something that never stops moving is
+something people cover with a sticky note. The ring is cleared afterwards
+rather than left on: an element permanently mid-animation cannot animate again,
+so the second message would arrive in silence. Both animations stop entirely
+for anyone who has asked for reduced motion.
 
 #### What you are asking of them
 
@@ -614,7 +639,9 @@ Not a wall of text. Each one carries:
 - **One stack per conversation.** Tagged by conversation rather than by
   message, so six lines from one person are one alert that updates, not six.
 - **A buzz only when something is wanted.** `vibrate` for a question,
-  silence for a notice — the obligation, carried out of the app.
+  silence for a notice — the obligation, carried out of the app. An *answer*
+  gets neither the buzz nor the hold-on-screen: it has arrived, and it does
+  not itself need answering back.
 - A monochrome **badge** for the Android status bar, inlined so it costs no
   request and cannot 404 after a deploy.
 
@@ -622,6 +649,27 @@ The avatar comes from `lib/avatar.js`, which is also what the app and the
 remark threads draw from. Three copies of "which colour is Ravi" is three
 answers to that question, and the day two of them disagree is the day the
 picture stops meaning anything.
+
+#### Replies notify too
+
+For a long time only the opening message ever buzzed, which was a bug: somebody
+answering the question you asked is exactly what you were waiting to hear
+about, and in a chat there is barely a difference between a message and a reply
+— there is none at all to the person waiting.
+
+So a reply raises a notification like anything else, announced by **whoever
+wrote the reply** (in a group, very often not whoever started the thread) and
+carrying the reply's own words. It joins its conversation's stack rather than
+starting a new one.
+
+Each is remembered **separately** — a message is keyed by its id, a reply by
+`<id>:r<n>`. Keyed by the message alone, the first reply would have silenced
+every one after it.
+
+And nothing older than **this session** ever notifies. Without that, opening
+the dashboard into a background tab would fire one notification per unread
+thing in the database, all at once. A notification is for something that just
+happened; the rest is what the bell is for.
 
 #### Reaching somebody who is not looking
 
@@ -1774,6 +1822,56 @@ formatting, so `SO-1001`, ` so-1001 ` and `1,001` vs `1001` all behave.
 | **Columns** | Which columns come across. |
 | **Roll-ups** | Summarise the matched rows — "sum of Amount across every quotation for this order". A match-count column is always added. |
 | **Fill-in rules** | Swap in another column wherever a value is missing — or fails any check. |
+
+### A column that is a dropdown
+
+An editable cell is a free-text box, which is right for a note and wrong for
+a status. Typed by hand, *Delivered*, *delivered* and *Deliverd* are three
+statuses, and every chart counting them says so.
+
+So a column can be pointed at a **list that lives on another tab** —
+**Widgets → (a table) → Dropdowns**. Pick the column, pick the tab, pick the
+column on that tab to read the values from. The cell then becomes a dropdown
+of whatever that tab holds today.
+
+**The list is a tab, not a setting.** Typing the salesmen into the widget
+editor would mean maintaining the same list in two places, and the
+spreadsheet is where the business already keeps it. Add a name to the sheet
+and it is in the dropdown, with nobody touching the dashboard.
+
+**Only where the column is editable.** A dropdown on a read-only column is a
+control that cannot do anything, which is worse than no control. If inline
+editing is off for the table the editor says so in amber, at the moment the
+dropdown is set up — and each person still needs the column granted to them
+under *Users & access*.
+
+**The current value is always offered.** A cell holding something the list no
+longer contains — a salesman who left, a status since renamed — keeps it, and
+it is offered **first** in the dropdown rather than sorted into the middle,
+where nobody would notice the current value is not one of the choices. Read
+only, it shows in amber with a tooltip. The salesman who left is still who
+sold it, and a dropdown that cannot represent its own cell is one that blanks
+the cell the moment somebody opens it.
+
+**A cell can still be emptied.** The list always starts with a blank option —
+without one, a cell can never be cleared once it is set.
+
+Four smaller decisions:
+
+- **Two spellings of one thing are one option**, matched without case or
+  spacing. A source tab holding both *Nashik* and *nashik* is one place, and
+  offering both is offering somebody the chance to split the data again. The
+  sheet's own first spelling is the one kept.
+- **Sorted the way people read a list**, so *Item 2* comes before *Item 10*.
+- **Capped at 500 options.** Past that it has stopped being a dropdown.
+- **The source tab is stored under `tab`**, which is not decoration:
+  Dashboard rewrites every `tab` field from a ref to a display label before
+  the widgets see it, so naming it anything else would make this one lookup
+  silently fail on a page with two spreadsheets behind it.
+
+The lists are built in `Dashboard.jsx`, where every tab's rows already are,
+and the finished lists are handed to the table — the widget only ever has its
+own tab.
 
 ### Fill-in rules
 

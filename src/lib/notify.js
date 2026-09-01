@@ -84,24 +84,57 @@ export function askIsDue(state, deferredAt, now = Date.now(), after = ASK_AGAIN_
 export const ASK_AGAIN_AFTER = 60 * 60 * 1000
 
 /**
- * The messages that warrant a desktop notification right now.
+ * Everything that warrants a desktop notification right now.
  *
- * `notified` is the set of ids already raised this session -- a Set rather
- * than a list because this is asked on every snapshot and the answer must
- * not get slower as the day goes on.
+ * MESSAGES AND REPLIES BOTH. A reply is the whole second half of a
+ * conversation -- somebody answering the question you asked is exactly what
+ * you were waiting to hear about -- and for a long time only the opening
+ * message ever buzzed. In a chat there is barely a difference between the
+ * two, and there is none at all to the person waiting.
+ *
+ * Returns EVENTS rather than messages: `{ key, message, reply }`, where
+ * `reply` is null for the message itself. The key is what `notified`
+ * remembers, so a message and each of its replies are counted separately --
+ * keyed by message id alone, one reply would have silenced every one after
+ * it.
+ *
+ * `since` is when this session started. Without it, opening the dashboard
+ * while the tab is in the background would fire a notification for every
+ * unread thing in the database at once. A notification is for something
+ * that JUST HAPPENED; the rest is what the bell is for.
+ *
+ * `notified` is a Set rather than a list because this is asked on every
+ * snapshot and the answer must not get slower as the day goes on.
  */
-export function pendingNotifications(messages, uid, { notified = new Set(), visible = true } = {}) {
-  // Somebody looking at the page has already been told, by the banner.
+export function pendingNotifications(
+  messages,
+  uid,
+  { notified = new Set(), visible = true, since = 0 } = {}
+) {
+  // Somebody looking at the page has already been told, by the toast.
   if (visible) return []
 
-  return (messages || []).filter((m) => {
-    if (!m?.id || notified.has(m.id)) return false
+  const fresh = (at) => !since || new Date(at).getTime() >= since
+  const out = []
+
+  for (const m of messages || []) {
+    if (!m?.id || !isFor(m, uid)) continue
+
     // Not your own, and not one you have already read somewhere else -- a
     // second device, or before the tab went into the background.
-    if (m.from === uid) return false
-    if ((m.readBy || []).includes(uid)) return false
-    return isFor(m, uid)
-  })
+    const unseen = m.from !== uid && !(m.readBy || []).includes(uid)
+    if (unseen && !notified.has(m.id) && fresh(m.createdAt)) {
+      out.push({ key: m.id, message: m, reply: null })
+    }
+
+    for (const [i, r] of (Array.isArray(m.replies) ? m.replies : []).entries()) {
+      const key = `${m.id}:r${i}`
+      if (r?.from === uid || notified.has(key) || !fresh(r?.at)) continue
+      out.push({ key, message: m, reply: r })
+    }
+  }
+
+  return out
 }
 
 function isFor(message, uid) {
@@ -121,10 +154,13 @@ function isFor(message, uid) {
  * difference between "should reply" and "can be ignored" carried out of the
  * app and onto the desktop.
  */
-export function notificationFor(message, tone, { uid = '', usersById = {} } = {}) {
+export function notificationFor(message, tone, { uid = '', usersById = {}, reply = null } = {}) {
   const conversation = conversationIdOf(message, uid)
   const kind = kindOf(conversation)
-  const name = message?.fromName || 'New message'
+  // A reply is from whoever wrote the REPLY, which in a group is very often
+  // not whoever started the thread.
+  const name = (reply ? reply.name : message?.fromName) || 'New message'
+  const body = reply ? reply.text : message?.body
   // Only where it ADDS something. In a one-to-one chat the conversation IS
   // the sender, so appending it gives "Ravi · Ravi" -- or, for somebody with
   // no name on their account, the nonsense "New message · Someone".
@@ -136,21 +172,23 @@ export function notificationFor(message, tone, { uid = '', usersById = {} } = {}
     // interrupted by, and only one of them is worth turning to.
     title: where ? `${name} · ${where}` : name,
     options: {
-      body: String(message?.body || '').slice(0, 240),
+      body: String(body || '').slice(0, 240),
       tag: conversation || message?.id,
-      requireInteraction: Boolean(tone?.needsReply),
+      // An answer has arrived: it does not need answering back, so it does
+      // not hold the screen the way the question did.
+      requireInteraction: Boolean(tone?.needsReply) && !reply,
       // Renotify would buzz again for a message already showing. The only
       // thing that changes on a delivered message is its replies.
       renotify: false,
       silent: !tone?.blocks,
       // Grouped by conversation on the platforms that do that, so six
       // messages from one person are one stack rather than six alerts.
-      data: { conversation, messageId: message?.id },
+      data: { conversation, messageId: message?.id, isReply: Boolean(reply) },
       icon: avatarIcon(name, message?.from),
       badge: BADGE,
       // A phone buzzes for something that wants an answer, and stays still
       // for something that does not.
-      vibrate: tone?.needsReply ? [120, 60, 120] : undefined,
+      vibrate: tone?.needsReply && !reply ? [120, 60, 120] : undefined,
     },
   }
 }

@@ -5,6 +5,7 @@ import {
   clockOf,
   conversationsFor,
   dayKey,
+  firstUnreadKey,
   dayLabel,
   draftFor,
   entriesOf,
@@ -187,7 +188,9 @@ function List({ rows, byId, onOpen, onClose, onStart }) {
           <button
             key={row.id}
             onClick={() => onOpen(row.id)}
-            className="flex w-full items-center gap-3 border-b border-slate-50 px-3 py-2.5 text-left hover:bg-slate-50"
+            className={`flex w-full items-center gap-3 border-b border-slate-50 px-3 py-2.5 text-left hover:bg-slate-50 ${
+              row.unread > 0 ? 'bg-indigo-50/40' : ''
+            }`}
           >
             <Avatar
               name={row.title}
@@ -196,11 +199,32 @@ function List({ rows, byId, onOpen, onClose, onStart }) {
             />
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline justify-between gap-2">
-                <strong className="truncate text-[13px] font-semibold text-slate-700">{row.title}</strong>
-                <span className="shrink-0 text-[10px] text-slate-400">{whenText(row.lastAt)}</span>
+                {/* Unread is heavier and darker, and its timestamp takes the
+                    accent colour -- the way every chat app says "this one"
+                    without needing the badge to be read. */}
+                <strong
+                  className={`truncate text-[13px] ${
+                    row.unread > 0 ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'
+                  }`}
+                >
+                  {row.title}
+                </strong>
+                <span
+                  className={`shrink-0 text-[10px] ${
+                    row.unread > 0 ? 'font-semibold text-indigo-600' : 'text-slate-400'
+                  }`}
+                >
+                  {whenText(row.lastAt)}
+                </span>
               </span>
               <span className="flex items-center justify-between gap-2">
-                <span className="truncate text-[11px] text-slate-400">{previewOf(row)}</span>
+                <span
+                  className={`truncate text-[11px] ${
+                    row.unread > 0 ? 'font-medium text-slate-700' : 'text-slate-400'
+                  }`}
+                >
+                  {previewOf(row)}
+                </span>
                 {/* Owed beats unread: a question you have not answered is a
                     different thing from a message you have not opened. */}
                 {row.owed ? (
@@ -234,6 +258,16 @@ function Chat({ id, messages, uid, byId, maySend, onBack, onRead, onSend, onUnse
   const boxRef = useRef(null)
 
   const entries = useMemo(() => entriesOf(messages, uid, id), [messages, uid, id])
+
+  // Frozen when the conversation opens. Opening marks everything read, so
+  // asked again a moment later this correctly says "nothing new" -- and the
+  // line the reader was looking for would vanish as they looked at it.
+  const unreadFrom = useRef(null)
+  const openedAs = useRef(null)
+  if (openedAs.current !== id) {
+    openedAs.current = id
+    unreadFrom.current = firstUnreadKey(messages, uid, id)
+  }
   const owed = useMemo(() => replyTarget(messages, uid, id), [messages, uid, id])
   const title = titleOf(id, byId)
 
@@ -322,6 +356,18 @@ function Chat({ id, messages, uid, byId, maySend, onBack, onRead, onSend, onUnse
                   <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-400 shadow-sm">
                     {dayLabel(e.at)}
                   </span>
+                </p>
+              )}
+              {/* Where you left off. One line, once -- it is the answer to
+                  "which of these have I already seen", and a chat that
+                  cannot answer that is one you re-read from the top. */}
+              {e.key === unreadFrom.current && (
+                <p className="my-2 flex items-center gap-2" role="separator">
+                  <span className="h-px flex-1 bg-rose-200" />
+                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-500">
+                    Unread
+                  </span>
+                  <span className="h-px flex-1 bg-rose-200" />
                 </p>
               )}
               <Bubble

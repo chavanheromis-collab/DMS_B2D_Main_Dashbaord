@@ -302,9 +302,23 @@ test('and stops listening when the centre goes', () => {
 test('an id is remembered BEFORE the notification is raised', () => {
   // `raise` can fail on a platform that wants a service worker, and
   // retrying on every snapshot would be a loop nobody can see.
-  const at = centre.indexOf('notified.current.add(m.id)')
-  const raised = centre.indexOf('raise(m, toneOf(m)')
+  const at = centre.indexOf('notified.current.add(event.key)')
+  const raised = centre.indexOf('raise(event.message, toneOf(event.message)')
   assert.ok(at > 0 && raised > at)
+})
+
+test('the session start is handed to the check, not just kept', () => {
+  // Without it a load into a background tab fires one notification per
+  // unread thing in the database at once.
+  assert.ok(centre.includes('since: sessionStart.current,'))
+  assert.ok(centre.includes('const sessionStart = useRef(Date.now())'))
+})
+
+test('a message and each of its replies are remembered separately', () => {
+  // Keyed by message id alone, the first reply would silence every one
+  // after it.
+  assert.ok(centre.includes('notified.current.add(event.key)'))
+  assert.ok(!centre.includes('notified.current.add(m.id)'))
 })
 
 test('the remembered ids survive a re-render', () => {
@@ -322,8 +336,10 @@ test('a failed notification does not take the page with it', () => {
 test('clicking one brings the tab forward', () => {
   assert.ok(lib.includes('window.focus()'))
   assert.ok(
-    centre.includes('raise(m, toneOf(m), () => setInboxOpen(true), { uid, usersById: byId })'),
-    'and opens what was clicked, knowing who everyone is'
+    centre.includes(
+      'raise(event.message, toneOf(event.message), () => setInboxOpen(true), { uid, usersById: byId, reply: event.reply, })'
+    ),
+    'and opens what was clicked, knowing who everyone is and who wrote it'
   )
 })
 
@@ -350,4 +366,164 @@ test('nothing is raised without permission, checked at the moment', () => {
 test('the tab title is put back when the centre goes', () => {
   assert.ok(centre.includes('document.title = titleWithBadge(unread)'))
   assert.ok(centre.includes('document.title = titleWithBadge(0)'))
+})
+
+// ---------------------------------------------------------------------
+// Replies notify too
+// ---------------------------------------------------------------------
+
+const reply = (extra = {}) => ({
+  from: BOSS,
+  name: 'Boss',
+  text: 'yes, go ahead',
+  at: '2026-08-20T12:00:00.000Z',
+  ...extra,
+})
+
+test('an answer is news, the same as a question was', () => {
+  // Somebody answering what you asked is exactly what you were waiting to
+  // hear about, and for a long time only the opening message ever buzzed.
+  const m = msg({ from: ME, to: [ME, BOSS], readBy: [ME], replies: [reply()] })
+  const out = pendingNotifications([m], ME, { visible: false })
+  assert.equal(out.length, 1)
+  assert.equal(out[0].reply.text, 'yes, go ahead')
+  assert.equal(out[0].message.id, 'm1')
+})
+
+test('your own reply does not notify you', () => {
+  const m = msg({ from: BOSS, readBy: [ME], replies: [reply({ from: ME })] })
+  assert.deepEqual(pendingNotifications([m], ME, { visible: false }), [])
+})
+
+test('a message and each of its replies are counted separately', () => {
+  // Keyed by message id alone, one reply would silence every one after it.
+  const m = msg({ readBy: [ME], replies: [reply({ at: '2026-08-20T12:00:00.000Z' }), reply({ at: '2026-08-20T13:00:00.000Z' })] })
+  const keys = pendingNotifications([m], ME, { visible: false }).map((e) => e.key)
+  assert.deepEqual(keys, ['m1:r0', 'm1:r1'])
+  assert.equal(new Set(keys).size, 2)
+})
+
+test('one already told about is not told about again', () => {
+  const m = msg({ readBy: [ME], replies: [reply(), reply({ at: '2026-08-20T13:00:00.000Z' })] })
+  const notified = new Set(['m1:r0'])
+  const keys = pendingNotifications([m], ME, { visible: false, notified }).map((e) => e.key)
+  assert.deepEqual(keys, ['m1:r1'])
+})
+
+test('a reply on a conversation that is not yours notifies nobody', () => {
+  const m = msg({ from: BOSS, to: [BOSS], replies: [reply()] })
+  assert.deepEqual(pendingNotifications([m], ME, { visible: false }), [])
+})
+
+test('the opening message is an event too, with no reply on it', () => {
+  const out = pendingNotifications([msg()], ME, { visible: false })
+  assert.equal(out.length, 1)
+  assert.equal(out[0].key, 'm1')
+  assert.equal(out[0].reply, null)
+})
+
+test('what was already there when you arrived is history, not news', () => {
+  // Opening the dashboard into a background tab must not fire one
+  // notification per unread thing in the database at once.
+  const old = msg({ createdAt: '2020-01-01T00:00:00.000Z' })
+  const since = new Date('2026-01-01T00:00:00.000Z').getTime()
+  assert.deepEqual(pendingNotifications([old], ME, { visible: false, since }), [])
+  assert.equal(pendingNotifications([msg({ createdAt: '2026-08-20T10:00:00.000Z' })], ME, { visible: false, since }).length, 1)
+})
+
+test('...and neither is a reply from before you arrived', () => {
+  const since = new Date('2026-01-01T00:00:00.000Z').getTime()
+  const m = msg({ readBy: [ME], replies: [reply({ at: '2020-01-01T00:00:00.000Z' })] })
+  assert.deepEqual(pendingNotifications([m], ME, { visible: false, since }), [])
+})
+
+test('with no session start given, nothing is filtered by age', () => {
+  // The default must not silently drop everything.
+  assert.equal(pendingNotifications([msg()], ME, { visible: false }).length, 1)
+})
+
+test('a reply is announced by whoever wrote it', () => {
+  // In a group that is very often not whoever started the thread.
+  const m = msg({ fromName: 'Ravi' })
+  const { title, options } = notificationFor(m, toneOf(m), {
+    uid: ME,
+    reply: { name: 'Asha', text: 'on it' },
+  })
+  assert.ok(title.startsWith('Asha'))
+  assert.equal(options.body, 'on it')
+})
+
+test('an answer does not hold the screen the way the question did', () => {
+  // It has arrived; it does not itself need answering back.
+  const ask = msg({ tone: 'ask' })
+  const asQuestion = notificationFor(ask, toneOf(ask), { uid: ME })
+  const asAnswer = notificationFor(ask, toneOf(ask), { uid: ME, reply: { name: 'A', text: 'x' } })
+  assert.equal(asQuestion.options.requireInteraction, true)
+  assert.equal(asAnswer.options.requireInteraction, false)
+  assert.ok(Array.isArray(asQuestion.options.vibrate))
+  assert.equal(asAnswer.options.vibrate, undefined)
+})
+
+test('a reply joins its conversation stack rather than starting a new one', () => {
+  const m = msg({ from: BOSS, to: [ME] })
+  const asAnswer = notificationFor(m, toneOf(m), { uid: ME, reply: { name: 'A', text: 'x' } })
+  assert.equal(asAnswer.options.tag, notificationFor(m, toneOf(m), { uid: ME }).options.tag)
+  assert.equal(asAnswer.options.data.isReply, true)
+})
+
+// ---------------------------------------------------------------------
+// The bell
+// ---------------------------------------------------------------------
+
+test('the bell rings only when the count goes up', () => {
+  // Re-rendering for any other reason must not set it off, or the bell
+  // shakes every time somebody types in a filter box.
+  assert.ok(centre.includes('const grew = unread > lastCount.current'))
+  assert.ok(centre.includes('if (!grew) return undefined'))
+})
+
+test('and stops, so the second message can ring too', () => {
+  // An element permanently mid-animation cannot animate again.
+  assert.ok(centre.includes('setTimeout(() => setRinging(false), 2600)'))
+  assert.ok(centre.includes('return () => clearTimeout(timer)'))
+})
+
+test('only the bell swings, not the number on it', () => {
+  // Rotating the button would take its badge round with it, and a count
+  // that spins is unreadable.
+  assert.ok(centre.includes("<Bell size={17} className={ringing ? 'bell-ring' : ''} />"))
+})
+
+test('the count sits over the bell, the way a phone does it', () => {
+  assert.ok(centre.includes('-right-1.5 -top-1.5'))
+  assert.ok(centre.includes('tabular-nums'), 'so 1 and 11 are the same width')
+  assert.ok(centre.includes('border-2 border-white'), 'and it reads as on the bell, not part of it')
+})
+
+test('the ring animation is one the stylesheet actually has', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'src/index.css'), 'utf8')
+  // With the brace. `@keyframes bellRingGone` contains `@keyframes
+  // bellRing`, so a renamed animation nothing uses satisfied the shorter
+  // string.
+  assert.ok(css.includes('@keyframes bellRing {'))
+  assert.ok(css.includes('@keyframes badgePop {'))
+  // The declaration, not the selector: `.badge-pop {` also appears in the
+  // reduced-motion rule, which survives the animation itself being deleted.
+  assert.ok(css.includes('animation: bellRing 820ms ease-in-out 3;'))
+  assert.ok(css.includes('animation: badgePop 320ms'))
+  // A bell swings from its mounting rather than spinning about its middle
+  // -- asserted inside the bell's OWN block, since other rules set an
+  // origin too.
+  const bell = css.slice(css.indexOf('.bell-ring {'), css.indexOf('@keyframes badgePop'))
+  assert.ok(bell.includes('transform-origin: top center'))
+})
+
+test('and it stops for anybody who asked for less motion', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'src/index.css'), 'utf8')
+  const blocks = css
+    .split('@media (prefers-reduced-motion')
+    .slice(1)
+    .map((b) => b.slice(0, b.indexOf(String.fromCharCode(10) + '}')))
+  assert.ok(blocks.some((b) => b.includes('.bell-ring') && b.includes('animation: none')))
+  assert.ok(blocks.some((b) => b.includes('.badge-pop')))
 })

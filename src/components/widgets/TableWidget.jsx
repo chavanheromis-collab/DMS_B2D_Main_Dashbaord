@@ -9,6 +9,7 @@ import { activeFilterColumns, applyColumnFilters, columnIsFiltered } from '../..
 import RowNotePopover from '../RowNotePopover.jsx'
 import { useRowNoteActions, useRowNotes } from '../../hooks/useRowNotes'
 import { countLabel, latestSummary, noteIdFor, notesEnabled, remarkCount, rowKeyOf } from '../../lib/rowNotes'
+import { isStrayValue, optionsForCell } from '../../lib/columnChoices'
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
@@ -85,6 +86,7 @@ export default function TableWidget({
   canPersistLayout = false,
   onSaveColumnOrder,
   noteScope = '',
+  columnChoices = {},
 }) {
   const defaultSorts = useMemo(
     () => (widget.sortBy ? [{ column: widget.sortBy, dir: widget.sortDir || 'asc' }] : []),
@@ -242,9 +244,17 @@ export default function TableWidget({
     setDraft(row[col] ?? '')
   }
 
-  async function commitEdit(row, col) {
+  /**
+   * `next` is passed when a dropdown supplies the value.
+   *
+   * A `<select>` changes and blurs in the same breath, and reading the value
+   * back off `draft` would race the state update -- the cell would save the
+   * value BEFORE the one just picked.
+   */
+  async function commitEdit(row, col, next) {
     setEditing(null)
-    if (draft !== (row[col] ?? '')) await onEditCell?.(widget.tab, row, col, draft)
+    const value = next === undefined ? draft : next
+    if (value !== (row[col] ?? '')) await onEditCell?.(widget.tab, row, col, value)
   }
 
   const detailColumns = widget.detailColumns?.length ? widget.detailColumns : tabHeaders || []
@@ -593,6 +603,10 @@ export default function TableWidget({
                       const editable = editableColumns.includes(col)
                       const isEditing = editing === `${row._row}:${col}`
                       const value = row[col]
+                      // Only where the column is editable: a dropdown on a
+                      // read-only column is a control that cannot do
+                      // anything, which is worse than no control.
+                      const choices = editable ? columnChoices[col] : null
                       const asBadge = badgeCols.includes(col) && String(value ?? '').trim() !== ''
 
                       return (
@@ -602,7 +616,30 @@ export default function TableWidget({
                           title={editable ? 'Click to edit' : undefined}
                           className={`whitespace-nowrap ${cellPad} ${editable ? 'cursor-text hover:bg-indigo-100/60' : ''}`}
                         >
-                          {isEditing ? (
+                          {isEditing && choices ? (
+                            /* A list, not a box. Typed by hand, "Delivered",
+                               "delivered" and "Deliverd" are three statuses,
+                               and the chart counting them says so. */
+                            <select
+                              autoFocus
+                              value={draft}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => commitEdit(row, col, e.target.value)}
+                              onBlur={() => setEditing(null)}
+                              onKeyDown={(e) => e.key === 'Escape' && setEditing(null)}
+                              className="w-40 rounded border border-indigo-300 px-1 py-0.5 text-sm"
+                            >
+                              {/* Clearing a cell has to stay possible: a
+                                  dropdown with no empty option is a cell
+                                  that can never be emptied once it is set. */}
+                              <option value="">—</option>
+                              {optionsForCell(choices, value).map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          ) : isEditing ? (
                             <input
                               autoFocus
                               value={draft}
@@ -619,6 +656,15 @@ export default function TableWidget({
                             <span
                               className="inline-block rounded-full px-2 py-0.5 text-xs font-medium"
                               style={{ backgroundColor: badgeColor(value).bg, color: badgeColor(value).fg }}
+                            >
+                              {value}
+                            </span>
+                          ) : choices && isStrayValue(choices, value) ? (
+                            /* Says so rather than quietly correcting it: the
+                               salesman who left is still who sold it. */
+                            <span
+                              className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-amber-700"
+                              title="Not one of the values this column offers"
                             >
                               {value}
                             </span>

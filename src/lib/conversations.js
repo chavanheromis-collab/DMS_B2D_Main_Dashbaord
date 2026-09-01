@@ -186,6 +186,37 @@ function hasMyReply(message, uid) {
 }
 
 /**
+ * The first bubble you have not seen, in one conversation.
+ *
+ * What a chat app puts an "unread messages" line above. Returned as the
+ * entry's key so the renderer can mark exactly one place, and null when
+ * there is nothing new.
+ *
+ * Read from the MESSAGE's `readBy`, because that is the only read state
+ * there is -- a reply has none, so a reply on a message you have already
+ * read does not start a new run. That is the right answer anyway: the
+ * conversation you last looked at is the one you have seen.
+ *
+ * The caller must freeze this when the conversation opens. Opening marks
+ * everything read, so asked again a moment later it correctly says null --
+ * and the line the reader was looking for would vanish as they looked at it.
+ */
+export function firstUnreadKey(messages, uid, conversationId) {
+  // Only messages from other people, and only ones not yet read. That is
+  // also why the search below needs no `from` check of its own: nothing in
+  // this set is yours, and a message's own entry always sorts before its
+  // replies -- so the first entry belonging to an unread message is that
+  // message, never a reply somebody left on it.
+  const unread = new Set(
+    (messages || [])
+      .filter((m) => m.from !== uid && !isRead(m, uid))
+      .map((m) => m.id)
+  )
+  const entry = entriesOf(messages, uid, conversationId).find((e) => unread.has(e.messageId))
+  return entry ? entry.key : null
+}
+
+/**
  * The message a new line in this conversation should be attached to.
  *
  * If the newest thing here is a question somebody asked YOU, saying

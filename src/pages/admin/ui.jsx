@@ -185,10 +185,17 @@ export function TextInput({ value, onChange, placeholder, type = 'text', classNa
  */
 export const TYPING_PAUSE = 140
 
-export function Toggle({ checked, onChange, label }) {
+export function Toggle({ checked, onChange, label, ariaLabel }) {
   return (
     <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-slate-600">
-      <input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)} />
+      {/* A toggle with no visible label needs a spoken one, or the only way
+          to know what it switches is to look at what is next to it. */}
+      <input
+        type="checkbox"
+        checked={!!checked}
+        aria-label={label ? undefined : ariaLabel}
+        onChange={(e) => onChange(e.target.checked)}
+      />
       {label}
     </label>
   )

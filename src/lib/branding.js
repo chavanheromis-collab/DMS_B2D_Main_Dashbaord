@@ -33,6 +33,11 @@ export const DEFAULT_ENTRANCE = {
   // An admin-supplied logo replaces the generic mark on the entrance. Blank
   // keeps the built-in one, so a fresh install still looks finished.
   logoUrl: '',
+  // Named rather than left blank: `themeOf` and `backdropOf` both fall back
+  // to the first entry anyway, but a stored document that says what it is
+  // beats one whose look depends on which entry happens to be first.
+  theme: 'midnight',
+  logoBackdrop: 'glow',
   durationMs: 2600,
   items: [],
 }

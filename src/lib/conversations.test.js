@@ -11,6 +11,7 @@ import {
   dayLabel,
   draftFor,
   entriesOf,
+  firstUnreadKey,
   kindOf,
   membersOf,
   otherPeople,
@@ -377,4 +378,81 @@ test('no media, only words', () => {
   for (const word of ['type="file"', 'FileReader', 'Paperclip', 'accept="image']) {
     assert.ok(!chat.includes(word), word)
   }
+})
+
+// ---------------------------------------------------------------------
+// Where you left off
+// ---------------------------------------------------------------------
+
+test('the unread line goes above the first thing you have not seen', () => {
+  const seen = msg({ id: 'a', from: RAVI, to: [ME], readBy: [ME], createdAt: '2026-08-20T10:00:00.000Z' })
+  const fresh = msg({ id: 'b', from: RAVI, to: [ME], createdAt: '2026-08-20T11:00:00.000Z' })
+  assert.equal(firstUnreadKey([seen, fresh], ME, RAVI), 'b:m')
+})
+
+test('the FIRST one, not the newest', () => {
+  // Three unread messages get one line, above all three.
+  const a = msg({ id: 'a', from: RAVI, to: [ME], createdAt: '2026-08-20T10:00:00.000Z' })
+  const b = msg({ id: 'b', from: RAVI, to: [ME], createdAt: '2026-08-20T11:00:00.000Z' })
+  assert.equal(firstUnreadKey([a, b], ME, RAVI), 'a:m')
+})
+
+test('nothing new is no line at all', () => {
+  const seen = msg({ from: RAVI, to: [ME], readBy: [ME] })
+  assert.equal(firstUnreadKey([seen], ME, RAVI), null)
+  assert.equal(firstUnreadKey([], ME, RAVI), null)
+  assert.equal(firstUnreadKey(null, ME, RAVI), null)
+})
+
+test('your own messages never start the unread run', () => {
+  // You have seen what you sent.
+  const mine = msg({ id: 'a', from: ME, to: [RAVI], createdAt: '2026-08-20T10:00:00.000Z' })
+  const theirs = msg({ id: 'b', from: RAVI, to: [ME], createdAt: '2026-08-20T11:00:00.000Z' })
+  assert.equal(firstUnreadKey([mine, theirs], ME, RAVI), 'b:m')
+})
+
+test('a reply on something you already read does not start a run', () => {
+  // A reply has no read state of its own, and the conversation you last
+  // looked at is the one you have seen.
+  const read = msg({
+    from: RAVI,
+    to: [ME],
+    readBy: [ME],
+    replies: [{ from: RAVI, name: 'Ravi', text: 'and another thing', at: '2026-08-20T12:00:00.000Z' }],
+  })
+  assert.equal(firstUnreadKey([read], ME, RAVI), null)
+})
+
+test('and it only looks inside the conversation being opened', () => {
+  const here = msg({ id: 'a', from: RAVI, to: [ME] })
+  const elsewhere = msg({ id: 'b', from: ASHA, to: [ME] })
+  assert.equal(firstUnreadKey([here, elsewhere], ME, ASHA), 'b:m')
+})
+
+// ---------------------------------------------------------------------
+// Unseen, the way a chat app shows it
+// ---------------------------------------------------------------------
+
+test('the line is frozen when the conversation opens', () => {
+  // Opening marks everything read, so asked again a moment later it says
+  // "nothing new" -- and the line the reader was looking for would vanish
+  // as they looked at it.
+  assert.ok(chat.includes('const unreadFrom = useRef(null)'))
+  assert.ok(chat.includes('if (openedAs.current !== id) {'))
+  assert.ok(chat.includes('unreadFrom.current = firstUnreadKey(messages, uid, id)'))
+})
+
+test('and it is drawn once, in the thread', () => {
+  assert.ok(chat.includes('{e.key === unreadFrom.current && ('))
+  assert.ok(chat.includes('Unread'))
+  assert.ok(chat.includes('role="separator"'))
+})
+
+test('an unread chat looks unread without reading the badge', () => {
+  // Heavier, darker, and its timestamp in the accent colour -- the way
+  // every chat app says "this one".
+  assert.ok(chat.includes("row.unread > 0 ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'"))
+  assert.ok(chat.includes("row.unread > 0 ? 'font-semibold text-indigo-600' : 'text-slate-400'"))
+  assert.ok(chat.includes("row.unread > 0 ? 'font-medium text-slate-700' : 'text-slate-400'"))
+  assert.ok(chat.includes("row.unread > 0 ? 'bg-indigo-50/40' : ''"))
 })

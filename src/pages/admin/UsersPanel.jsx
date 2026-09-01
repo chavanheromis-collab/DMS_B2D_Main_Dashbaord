@@ -1,11 +1,25 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, ChevronDown, Copy, Eye, EyeOff, Filter, Search, ShieldCheck, X } from 'lucide-react'
+import {
+  ArrowUpDown,
+  ChevronDown,
+  Copy,
+  Eye,
+  EyeOff,
+  Filter,
+  Inbox,
+  Search,
+  Send,
+  ShieldCheck,
+  X,
+} from 'lucide-react'
 import { db } from '../../firebase'
 import { accessId } from '../../lib/workspace'
 import { DEFAULT_SCOPE, SCOPE_TOKENS, describeScope } from '../../lib/userScope'
 import { collectTabRefs } from '../../lib/refs'
 import { canReceiveMessages, canSendMessages } from '../../lib/messages'
+import { avatarSpec } from '../../lib/avatar'
+import { useAuth } from '../../context/AuthContext.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import { stripUndefined } from '../../lib/firestoreSafe'
 import { Btn, Select, TextInput, Toggle, stableEqual, useWorkspaceCtx } from './ui.jsx'
@@ -26,6 +40,36 @@ import { Btn, Select, TextInput, Toggle, stableEqual, useWorkspaceCtx } from './
  * visible to everyone who can see the page rather than invisible until each
  * user is re-granted one by one.
  */
+/**
+ * A switch the size of an icon.
+ *
+ * A column of forty rows cannot afford a labelled checkbox each. The state
+ * is carried by colour AND by a slash through the icon when it is off, so
+ * it does not rely on colour alone -- and the words live in the tooltip and
+ * the aria-label, where a screen reader and a hesitating admin both find
+ * them.
+ */
+function IconToggle({ on, onChange, label, title, icon: Icon }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      title={`${title} — ${on ? 'on' : 'off'}`}
+      onClick={() => onChange(!on)}
+      className={`relative flex h-6 w-6 items-center justify-center rounded-md border transition-colors ${
+        on
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+          : 'border-slate-200 bg-white text-slate-300 hover:bg-slate-50'
+      }`}
+    >
+      <Icon size={12} />
+      {!on && <span aria-hidden className="absolute h-4 w-px rotate-45 bg-slate-300" />}
+    </button>
+  )
+}
+
 /** A user with no status yet has not been looked at, which is pending. */
 const statusOf = (u) => u?.status || 'pending'
 
@@ -40,9 +84,18 @@ const STATUS_TABS = [
 ]
 
 export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
+  const { user: me } = useAuth()
   const [users, setUsers] = useState([])
+  // Who a bulk action applies to. Twelve people joining in the same week is
+  // the normal shape of this job, and doing them one at a time is how the
+  // twelfth gets a different answer from the first.
+  const [picked, setPicked] = useState([])
   const [accessMap, setAccessMap] = useState({})
   const [expanded, setExpanded] = useState(null)
+  // Which page's detail is open, inside the open user. Twelve pages drawn
+  // as twelve full cards is a wall nobody reads; one line each, and the one
+  // being worked on opened.
+  const [openPage, setOpenPage] = useState(null)
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
 
@@ -82,6 +135,26 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
   }, [users, query, status])
 
   const saveUser = (id, patch) => setDoc(doc(db, 'users', id), stripUndefined(patch), { merge: true })
+
+  // --- acting on several at once ----------------------------------------
+  /**
+   * Never yourself.
+   *
+   * A sweep that sets everybody to "User", or to "Removed", is one click
+   * away from an admin taking their own rights off -- and the panel that
+   * would put them back is the one they just locked. Individual rows still
+   * allow it, where the choice is unmistakably about one person.
+   */
+  const targets = useMemo(() => picked.filter((id) => id !== me?.uid), [picked, me?.uid])
+  const droppedSelf = picked.length !== targets.length
+
+  const bulkUser = (patch) => targets.forEach((id) => saveUser(id, patch))
+  const bulkPages = (canView) => targets.forEach((id) => setAllPages(id, canView))
+  const bulkCopy = (sourceUid) => targets.forEach((id) => id !== sourceUid && copyFrom(id, sourceUid))
+
+  const allPicked = sorted.length > 0 && sorted.every((u) => picked.includes(u.id))
+  const togglePick = (id) =>
+    setPicked((all) => (all.includes(id) ? all.filter((x) => x !== id) : [...all, id]))
   const saveAccess = (uid, pageId, next) =>
     setDoc(doc(db, 'access', accessId(uid, pageId)), stripUndefined(next), { merge: true })
 
@@ -189,16 +262,117 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
         </div>
       </div>
 
+      {/* Only when something is selected, so it costs no room the rest of
+          the time -- and sticky, because the people it acts on are the ones
+          you scrolled past to pick them. */}
+      {picked.length > 0 && (
+        <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/95 px-3 py-2 shadow-sm backdrop-blur">
+          <span className="text-xs font-semibold text-indigo-800">
+            {picked.length} selected
+          </span>
+
+          <span className="h-4 w-px bg-indigo-200" />
+
+          <Select
+            value=""
+            onChange={(v) => v && bulkUser({ status: v })}
+            options={[
+              { value: '', label: 'Set status…' },
+              { value: 'active', label: 'Active' },
+              { value: 'pending', label: 'Pending' },
+              { value: 'removed', label: 'Removed' },
+            ]}
+            className="w-32"
+          />
+          <Select
+            value=""
+            onChange={(v) => v && bulkUser({ role: v })}
+            options={[
+              { value: '', label: 'Set access…' },
+              { value: 'user', label: 'User' },
+              { value: 'admin', label: 'Admin' },
+            ]}
+            className="w-32"
+          />
+          <Select
+            value=""
+            onChange={(v) => {
+              if (v === 'send-on') bulkUser({ canSendMessages: true })
+              if (v === 'send-off') bulkUser({ canSendMessages: false })
+              if (v === 'recv-on') bulkUser({ canReceiveMessages: true })
+              if (v === 'recv-off') bulkUser({ canReceiveMessages: false })
+            }}
+            options={[
+              { value: '', label: 'Messaging…' },
+              { value: 'send-on', label: 'Can send' },
+              { value: 'send-off', label: 'Cannot send' },
+              { value: 'recv-on', label: 'Can receive' },
+              { value: 'recv-off', label: 'Cannot receive' },
+            ]}
+            className="w-36"
+          />
+
+          <span className="h-4 w-px bg-indigo-200" />
+
+          <Btn onClick={() => bulkPages(true)}>
+            <Eye size={12} /> Grant all pages
+          </Btn>
+          <Btn onClick={() => bulkPages(false)}>
+            <EyeOff size={12} /> Revoke all
+          </Btn>
+          <div className="flex items-center gap-1.5">
+            <Copy size={12} className="text-indigo-400" />
+            <Select
+              value=""
+              onChange={(v) => v && bulkCopy(v)}
+              options={[
+                { value: '', label: 'Copy permissions from…' },
+                ...users
+                  .filter((other) => other.role !== 'admin')
+                  .map((other) => ({ value: other.id, label: other.email || other.id })),
+              ]}
+              className="w-52"
+            />
+          </div>
+
+          <button
+            onClick={() => setPicked([])}
+            className="ml-auto flex items-center gap-1 text-[11px] text-indigo-700 underline"
+          >
+            <X size={11} /> Clear
+          </button>
+
+          {/* Said where the action is, not discovered afterwards. */}
+          {droppedSelf && (
+            <p className="w-full text-[10px] leading-snug text-indigo-700/80">
+              Your own account is in the selection and will be left alone — a sweep that
+              sets everybody to “User” is one click from locking yourself out of this
+              panel. Change your own row directly if you mean to.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[880px] text-sm">
+        <table className="w-full min-w-[720px] text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-slate-400">
-              <th className="py-2 font-medium">Name</th>
-              <th className="py-2 font-medium">Work role</th>
-              <th className="py-2 font-medium">Status</th>
-              <th className="py-2 font-medium">Access</th>
-              <th className="py-2 font-medium">Messages</th>
-              <th className="py-2 font-medium">Pages</th>
+            <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+              <th className="w-8 py-1.5">
+                <input
+                  type="checkbox"
+                  checked={allPicked}
+                  onChange={() => setPicked(allPicked ? [] : sorted.map((u) => u.id))}
+                  aria-label="Select every user shown"
+                  className="cursor-pointer"
+                />
+              </th>
+              <th className="py-1.5 font-medium">Person</th>
+              <th className="py-1.5 font-medium">Status</th>
+              <th className="py-1.5 font-medium">Access</th>
+              <th className="py-1.5 text-center font-medium" title="Send / receive messages">
+                Msgs
+              </th>
+              <th className="py-1.5 font-medium">Pages</th>
               <th />
             </tr>
           </thead>
@@ -206,41 +380,68 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
             {sorted.map((u) => {
               const granted = pages.filter((p) => accessMap[accessId(u.id, p.id)]?.canView)
               const open = expanded === u.id
+              const chosen = picked.includes(u.id)
+              const face = avatarSpec(u.name || u.email, u.id)
 
               return (
                 <Fragment key={u.id}>
-                  <tr className="border-b border-slate-50">
-                    <td className="py-2 pr-2">
+                  <tr
+                    className={`border-b border-slate-50 transition-colors ${
+                      chosen ? 'bg-indigo-50/50' : 'hover:bg-slate-50/60'
+                    }`}
+                  >
+                    <td className="py-1.5 align-middle">
                       <input
-                        defaultValue={u.name || ''}
-                        onBlur={(e) => {
-                          const next = e.target.value.trim()
-                          if (next !== (u.name || '')) saveUser(u.id, { name: next })
-                        }}
-                        placeholder="— no name yet —"
-                        className="w-40 rounded-lg border border-transparent px-1.5 py-1 text-sm font-medium text-ink hover:border-slate-200 focus:border-slate-300 focus:bg-white"
-                        aria-label={`Name of ${u.email}`}
+                        type="checkbox"
+                        checked={chosen}
+                        onChange={() => togglePick(u.id)}
+                        aria-label={`Select ${u.name || u.email}`}
+                        className="cursor-pointer"
                       />
-                      <p className="px-1.5 text-xs text-slate-400">{u.email}</p>
                     </td>
 
-                    {/* What they do. Editable, because everyone who signed up
-                        before this field existed has none, and an admin
-                        knowing the answer beats waiting for them to sign in
-                        again and type it. */}
-                    <td className="py-2 pr-2">
-                      <input
-                        defaultValue={u.jobRole || ''}
-                        onBlur={(e) => {
-                          const next = e.target.value.trim()
-                          if (next !== (u.jobRole || '')) saveUser(u.id, { jobRole: next })
-                        }}
-                        placeholder="—"
-                        className="w-36 rounded-lg border border-transparent px-1.5 py-1 text-xs hover:border-slate-200 focus:border-slate-300 focus:bg-white"
-                        aria-label={`Work role of ${u.name || u.email}`}
-                      />
+                    {/* Name, email and what they do in one cell. Three
+                        columns for one person was three columns of mostly
+                        white space, and the job title is the thing an admin
+                        recognises somebody by. */}
+                    <td className="py-1.5 pr-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          aria-hidden
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                          style={{ backgroundColor: face.bg, color: face.fg }}
+                        >
+                          {face.initials}
+                        </span>
+                        <div className="min-w-0">
+                          <input
+                            defaultValue={u.name || ''}
+                            onBlur={(e) => {
+                              const next = e.target.value.trim()
+                              if (next !== (u.name || '')) saveUser(u.id, { name: next })
+                            }}
+                            placeholder="— no name yet —"
+                            className="w-44 rounded border border-transparent px-1 py-0.5 text-[13px] font-medium text-ink hover:border-slate-200 focus:border-slate-300 focus:bg-white"
+                            aria-label={`Name of ${u.email}`}
+                          />
+                          <div className="flex items-baseline gap-1.5 px-1">
+                            <span className="truncate text-[10px] text-slate-400">{u.email}</span>
+                            <input
+                              defaultValue={u.jobRole || ''}
+                              onBlur={(e) => {
+                                const next = e.target.value.trim()
+                                if (next !== (u.jobRole || '')) saveUser(u.id, { jobRole: next })
+                              }}
+                              placeholder="+ role"
+                              className="w-24 rounded border border-transparent px-1 text-[10px] text-slate-500 hover:border-slate-200 focus:border-slate-300 focus:bg-white"
+                              aria-label={`Work role of ${u.name || u.email}`}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </td>
-                    <td className="py-2 pr-2">
+
+                    <td className="py-1.5 pr-2">
                       <Select
                         value={u.status || 'pending'}
                         onChange={(v) => saveUser(u.id, { status: v })}
@@ -249,10 +450,11 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
                           { value: 'active', label: 'Active' },
                           { value: 'removed', label: 'Removed' },
                         ]}
-                        className="w-28"
+                        className="w-24"
                       />
                     </td>
-                    <td className="py-2 pr-2">
+
+                    <td className="py-1.5 pr-2">
                       <Select
                         value={u.role || 'user'}
                         onChange={(v) => saveUser(u.id, { role: v })}
@@ -260,42 +462,44 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
                           { value: 'user', label: 'User' },
                           { value: 'admin', label: 'Admin' },
                         ]}
-                        className="w-24"
+                        className="w-20"
                       />
                     </td>
-                    {/* Who may use the message centre at all.
-                        Both read through the model, where ABSENT MEANS YES:
-                        everyone who signed up before this existed keeps
-                        working, rather than silently losing messages until
-                        an admin ticks a box nobody knew about.
 
-                        Sending is enforced in firestore.rules as well --
-                        this box is the admin's decision, not the fence.
-                        Receiving is a feature switched off for somebody, not
-                        a secret kept from them, so the client honours it. */}
-                    <td className="py-2 pr-2">
-                      <div className="flex flex-col gap-0.5">
-                        <Toggle
-                          checked={canSendMessages(u)}
+                    {/* Two switches, as switches rather than two labelled
+                        rows. Which one is which is in the tooltip and the
+                        aria-label; the pair reads as one thing at a glance,
+                        which is what a column of forty of them needs. */}
+                    <td className="py-1.5 pr-2">
+                      <div className="flex items-center justify-center gap-1">
+                        <IconToggle
+                          on={canSendMessages(u)}
                           onChange={(v) => saveUser(u.id, { canSendMessages: v })}
-                          label={<span className="text-[11px]">Send</span>}
+                          label={`${u.name || u.email} can send messages`}
+                          title="Can send messages"
+                          icon={Send}
                         />
-                        <Toggle
-                          checked={canReceiveMessages(u)}
+                        <IconToggle
+                          on={canReceiveMessages(u)}
                           onChange={(v) => saveUser(u.id, { canReceiveMessages: v })}
-                          label={<span className="text-[11px]">Receive</span>}
+                          label={`${u.name || u.email} can receive messages`}
+                          title="Can receive messages"
+                          icon={Inbox}
                         />
                       </div>
                     </td>
-                    <td className="py-2 pr-2 text-xs text-slate-500">
+
+                    <td className="py-1.5 pr-2 text-xs text-slate-500">
                       {u.role === 'admin' ? (
                         <span className="inline-flex items-center gap-1 text-indigo-600">
-                          <ShieldCheck size={12} /> all pages
+                          <ShieldCheck size={12} /> all
                         </span>
                       ) : granted.length === 0 ? (
-                        '—'
+                        <span className="text-slate-300">none</span>
                       ) : (
-                        `${granted.length} of ${pages.length}`
+                        <span className="tabular-nums">
+                          {granted.length}/{pages.length}
+                        </span>
                       )}
                       {(() => {
                         // A row restriction is the kind of thing somebody
@@ -307,20 +511,21 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
                         if (u.role === 'admin' || scoped.length === 0) return null
                         return (
                           <span
-                            className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+                            className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
                             title={scoped
                               .map((p) => `${p.name}: ${describeScope(accessMap[accessId(u.id, p.id)]?.scope, labelFor)}`)
                               .join(SCOPE_SEPARATOR)}
                           >
-                            <Filter size={10} /> {scoped.length} row-limited
+                            <Filter size={9} /> {scoped.length}
                           </span>
                         )
                       })()}
                     </td>
-                    <td className="py-2 text-right">
+
+                    <td className="py-1.5 text-right">
                       <Btn onClick={() => setExpanded(open ? null : u.id)}>
                         <ChevronDown size={12} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
-                        {open ? 'Hide' : 'Permissions'}
+                        {open ? 'Hide' : 'Pages'}
                       </Btn>
                     </td>
                   </tr>
@@ -334,14 +539,14 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
                           </p>
                         ) : (
                           <>
-                            <div className="mb-3 flex flex-wrap items-center gap-2">
+                            <div className="mb-2 flex flex-wrap items-center gap-1.5">
                               <Btn onClick={() => setAllPages(u.id, true)}>
-                                <Eye size={12} /> Grant all pages
+                                <Eye size={12} /> Grant all
                               </Btn>
                               <Btn onClick={() => setAllPages(u.id, false)}>
                                 <EyeOff size={12} /> Revoke all
                               </Btn>
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1">
                                 <Copy size={12} className="text-slate-400" />
                                 <Select
                                   value=""
@@ -352,21 +557,21 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
                                       .filter((other) => other.id !== u.id && other.role !== 'admin')
                                       .map((other) => ({ value: other.id, label: other.email || other.id })),
                                   ]}
-                                  className="w-56"
+                                  className="w-48"
                                 />
                               </div>
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1">
                                 <ArrowUpDown size={12} className="text-slate-400" />
                                 <Select
                                   value=""
                                   onChange={(v) => v && copyLayoutFrom(u.id, v)}
                                   options={[
-                                    { value: '', label: 'Copy widget layout from…' },
+                                    { value: '', label: 'Copy layout from…' },
                                     ...users
                                       .filter((other) => other.id !== u.id)
                                       .map((other) => ({ value: other.id, label: other.email || other.id })),
                                   ]}
-                                  className="w-56"
+                                  className="w-44"
                                 />
                               </div>
                             </div>
@@ -376,10 +581,16 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
                                 No pages exist yet — create one under “Pages”.
                               </p>
                             ) : (
-                              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                              <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
                                 {pages.map((page) => (
                                   <AccessCard
                                     key={page.id}
+                                    open={openPage === `${u.id}:${page.id}`}
+                                    onToggleOpen={() =>
+                                      setOpenPage((cur) =>
+                                        cur === `${u.id}:${page.id}` ? null : `${u.id}:${page.id}`
+                                      )
+                                    }
                                     page={page}
                                     value={accessMap[accessId(u.id, page.id)]}
                                     onSave={(next) => saveAccess(u.id, page.id, next)}
@@ -532,7 +743,7 @@ function ScopeEditor({ tabs, tabHeaders, scope, onChange, labelFor, onApplyAll }
   )
 }
 
-function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs = [] }) {
+function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs = [], open = true, onToggleOpen }) {
   const { tabHeaders, labelFor } = useWorkspaceCtx()
   const [canView, setCanView] = useState(false)
   const [hidden, setHidden] = useState([])
@@ -586,15 +797,87 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
     !stableEqual(widgetOrder, value?.widgetOrder || {}) ||
     !stableEqual(scope, value?.scope || DEFAULT_SCOPE)
 
+  // What this page grants, in one line. An admin scanning twelve pages
+  // wants to know which ones are open and which of those are narrowed --
+  // opening each card to find out is the thing that made this a wall.
+  const shownWidgets = widgets.length - hidden.length
+  const editCount = Object.values(editable).reduce((n, cols) => n + (cols?.length || 0), 0)
+  const downloadCount = Object.values(downloadable).reduce((n, cols) => n + (cols?.length || 0), 0)
+  const limited = (scope?.conditions || []).some((c) => c?.column)
+
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="flex min-w-0 items-center gap-1.5 font-semibold text-ink">
-          <span>{page.icon || '📊'}</span>
-          <span className="truncate">{page.name}</span>
-        </p>
-        <Toggle checked={canView} onChange={setCanView} label="Can view" />
+    <div className={open ? 'bg-slate-50/40' : ''}>
+      {/* The summary line. The view switch lives here, so granting a page
+          takes one click and no expanding at all. */}
+      <div className="flex items-center gap-2 px-2.5 py-1.5">
+        <Toggle
+          checked={canView}
+          onChange={setCanView}
+          label=""
+          ariaLabel={`Can view ${page.name}`}
+        />
+
+        <button
+          type="button"
+          onClick={onToggleOpen}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <span className="shrink-0">{page.icon || '📊'}</span>
+          <span className={`truncate text-[13px] font-medium ${canView ? 'text-ink' : 'text-slate-400'}`}>
+            {page.name}
+          </span>
+
+          {canView && (
+            <span className="ml-auto flex shrink-0 items-center gap-1 text-[10px] text-slate-400">
+              {hidden.length > 0 && (
+                <span title={`${hidden.length} widgets hidden from this user`}>
+                  {shownWidgets}/{widgets.length} widgets
+                </span>
+              )}
+              {editCount > 0 && (
+                <span
+                  className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-emerald-700"
+                  title={`${editCount} editable columns`}
+                >
+                  edit {editCount}
+                </span>
+              )}
+              {downloadCount > 0 && (
+                <span
+                  className="rounded-full bg-sky-50 px-1.5 py-0.5 text-sky-700"
+                  title={`${downloadCount} downloadable columns`}
+                >
+                  files {downloadCount}
+                </span>
+              )}
+              {limited && (
+                <span
+                  className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-amber-700"
+                  title={describeScope(scope, labelFor)}
+                >
+                  <Filter size={9} /> rows
+                </span>
+              )}
+            </span>
+          )}
+
+          {/* Unsaved work must be visible on the line, or collapsing the
+              card hides the fact that there is something to save. */}
+          {dirty && (
+            <span className="ml-1 shrink-0 rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+              unsaved
+            </span>
+          )}
+
+          <ChevronDown
+            size={13}
+            className={`shrink-0 text-slate-300 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        </button>
       </div>
+
+      {open && (
+      <div className="border-t border-slate-100 px-3 pb-3 pt-2">
 
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <p className="text-[11px] font-medium text-slate-500">Widgets visible ({widgets.length - hidden.length}/{widgets.length})</p>
@@ -780,6 +1063,8 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
         </Btn>
         {dirty && <span className="text-[11px] text-amber-600">Unsaved</span>}
       </div>
+      </div>
+      )}
     </div>
   )
 }

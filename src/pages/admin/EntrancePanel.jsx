@@ -13,6 +13,14 @@ import {
 import { BRAND_NAME, BRAND_TAGLINE } from '../../components/SplashScreen.jsx'
 import { stripUndefined } from '../../lib/firestoreSafe'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
+import {
+  DEFAULT_BACKDROP,
+  DEFAULT_THEME,
+  ENTRANCE_THEMES,
+  LOGO_BACKDROPS,
+  backdropClass,
+  themeOf,
+} from '../../lib/entranceThemes'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, stableEqual } from './ui.jsx'
 import EmojiPicker from './EmojiPicker.jsx'
 
@@ -100,23 +108,110 @@ export default function EntrancePanel() {
               onChange={(v) => set({ logoUrl: v })}
               placeholder="https://drive.google.com/file/d/…/view"
             />
-            {/* Previewed on the entrance's own near-black backdrop, because
-                a logo that looks fine on white can vanish on dark. */}
-            <span className="flex h-14 w-24 shrink-0 items-center justify-center rounded-lg bg-slate-900 p-1.5">
+{/* Previewed on the chosen theme's OWN ground, with the chosen
+                backdrop -- a logo that looks fine on white can vanish on
+                dark, and a preview on a colour the entrance does not use
+                answers the wrong question. */}
+            <span
+              className="flex h-14 w-24 shrink-0 items-center justify-center rounded-lg p-1.5"
+              style={{ background: themeOf(draft).bg }}
+            >
               {safeImageUrl(draft.logoUrl, { width: 96 }) ? (
-                <img
-                  src={safeImageUrl(draft.logoUrl, { width: 96 })}
-                  alt=""
-                  className="max-h-full max-w-full object-contain"
-                />
+                <span className={backdropClass({ value: draft.logoBackdrop || DEFAULT_BACKDROP })}>
+                  <img
+                    src={safeImageUrl(draft.logoUrl, { width: 96 })}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </span>
               ) : (
-                <span className="text-[10px] text-slate-500">no logo</span>
+                <span className={`text-[10px] ${themeOf(draft).dark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  no logo
+                </span>
               )}
             </span>
           </div>
         </Field>
 
-        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
+        {/* --- how it looks ------------------------------------------- */}
+        <div className="mt-3">
+          <p className="mb-1 text-[11px] font-medium text-slate-500">Background</p>
+          <div className="flex flex-wrap gap-1.5">
+            {ENTRANCE_THEMES.map((t) => {
+              const on = (draft.theme || DEFAULT_THEME) === t.value
+              return (
+                <button
+                  key={t.value}
+                  onClick={() => set({ theme: t.value })}
+                  title={t.hint}
+                  aria-pressed={on}
+                  className={`overflow-hidden rounded-lg border transition-all ${
+                    on ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  {/* The swatch IS the theme: its own ground with its own two
+                      fields on it, so the choice is made by looking rather
+                      than by reading ten names. */}
+                  <span
+                    className="relative flex h-11 w-20 items-center justify-center overflow-hidden"
+                    style={{ background: t.bg }}
+                  >
+                    <span
+                      className="absolute -left-2 -top-3 h-10 w-10 rounded-full blur-md"
+                      style={{ background: t.orbA }}
+                    />
+                    <span
+                      className="absolute -bottom-3 -right-2 h-9 w-9 rounded-full blur-md"
+                      style={{ background: t.orbB }}
+                    />
+                    <span
+                      className="relative text-[10px] font-semibold"
+                      style={{ color: t.dark ? '#fff' : '#0f172a' }}
+                    >
+                      {t.label}
+                    </span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <p className="mb-1 text-[11px] font-medium text-slate-500">Behind the logo</p>
+          <div className="flex flex-wrap gap-1.5">
+            {LOGO_BACKDROPS.map((b) => {
+              const on = (draft.logoBackdrop || DEFAULT_BACKDROP) === b.value
+              return (
+                <button
+                  key={b.value}
+                  onClick={() => set({ logoBackdrop: b.value })}
+                  title={b.hint}
+                  aria-pressed={on}
+                  className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    on
+                      ? 'border-indigo-600 bg-indigo-600 text-white'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {b.label}
+                </button>
+              )
+            })}
+          </div>
+          {/* The one thing worth saying about transparent logos, said where
+              the decision is made. */}
+          <p className="mt-1 text-[11px] leading-snug text-slate-400">
+            A <strong>transparent PNG or SVG is the right thing to upload</strong> — it sits on
+            the background instead of carrying a white rectangle. But transparent means the ink
+            is whatever your designer chose: a dark logo disappears on a dark background and a
+            white one disappears on a light one. A glow rescues the first, a plate rescues
+            either.
+          </p>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
           <Field label="Brand name" hint={`Blank uses “${BRAND_NAME}” from the build settings.`}>
             <TextInput value={draft.brandName || ''} onChange={(v) => set({ brandName: v })} placeholder={BRAND_NAME} />
           </Field>

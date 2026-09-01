@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { entranceDuration, liveEntranceItems, resolveBrand } from '../lib/branding'
-import { safeImageUrl } from '../lib/imageUrl'
+import { backdropClass, backdropOf, themeOf, themeVars } from '../lib/entranceThemes'
+import { useImageFallback } from '../hooks/useImageFallback'
 
 export const BRAND_NAME = import.meta.env?.VITE_BRAND_NAME || 'Chavan Udyog Samuh'
 export const BRAND_TAGLINE = import.meta.env?.VITE_BRAND_TAGLINE || 'Business Intelligence Dashboard'
@@ -63,9 +64,17 @@ export default function SplashScreen({ onDone, entrance }) {
   const items = liveEntranceItems(entrance)
   const brand = resolveBrand(entrance, BRAND_NAME, BRAND_TAGLINE)
   const duration = entranceDuration(entrance, items.length)
+  const theme = themeOf(entrance)
+  const backdrop = backdropOf(entrance)
+
   // Asked for at 520px: the logo can render up to 260px wide, and the
   // entrance is the last place a soft image is acceptable.
-  const logoUrl = safeImageUrl(entrance?.logoUrl, { width: 260 })
+  //
+  // Through the shared fallback, which is the fix for a logo that "does not
+  // load": this used to take the single best Drive URL and HIDE the image
+  // when it failed, so a file whose CDN copy had not been generated yet
+  // simply never appeared. Now it walks every endpoint Drive offers.
+  const logo = useImageFallback(entrance?.logoUrl, 260)
 
   // One guarded exit path for all three triggers, so a click landing at the
   // same moment as the timer can't fire the transition twice.
@@ -102,9 +111,10 @@ export default function SplashScreen({ onDone, entrance }) {
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center overflow-hidden bg-slate-950 ${
+      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center overflow-hidden ${
         leaving ? 'splash-out' : ''
       }`}
+      style={{ ...themeVars(theme), background: 'var(--splash-bg)' }}
       role="presentation"
     >
       {/* Slow drifting colour fields, well below the text in contrast so the
@@ -118,15 +128,20 @@ export default function SplashScreen({ onDone, entrance }) {
             entrance is the one place a business's own identity belongs. It
             gets a soft glow behind it so a dark logo doesn't disappear into
             the near-black backdrop. */}
-        {logoUrl ? (
-          <div className="splash-mark mb-6 flex items-center justify-center">
+        {logo.url && !logo.exhausted ? (
+          <div className={`splash-mark mb-6 flex items-center justify-center ${backdropClass(backdrop)}`}>
             <img
-              src={logoUrl}
+              key={logo.url}
+              src={logo.url}
               alt=""
-              className="max-h-24 w-auto max-w-[260px] object-contain drop-shadow-[0_0_38px_rgba(148,163,184,0.45)]"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none'
-              }}
+              // Google refuses image requests carrying a referrer from an
+              // origin it does not know, which is every deployment of this
+              // dashboard -- without this a perfectly public file 403s, and
+              // that was the other half of "the logo does not load".
+              referrerPolicy="no-referrer"
+              decoding="async"
+              onError={logo.onError}
+              className="max-h-24 w-auto max-w-[260px] object-contain"
             />
           </div>
         ) : (
@@ -142,7 +157,10 @@ export default function SplashScreen({ onDone, entrance }) {
 
         {/* Per-letter reveal. Spaces keep their width via a non-breaking
             space, or the wordmark collapses into one run of letters. */}
-        <h1 className="splash-title text-3xl font-bold tracking-tight text-white sm:text-5xl">
+        <h1
+          className="splash-title text-3xl font-bold tracking-tight sm:text-5xl"
+          style={{ color: 'var(--splash-title)' }}
+        >
           {letters.map((ch, i) => (
             <span
               key={`${ch}-${i}`}
@@ -155,13 +173,19 @@ export default function SplashScreen({ onDone, entrance }) {
         </h1>
 
         <p
-          className="splash-tagline mt-3 text-xs uppercase tracking-[0.32em] text-slate-400 sm:text-sm"
-          style={{ animationDelay: `${260 + letters.length * 45}ms` }}
+          className="splash-tagline mt-3 text-xs uppercase tracking-[0.32em] sm:text-sm"
+          style={{ animationDelay: `${260 + letters.length * 45}ms`, color: 'var(--splash-tagline)' }}
         >
           {brand.tagline}
         </p>
 
-        <div className="splash-rule mt-7 h-px w-40 bg-gradient-to-r from-transparent via-indigo-400 to-transparent" />
+        <div
+          className="splash-rule mt-7 h-px w-40"
+          style={{
+            background:
+              'linear-gradient(to right, transparent, var(--splash-rule), transparent)',
+          }}
+        />
 
         {/* --- Campaigns, achievements and notices ---------------------- */}
         {items.length > 0 && (
@@ -178,9 +202,19 @@ export default function SplashScreen({ onDone, entrance }) {
               >
                 <span className="text-xl leading-none">{item.icon}</span>
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold leading-snug text-white">{item.title}</p>
+                  <p
+                    className="text-sm font-semibold leading-snug"
+                    style={{ color: 'var(--splash-item-text)' }}
+                  >
+                    {item.title}
+                  </p>
                   {item.subtitle && (
-                    <p className="mt-0.5 text-[11px] leading-snug text-slate-300">{item.subtitle}</p>
+                    <p
+                      className="mt-0.5 text-[11px] leading-snug"
+                      style={{ color: 'var(--splash-item-sub)' }}
+                    >
+                      {item.subtitle}
+                    </p>
                   )}
                 </div>
               </div>
@@ -189,7 +223,10 @@ export default function SplashScreen({ onDone, entrance }) {
         )}
       </div>
 
-      <p className="splash-hint absolute bottom-8 text-[11px] tracking-wide text-slate-600">
+      <p
+        className="splash-hint absolute bottom-8 text-[11px] tracking-wide"
+        style={{ color: 'var(--splash-hint)' }}
+      >
         click anywhere to continue
       </p>
     </div>

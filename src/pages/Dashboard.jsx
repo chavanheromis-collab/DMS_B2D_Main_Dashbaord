@@ -41,6 +41,7 @@ import { widgetUsesPx, widgetWidthPx } from '../lib/config'
 import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
 import { MAX_ROW_SPAN } from '../lib/flowPack'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
+import { buildChoices } from '../lib/columnChoices'
 import {
   MAX_WIDGET_DEPTH,
   ascendWidget,
@@ -1718,6 +1719,11 @@ export default function Dashboard() {
                             // same note -- and labels are per page and can
                             // be disambiguated differently on the next one.
                             noteScope={refByLabel[widget.tab] || widget.tab}
+                            // Built here because the options live in a
+                            // DIFFERENT tab, and this is where every tab's
+                            // rows are. The widget is handed the finished
+                            // lists rather than the whole workspace.
+                            columnChoices={buildChoices(widget, rowsByLabel)}
                           />
                         )}
 
