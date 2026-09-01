@@ -42,6 +42,7 @@ import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
 import { MAX_ROW_SPAN } from '../lib/flowPack'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
 import { buildChoices } from '../lib/columnChoices'
+import { matchTargets } from '../lib/spin360'
 import {
   MAX_WIDGET_DEPTH,
   ascendWidget,
@@ -101,6 +102,7 @@ import BoxPlotWidget, {
   WordCloudWidget,
 } from '../components/widgets/DistributionWidgets.jsx'
 import NoteWidget, { CountdownWidget, MediaWidget } from '../components/widgets/CanvasWidgets.jsx'
+import Spin360Widget from '../components/widgets/Spin360Widget.jsx'
 
 // A rough, type-based height guess, used only to decide which MASONRY
 // COLUMN a widget belongs to on first layout (see MasonryGrid.jsx) --
@@ -590,6 +592,54 @@ export default function Dashboard() {
     return out
   }, [scopedByRef, labelFor])
 
+  /**
+   * Rows as everything else sees them, MINUS the filters a widget is itself
+   * driving.
+   *
+   * A 360° viewer set to filter the page narrows its own tab along with
+   * every other -- so the moment somebody pressed Next, the list it walks
+   * collapsed to the one vehicle it had just selected and the Next button
+   * vanished. It was filtering itself out of existence.
+   *
+   * Page filters and every OTHER drill still apply, because narrowing to
+   * Nashik and then walking the bikes in Nashik is exactly what somebody
+   * would expect. Only the pinned ones come out, and pinned means "a widget
+   * is driving this" -- see lib/spin360.js.
+   */
+  const drivenBy = useMemo(() => crossFilters.filter((c) => c.pinned), [crossFilters])
+
+  const undrivenRowsByLabel = useMemo(() => {
+    if (drivenBy.length === 0) return rowsByLabel
+    const out = {}
+    for (const [ref, data] of Object.entries(scopedByRef)) {
+      out[labelFor(ref)] = applyFilters(data.rows || [], {
+        tab: ref,
+        filters,
+        values: effectiveValues,
+        buttons,
+        activeIds: effectiveButtonIds,
+        crossFilters: crossFiltersByRef.filter((c) => !c.pinned),
+        search,
+        dateOrder,
+        tabColumns,
+      })
+    }
+    return out
+  }, [
+    drivenBy,
+    rowsByLabel,
+    scopedByRef,
+    labelFor,
+    filters,
+    effectiveValues,
+    buttons,
+    effectiveButtonIds,
+    crossFiltersByRef,
+    search,
+    dateOrder,
+    tabColumns,
+  ])
+
   // The label-keyed equivalent of `dataByRef`, for FilterBar (which reads a
   // filter's own tab to build its dropdown options) and for header lookups.
   const dataByLabel = useMemo(() => {
@@ -743,6 +793,26 @@ export default function Dashboard() {
     }
   }
 
+  /**
+   * A cross-filter that is SET rather than toggled.
+   *
+   * `toggleCrossFilter` clears when the same id arrives with the same
+   * value, which is right for a click -- pressing the bar that is already
+   * on turns it off. It is wrong for something that follows a selection:
+   * the 360° viewer re-announcing the vehicle it is already showing, after
+   * a remount or a re-render, would silently clear the filter it had just
+   * applied.
+   *
+   * `null` removes it, which is what leaving the page or switching the
+   * option off has to do.
+   */
+  const setCrossFilter = useCallback((id, cf) => {
+    setCrossFilters((current) => {
+      const rest = current.filter((c) => c.id !== id)
+      return cf ? [...rest, cf] : rest
+    })
+  }, [])
+
   function toggleCrossFilter(cf) {
     setCrossFilters((current) => {
       const existing = current.find((c) => c.id === cf.id)
@@ -779,7 +849,9 @@ export default function Dashboard() {
     setFilterValues(values)
     setActiveButtonIds(onByDefault)
     setSearch('')
-    setCrossFilters([])
+    // Pinned ones stay. Reset puts the page back to how the admin designed
+    // it, and a page whose viewer drives it was designed that way.
+    setCrossFilters((c) => c.filter((x) => x.pinned))
   }
 
   /**
@@ -790,7 +862,7 @@ export default function Dashboard() {
   function applyView(view) {
     setFilterValues(view.values || {})
     setActiveButtonIds(view.buttons || [])
-    setCrossFilters([])
+    setCrossFilters((c) => c.filter((x) => x.pinned))
   }
 
   // Page controls the admin gave a default open already applied. Keyed on
@@ -1530,6 +1602,19 @@ export default function Dashboard() {
                           onRowOrder={(v) => saveWidgetSize(widget.id, { rowOrder: v })}
                           rowSpan={widget.rowSpan ?? ''}
                           onRowSpan={(v) => saveWidgetSize(widget.id, { rowSpan: v })}
+                          colSpan={widget.colSpan ?? ''}
+                          onColSpan={(v) => saveWidgetSize(widget.id, { colSpan: v })}
+                          // Switching mode CLEARS the other one, so the two
+                          // can never both be set and silently disagree --
+                          // which is what made the six boxes confusing.
+                          onSizeMode={(mode) =>
+                            saveWidgetSize(
+                              widget.id,
+                              mode === 'cols'
+                                ? { colSpan: '1', widthPx: '' }
+                                : { colSpan: '', widthPx: '' }
+                            )
+                          }
                           // Only what is actually IN FORCE. A pixel width
                           // is ignored unless the widget is in pixel mode,
                           // and a number that is being ignored has no
@@ -1767,6 +1852,27 @@ export default function Dashboard() {
                         {widget.type === 'note' && <NoteWidget widget={widget} />}
                         {widget.type === 'media' && <MediaWidget widget={widget} />}
                         {widget.type === 'countdown' && <CountdownWidget widget={widget} />}
+                        {widget.type === 'spin360' && (
+                          <Spin360Widget
+                            widget={widget}
+                            // The list it walks, before its own selection
+                            // narrows anything -- otherwise pressing Next
+                            // filters the viewer down to the one vehicle it
+                            // just picked, and the button disappears.
+                            rows={undrivenRowsByLabel[widget.tab] || rows}
+                            // The tab as the page knows it -- a label by the
+                            // time a widget sees it, which is exactly what a
+                            // cross-filter's conditions are matched against.
+                            tab={widget.tab}
+                            // Every OTHER widget that said which of its own
+                            // columns hold the model and the colour. A
+                            // conditions filter only touches tabs it names,
+                            // so this is how the selection reaches a KPI
+                            // card reading a different tab entirely.
+                            targets={matchTargets(view.widgets, widget)}
+                            onFilter={setCrossFilter}
+                          />
+                        )}
 
                         {/* Where the extra columns on a blended widget came
                             from, stated on the card itself so nobody has to
@@ -2062,10 +2168,13 @@ export default function Dashboard() {
                 screen the header is; when it is not, it is not. */}
             <div ref={headerMark} aria-hidden className="h-px w-full" />
 
+            {/* Pinned ones are left out entirely -- see `filterFor`.
+                They are not something the reader chose, so offering them a
+                cross to press would be offering to break the page. */}
             <CrossFilterChips
-              crossFilters={crossFilters}
-              onRemove={(id) => setCrossFilters((c) => c.filter((x) => x.id !== id))}
-              onClear={() => setCrossFilters([])}
+              crossFilters={crossFilters.filter((c) => !c.pinned)}
+              onRemove={(id) => setCrossFilters((c) => c.filter((x) => x.id !== id || x.pinned))}
+              onClear={() => setCrossFilters((c) => c.filter((x) => x.pinned))}
             />
 
             {editError && (

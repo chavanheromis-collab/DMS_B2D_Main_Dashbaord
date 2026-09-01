@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import {
   MAX_ROW_SPAN,
@@ -19,6 +21,9 @@ import {
   rowSpanOf,
   rowOrderOf,
   pinnedHeight,
+  MAX_COL_SPAN,
+  colSpanOf,
+  columnWidths,
 } from './flowPack.js'
 
 const item = (id, widthPx, estimatedHeight = 100) => ({ id, widthPx, estimatedHeight })
@@ -1045,4 +1050,147 @@ test('a page nobody has ordered by row is in the order it always was', () => {
   const items = [item('a', 200), item('b', 200), item('c', 200)]
   const { positions } = packRowGroups(items, { canvasWidth: 1000, gapX: 12 })
   assert.deepEqual([positions.a.left, positions.b.left, positions.c.left], [0, 212, 424])
+})
+
+// ---------------------------------------------------------------------
+// Columns, the sideways partner to a row span
+// ---------------------------------------------------------------------
+
+const col = (id, colSpan, extra = {}) => ({ id, colSpan, ...extra })
+
+test('a row divides itself into the columns its widgets asked for', () => {
+  // Not a page-wide grid: this canvas has never had one, and adding one
+  // would mean every existing page suddenly had to fit it.
+  const items = [col('a', 1), col('b', 1), col('c', 2)]
+  const w = columnWidths(items, 1000, 0)
+  assert.equal(w.a, w.b)
+  assert.equal(w.c, w.a * 2)
+  assert.equal(w.a + w.b + w.c, 1000)
+})
+
+test('two columns of two is half each', () => {
+  const w = columnWidths([col('a', 1), col('b', 1)], 800, 0)
+  assert.equal(w.a, 400)
+  assert.equal(w.b, 400)
+})
+
+test('the gaps between them come out of the share', () => {
+  // A share that ignored them overflows the row by exactly the gaps, which
+  // is how a two-column layout ends up wrapping onto two lines.
+  const w = columnWidths([col('a', 1), col('b', 1)], 800, 20)
+  assert.equal(w.a + w.b + 20, 800)
+})
+
+test('a row can mix pixels and columns', () => {
+  // A pinned 300px sidebar beside two widgets splitting the rest is a
+  // perfectly ordinary thing to want.
+  const items = [{ id: 'fixed', widthPx: 300 }, col('a', 1), col('b', 1)]
+  const w = columnWidths(items, 1000, 0)
+  assert.equal(w.fixed, undefined, 'the pinned one keeps its pixels')
+  assert.equal(w.a + w.b, 700)
+})
+
+test('a row where nobody asked is left exactly as it was', () => {
+  assert.deepEqual(columnWidths([{ id: 'a', widthPx: 300 }], 1000, 12), {})
+  assert.deepEqual(columnWidths([], 1000, 12), {})
+  assert.deepEqual(columnWidths(null, 1000, 12), {})
+})
+
+test('a column is never narrower than a widget can be', () => {
+  // Ten columns on a phone is ten slivers; each still gets a usable width
+  // rather than four pixels.
+  const many = Array.from({ length: 10 }, (_, i) => col(`w${i}`, 1))
+  const w = columnWidths(many, 300, 12)
+  for (const id of Object.keys(w)) assert.ok(w[id] >= 80, `${id} is ${w[id]}px`)
+})
+
+test('a span is a whole number of columns, and never more than four', () => {
+  // Past four a column is a sliver, and the admin wanted a pixel width all
+  // along -- which this canvas has always been able to give them.
+  assert.equal(colSpanOf({ colSpan: 2 }), 2)
+  assert.equal(colSpanOf({ colSpan: 2.4 }), 2)
+  assert.equal(colSpanOf({ colSpan: 99 }), MAX_COL_SPAN)
+  assert.equal(colSpanOf({ colSpan: 0 }), 0, 'nought means "use the pixel width"')
+  assert.equal(colSpanOf({ colSpan: -3 }), 0)
+  assert.equal(colSpanOf({}), 0)
+  assert.equal(colSpanOf(null), 0)
+})
+
+test('the packer places a column row across the canvas, not down it', () => {
+  const out = packRowGroups([col('a', 1, { row: 1 }), col('b', 1, { row: 1 })], {
+    canvasWidth: 800,
+    gapX: 0,
+    heights: { a: 100, b: 100 },
+  })
+  assert.equal(out.positions.a.top, out.positions.b.top, 'same row')
+  assert.equal(out.positions.a.left, 0)
+  assert.equal(out.positions.b.left, 400)
+  assert.equal(out.positions.a.width, 400)
+})
+
+test('and a wider column really is wider', () => {
+  const out = packRowGroups([col('a', 1, { row: 1 }), col('b', 3, { row: 1 })], {
+    canvasWidth: 800,
+    gapX: 0,
+    heights: { a: 100, b: 100 },
+  })
+  assert.equal(out.positions.a.width, 200)
+  assert.equal(out.positions.b.width, 600)
+})
+
+// ---------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------
+
+const ROOT = path.resolve(import.meta.dirname, '..', '..')
+const readFile = (p) =>
+  fs
+    .readFileSync(path.join(ROOT, p), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+    .replace(/\s+/g, ' ')
+
+test('the arrange bar can ask for a column, and only when that is the mode', () => {
+  // Six numbered boxes, two of which contradicted each other, is what made
+  // this hard to configure. The mode is a switch and only the boxes IN
+  // FORCE are drawn -- both ways of sizing still exist, one at a time.
+  const bar = readFile('src/components/ArrangeBar.jsx')
+  assert.ok(bar.includes('const columnMode = Number(colSpan) >= 1'), 'derived, never stored')
+  assert.ok(bar.includes('{columnMode ? ('))
+  assert.ok(bar.includes("value={colSpan ?? ''}"))
+  assert.ok(bar.includes('onCommit={(raw) => onColSpan?.(raw)}'))
+  assert.ok(bar.includes("onClick={() => onSizeMode?.(columnMode ? 'px' : 'cols')}"))
+})
+
+test('a row span is reachable in both modes', () => {
+  // A tall chart beside stacked KPIs is a ROW span whatever its width is
+  // measured in -- hiding it in pixel mode would have taken a feature away,
+  // and keeping every feature was the whole brief.
+  const bar = readFile('src/components/ArrangeBar.jsx')
+  const size = bar.slice(bar.indexOf('<Group label="Size">'))
+  const both = size.split('onCommit={(raw) => onRowSpan?.(raw)}')
+  assert.equal(both.length, 3, 'once in each branch')
+})
+
+test('switching mode clears the other one, so they cannot disagree', () => {
+  // Both set at once is what made the boxes confusing: the column silently
+  // won and the pixel number sat there looking like it meant something.
+  const dash = readFile('src/pages/Dashboard.jsx')
+  assert.ok(dash.includes("mode === 'cols' ? { colSpan: '1', widthPx: '' } : { colSpan: '', widthPx: '' }"))
+})
+
+test('the boxes are grouped and named in words', () => {
+  const bar = readFile('src/components/ArrangeBar.jsx')
+  assert.ok(bar.includes('<Group label="Where">'))
+  assert.ok(bar.includes('<Group label="Size">'))
+  for (const cryptic of ['label="#R"', 'label="↕R"', 'label="↔C"']) {
+    assert.ok(!bar.includes(cryptic), cryptic)
+  }
+})
+
+test('and the page saves it and reads it back', () => {
+  const dash = readFile('src/pages/Dashboard.jsx')
+  assert.ok(dash.includes("colSpan={widget.colSpan ?? ''}"))
+  assert.ok(dash.includes('onColSpan={(v) => saveWidgetSize(widget.id, { colSpan: v })}'))
 })

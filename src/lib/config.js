@@ -32,6 +32,7 @@ export const WIDGET_TYPES = [
   { value: 'filters', label: 'Filter Panel', icon: '🎚️', hint: 'The page filters as a panel of buttons, down the side of the report' },
   { value: 'leaderboard', label: 'Leaderboard', icon: '🏆', hint: 'Rank a column by any metrics you choose' },
   { value: 'table', label: 'Data Table', icon: '📋', hint: 'Rows with drag-ordered columns, dropdowns and buttons' },
+  { value: 'spin360', label: '360° Viewer', icon: '🏍️', hint: 'Turn a vehicle round — a folder of frames on a lit platform' },
   { value: 'chart', label: 'Chart', icon: '📈', hint: 'Group a tab by a column and plot it — 11 chart styles' },
   { value: 'trend', label: 'Trend Over Time', icon: '📅', hint: 'Bucket a date column by day / week / month' },
   { value: 'pivot', label: 'Pivot Table', icon: '🧮', hint: 'Cross-tabulate two columns — rows × columns' },

@@ -111,6 +111,36 @@ export function safeImageUrl(url, options) {
   return normalized
 }
 
+/**
+ * The FOLDER id in a Drive link, or '' if there isn't one.
+ *
+ * A folder link is a different shape from a file link and none of the
+ * patterns above match it:
+ *
+ *   https://drive.google.com/drive/folders/1-kcGrtx…
+ *   https://drive.google.com/drive/u/0/folders/1-kcGrtx…
+ *   https://drive.google.com/open?id=1-kcGrtx…
+ *
+ * Worth its own function rather than another pattern in `driveFileId`: a
+ * folder id and a file id are not interchangeable, and a folder id that
+ * quietly passed as a file id would produce an image URL that 404s.
+ *
+ * The `?usp=sharing` and `?usp=drive_link` a share button adds are dropped
+ * with everything else after the id, because that is the link people
+ * actually have to hand.
+ */
+export function driveFolderId(url) {
+  const s = String(url || '').trim()
+  if (!s) return ''
+
+  const m = s.match(/\/folders\/([\w-]{10,})/) || s.match(/[?&]id=([\w-]{10,})/)
+  if (m) return m[1]
+
+  // A bare id pasted on its own. Long, and no dots or slashes -- the same
+  // shortcut `driveFileId` accepts, and just as unambiguous.
+  return /^[\w-]{25,}$/.test(s) ? s : ''
+}
+
 /** Does this look like a Drive link the admin should double-check sharing on? */
 export function isDriveUrl(url) {
   return Boolean(driveFileId(url))

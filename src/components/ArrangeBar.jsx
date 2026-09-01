@@ -126,6 +126,21 @@ function NumberBox({ value, placeholder, onCommit, label, title }) {
   )
 }
 
+/**
+ * A labelled cluster of boxes.
+ *
+ * Six numbered boxes in a row is six things to work out. Two groups of two
+ * or three, each with a word over them, is two.
+ */
+function Group({ label, children }) {
+  return (
+    <span className="flex items-center gap-1 rounded-lg border border-slate-200/80 bg-white/70 px-1.5 py-0.5">
+      <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-300">{label}</span>
+      {children}
+    </span>
+  )
+}
+
 export default function ArrangeBar({
   index,
   order,
@@ -137,7 +152,10 @@ export default function ArrangeBar({
   rowOrder,
   onRowOrder,
   rowSpan,
+  colSpan,
   onRowSpan,
+  onColSpan,
+  onSizeMode,
   widgetType,
   style,
   measured,
@@ -185,6 +203,10 @@ export default function ArrangeBar({
   // actually needs: "there are 340 pixels left on this row", which is what
   // decides whether to widen this widget or bring the next one up onto it.
   const spans = Math.max(1, Math.round(Number(rowSpan) || 1))
+  // Derived, never stored. A widget with a column width IS in column mode,
+  // so there is no third piece of state to fall out of step with the two it
+  // describes.
+  const columnMode = Number(colSpan) >= 1
   const spare = Math.round(measured?.spare ?? 0)
   const roomy = spare > 24 && !measured?.stacked
   // Back into the numbers the W box is in. The spare is measured on the
@@ -260,8 +282,9 @@ export default function ArrangeBar({
         className="w-11 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
         aria-label={`Position of ${title}`}
       />
+      <Group label="Where">
       <NumberBox
-        label="R"
+        label="row"
         value={row ?? ''}
         // Which row this widget belongs in. Blank is the first one, and a
         // widget that will not fit in the row it asked for goes to the next
@@ -272,7 +295,7 @@ export default function ArrangeBar({
         title={`Which row ${title} sits in`}
       />
       <NumberBox
-        label="#R"
+        label="pos"
         value={rowOrder ?? ''}
         // Where in THAT row. The page's own order decides which row things
         // land in; this is the second question, and renumbering a whole
@@ -283,43 +306,93 @@ export default function ArrangeBar({
         onCommit={(raw) => onRowOrder?.(raw)}
         title={`Where ${title} sits within its row`}
       />
-      <NumberBox
-        label="↕R"
-        value={rowSpan ?? ''}
-        // How many rows this one covers. Blank is one -- it stays in its
-        // own row -- and a bigger number holds this width all the way down
-        // through them, as tall as those rows are together. The layout for
-        // a chart standing beside three stacked KPIs.
-        placeholder={1}
-        onCommit={(raw) => onRowSpan?.(raw)}
-        title={`How many rows ${title} covers`}
-      />
-      <NumberBox
-        label="W"
-        value={widthPx ?? ''}
-        // The measured size, greyed: it says what the widget IS without
-        // pretending the page pinned it, so an empty box still means "auto".
-        placeholder={measured?.width ?? 'auto'}
-        onCommit={(raw) => onSize({ widthPx: raw })}
-        title={
-          shrunk
-            ? `Width of ${title} in pixels, for a full-width screen — this one is narrower, so it is drawing at ${Math.round(
-                w || 0
-              )}px`
-            : `Width of ${title} in pixels`
-        }
-      />
-      <NumberBox
-        label="H"
-        value={heightPx ?? ''}
-        placeholder={measured?.height ?? 'auto'}
-        onCommit={(raw) => onSize({ heightPx: raw })}
-        title={
-          measured?.band
-            ? `Height of ${title} in pixels — the rows it covers come to ${measured.band}px, and a bigger number grows them`
-            : `Height of ${title} in pixels`
-        }
-      />
+      </Group>
+
+      {/* HOW BIG. One question that was asked two ways, which was the whole
+          problem: a width in pixels and a width in columns both set the
+          width, and with both on screen the column silently won. Now the
+          mode is a switch and only the boxes IN FORCE are shown. Nothing
+          was taken away -- both ways still exist, one at a time. */}
+      <Group label="Size">
+        <button
+          onClick={() => onSizeMode?.(columnMode ? 'px' : 'cols')}
+          className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+            columnMode
+              ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+              : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+          }`}
+          title={
+            columnMode
+              ? `${title} is sized in columns of its row — click for pixels`
+              : `${title} is sized in pixels — click for columns of its row`
+          }
+        >
+          {columnMode ? 'cols' : 'px'}
+        </button>
+
+        {columnMode ? (
+          <>
+            <NumberBox
+              label="wide"
+              value={colSpan ?? ''}
+              // Columns of its own row: three widgets asking 1, 1 and 2
+              // make a row of four and get a quarter, a quarter and a half,
+              // whatever the screen is.
+              placeholder={1}
+              onCommit={(raw) => onColSpan?.(raw)}
+              title={`How many of its row's columns ${title} takes`}
+            />
+            <NumberBox
+              label="tall"
+              value={rowSpan ?? ''}
+              placeholder={1}
+              onCommit={(raw) => onRowSpan?.(raw)}
+              title={`How many rows ${title} covers`}
+            />
+          </>
+        ) : (
+          <>
+            <NumberBox
+              label="wide"
+              value={widthPx ?? ''}
+              // The measured size, greyed: it says what the widget IS
+              // without pretending the page pinned it, so an empty box
+              // still means "auto".
+              placeholder={measured?.width ?? 'auto'}
+              onCommit={(raw) => onSize({ widthPx: raw })}
+              title={
+                shrunk
+                  ? `Width of ${title} in pixels, for a full-width screen — this one is narrower, so it is drawing at ${Math.round(
+                      w || 0
+                    )}px`
+                  : `Width of ${title} in pixels`
+              }
+            />
+            <NumberBox
+              label="tall"
+              value={heightPx ?? ''}
+              placeholder={measured?.height ?? 'auto'}
+              onCommit={(raw) => onSize({ heightPx: raw })}
+              title={
+                measured?.band
+                  ? `Height of ${title} in pixels — the rows it covers come to ${measured.band}px, and a bigger number grows them`
+                  : `Height of ${title} in pixels`
+              }
+            />
+            {/* Still reachable in pixel mode, because a tall chart beside
+                stacked KPIs is a ROW span whatever its width is measured
+                in -- hiding it here would have taken a feature away. */}
+            <NumberBox
+              label="rows"
+              value={rowSpan ?? ''}
+              placeholder={1}
+              onCommit={(raw) => onRowSpan?.(raw)}
+              title={`How many rows ${title} covers`}
+            />
+          </>
+        )}
+      </Group>
+
       {roomy && (
         <button
           onClick={fillRow}

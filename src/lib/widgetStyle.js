@@ -26,6 +26,16 @@ import {
 } from './typography.js'
 import { DEFAULT_CHART_VISUALS, chartVisualClass, chartVisualVars } from './chartVisuals.js'
 
+/**
+ * "No colour at all", as a value rather than an absence.
+ *
+ * Absence already means something else here -- every field defaults to null
+ * for "inherit the theme" -- so transparency needs a word of its own. It is
+ * the CSS keyword, which means every place that already writes one of these
+ * into a custom property needs no special case.
+ */
+export const TRANSPARENT = 'transparent'
+
 /** Named starting points, so nobody has to pick six colours from scratch. */
 export const WIDGET_THEMES = [
   { value: '', label: 'System default', preset: null },
@@ -334,6 +344,21 @@ export function styleClass(style) {
   if (!s) return ''
   return [
     s.invert ? 'card-invert' : '',
+    // A background somebody TYPED is one they get. `.card` paints a white
+    // sheen over its top few centimetres, which is right for the stock
+    // near-white surface and a grey smear on anything darker -- so a card
+    // with its own colour opts out of it. See index.css.
+    //
+    // `style.bg`, not the resolved `s.bg`: every named theme sets a
+    // background too, and those were designed WITH the sheen. Reading the
+    // resolved one would silently flatten every card already using a
+    // preset, which is a look change nobody asked for.
+    style.bg ? 'card-ownbg' : '',
+    // Transparent means transparent. `.card` frosts whatever is behind it
+    // with a `backdrop-filter`, which on a see-through card is a blurred
+    // smear of the page rather than the page -- so a card asked for no
+    // background gets no blur either. See index.css.
+    style.bg === TRANSPARENT ? 'card-clear' : '',
     // An accent was offered on every widget and honoured by one of them.
     // This is the switch that lets the rest of them honour it too.
     s.accent ? 'card-accented' : '',

@@ -31,6 +31,14 @@ import {
 } from '../../lib/chartAnalytics'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
 import { blankChoice, choiceProblem } from '../../lib/columnChoices'
+import {
+  DEFAULT_SPIN,
+  MAX_SIZE,
+  MIN_SIZE,
+  driverIn,
+  keyColumnsOf,
+  matchColumnsOf,
+} from '../../lib/spin360'
 import { SERIES_PALETTES } from '../../lib/valueColors'
 import AppImage from '../../components/PageIcon.jsx'
 import {
@@ -435,8 +443,35 @@ export default function WidgetsPanel({
               {widget.type === 'note' && <NoteEditor widget={widget} set={set} />}
               {widget.type === 'media' && <MediaEditor widget={widget} set={set} />}
               {widget.type === 'countdown' && <CountdownEditor widget={widget} set={set} />}
+              {widget.type === 'spin360' && <SpinEditor widget={widget} set={set} cols={cols} />}
+
+              {/* The one thing a KPI draws that is not the number. */}
+              {widget.type === 'kpi' && (
+                <div className="rounded-lg border border-slate-200 bg-white p-2">
+                  <Toggle
+                    checked={widget.showShare}
+                    onChange={(v) => set({ showShare: v })}
+                    label="Show the share bar and “of N unfiltered”"
+                  />
+                  <p className="mt-1 text-[11px] leading-snug text-slate-400">
+                    A thin bar and a line of small print saying how much of the unfiltered total
+                    this number is. Off by default: it used to appear by itself the moment a page
+                    had any filter on it.
+                  </p>
+                </div>
+              )}
                 </>
               )}
+
+              {/* Every widget on a page with a driving 360° viewer gets
+                  to say how it follows -- the viewer's key columns are
+                  named on ITS tab, and no two tabs have to agree on what
+                  those columns are called. */}
+              {(() => {
+                const driver = driverIn(widgets)
+                if (!driver || driver.id === widget.id || !widget.tab) return null
+                return <MatchToSpin widget={widget} driver={driver} cols={cols} set={set} />
+              })()}
 
               {/* Controls now serve every widget type, not just tables --
                   the rendering lives in the canvas wrapper, so a chart can
@@ -1552,6 +1587,298 @@ function ChartEditor({ widget, cols, set }) {
  * spreadsheet is where the business already keeps it. Add a name to the
  * sheet and it is in the dropdown, with nobody touching the dashboard.
  */
+/**
+ * A 360° viewer: where its frames live, and how big it draws.
+ *
+ * The two key columns are the point of the whole thing. A model code
+ * repeats across every colour it is sold in and a colour code repeats
+ * across every model -- it takes the pair to name the vehicle a set of
+ * photographs actually belongs to, which is exactly what a file called
+ * `HDLHCDRSCFIBLK_005` is saying.
+ */
+/**
+ * Which of THIS widget's columns hold the 360° viewer's key values.
+ *
+ * Shown on every widget on a page where a viewer is driving, because the
+ * page cannot work it out: a tab calls the model "Model Name" here and
+ * "Variant" there, and guessing wrong silently empties a card.
+ *
+ * A conditions cross-filter only touches the tabs it names -- that is the
+ * filter engine's own rule, and it is what stops one drill emptying every
+ * unrelated tab on the page. So a widget on another tab is reached by
+ * naming its tab and its own column, which is what this collects.
+ */
+function MatchToSpin({ widget, driver, cols, set }) {
+  const keys = keyColumnsOf(driver)
+  const mine = matchColumnsOf(widget, driver)
+  const on = mine.some(Boolean)
+
+  const setAt = (i, value) => {
+    const next = [...mine]
+    next[i] = value
+    set({ matchColumns: next })
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-2">
+      <p className="text-[11px] font-medium text-amber-800">
+        🏍️ Follow the 360° viewer
+        {!on && <span className="ml-1 font-normal text-amber-700/70">— not following</span>}
+      </p>
+      <p className="mt-0.5 text-[11px] leading-snug text-amber-700/80">
+        “{driver.title || '360° Viewer'}” is set to filter this page to the vehicle on screen.
+        Say which of <strong>this widget’s own columns</strong> hold the same values and it will
+        follow along; leave them blank and it ignores the viewer entirely.
+      </p>
+
+      <div className="mt-1.5 flex flex-wrap items-end gap-2">
+        {keys.map((key, i) => (
+          <Field key={key} label={`Where this tab keeps “${key}”`} className="w-52">
+            <Select
+              value={mine[i] || ''}
+              onChange={(v) => setAt(i, v)}
+              options={cols}
+              placeholder="— ignore —"
+            />
+          </Field>
+        ))}
+        {on && (
+          <Btn onClick={() => set({ matchColumns: [] })}>Stop following</Btn>
+        )}
+      </div>
+
+      {on && mine.filter(Boolean).length < keys.length && (
+        <p className="mt-1 text-[11px] leading-snug text-amber-700">
+          Only {mine.filter(Boolean).length} of {keys.length} matched — this widget will narrow to
+          every row sharing that one value. On the model alone, that is every colour of it.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function SpinEditor({ widget, set, cols }) {
+  const keys = widget.keyColumns || []
+  const setKey = (i, value) => {
+    const next = [...keys]
+    next[i] = value
+    set({ keyColumns: next.filter(Boolean).slice(0, 2) })
+  }
+
+  const px = (field, label, hint) => (
+    <Field label={label} hint={hint} className="w-36">
+      <TextInput
+        type="number"
+        value={widget[field] ?? DEFAULT_SPIN[field]}
+        // `|| default` would turn a deliberate 0 back into the default,
+        // and no padding is a perfectly reasonable thing to ask for.
+        onChange={(v) => {
+          const n = Number(v)
+          set({ [field]: Number.isFinite(n) && v !== '' ? n : DEFAULT_SPIN[field] })
+        }}
+      />
+    </Field>
+  )
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] leading-snug text-slate-400">
+        Twelve photographs taken at even angles, dragged round with the pointer. Put them in
+        one Drive folder named <code className="rounded bg-slate-100 px-1">…_001</code> to{' '}
+        <code className="rounded bg-slate-100 px-1">…_012</code> — any number of frames works,
+        the viewer counts them. Point it at a <strong>column of folder links</strong> and Next
+        walks the rows one at a time. <strong>Share every folder with the service account</strong>{' '}
+        the spreadsheets are shared with, or nothing will load.
+      </p>
+
+      {/* --- which vehicle ------------------------------------------- */}
+      <div className="rounded-lg border border-slate-200 bg-white p-2">
+        <p className="mb-1 text-[11px] font-medium text-slate-500">Which vehicle a row is</p>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Key column 1" hint="Model code" className="w-44">
+            <Select value={keys[0] || ''} onChange={(v) => setKey(0, v)} options={cols} placeholder="— pick —" />
+          </Field>
+          <Field label="Key column 2" hint="Colour or variant code" className="w-44">
+            <Select value={keys[1] || ''} onChange={(v) => setKey(1, v)} options={cols} placeholder="— pick —" />
+          </Field>
+        </div>
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <Field
+            label="…or just a name column"
+            hint="Used when the key columns are blank"
+            className="w-44"
+          >
+            <Select
+              value={widget.labelColumn || ''}
+              onChange={(v) => set({ labelColumn: v })}
+              options={cols}
+              placeholder="— none —"
+            />
+          </Field>
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+          <strong>All of these are optional.</strong> The viewer walks the rows that have a
+          folder link, whether or not it knows what to call them — these only decide the name
+          shown above the Next button. Both key columns together are the most useful, because a
+          model code repeats across every colour it is sold in and a colour code repeats across
+          every model.
+        </p>
+      </div>
+
+      {/* --- where the frames are ------------------------------------ */}
+      <div className="rounded-lg border border-slate-200 bg-white p-2">
+        <p className="mb-1 text-[11px] font-medium text-slate-500">Where the frames are</p>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field
+            label="Folder id from this column"
+            hint="One widget then serves every model in the table"
+            className="w-56"
+          >
+            <Select
+              value={widget.folderColumn || ''}
+              onChange={(v) => set({ folderColumn: v })}
+              options={cols}
+              placeholder="— or type one below —"
+            />
+          </Field>
+          <Field label="…or one fixed folder id" hint="For a viewer showing a single vehicle" className="flex-1">
+            <TextInput
+              value={widget.folderId || ''}
+              onChange={(v) => set({ folderId: v })}
+              placeholder="1AbC…"
+            />
+          </Field>
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+          A column wins over a fixed id. Keeping the folder in the sheet means next year’s bike
+          is a row somebody adds, not a dashboard somebody edits.
+        </p>
+      </div>
+
+      {/* --- how big ------------------------------------------------- */}
+      <div className="rounded-lg border border-slate-200 bg-white p-2">
+        <p className="mb-1 text-[11px] font-medium text-slate-500">
+          Size, in pixels ({MIN_SIZE}–{MAX_SIZE})
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          {px('imageWidth', 'Vehicle width')}
+          {px('platformWidth', 'Platform width')}
+          {px('platformDepth', 'Platform depth', 'How far above it you stand')}
+          <Field label="Platform colour" className="w-32">
+            <input
+              type="color"
+              value={widget.platformColor || DEFAULT_SPIN.platformColor}
+              onChange={(e) => set({ platformColor: e.target.value })}
+              className="h-8 w-full cursor-pointer rounded border border-slate-200"
+            />
+          </Field>
+        </div>
+      </div>
+
+      {/* --- the image itself ---------------------------------------- */}
+      <div className="rounded-lg border border-slate-200 bg-white p-2">
+        <p className="mb-1 text-[11px] font-medium text-slate-500">The photographs</p>
+        <div className="mb-1.5">
+          <Toggle
+            checked={widget.bare}
+            onChange={(v) => set({ bare: v })}
+            label="No card — stand it on the page itself"
+          />
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Stage behind it" hint="Product shots come on white" className="w-40">
+            <Select
+              value={widget.stageBg || 'transparent'}
+              onChange={(v) => set({ stageBg: v })}
+              options={[
+                { value: 'transparent', label: 'Nothing (the page)' },
+                { value: '#ffffff', label: 'White plate' },
+                { value: '#f1f5f9', label: 'Light plate' },
+                { value: '#0b0b0e', label: 'Black plate' },
+              ]}
+            />
+          </Field>
+          <Field label="Blend" hint="Only helps a photo with a flat background" className="w-36">
+            <Select
+              value={widget.blend || 'none'}
+              onChange={(v) => set({ blend: v })}
+              options={[
+                { value: 'none', label: 'None' },
+                { value: 'multiply', label: 'Drop white' },
+                { value: 'screen', label: 'Drop black' },
+              ]}
+            />
+          </Field>
+          <Field label="Fit" className="w-32">
+            <Select
+              value={widget.fit || 'contain'}
+              onChange={(v) => set({ fit: v })}
+              options={[
+                { value: 'contain', label: 'Whole vehicle' },
+                { value: 'cover', label: 'Fill the card' },
+              ]}
+            />
+          </Field>
+          {px('padding', 'Padding')}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+          Blending is not a substitute for a real cut-out: <strong>Drop white</strong> needs a
+          light stage under it and <strong>Drop black</strong> a dark one, and either will eat
+          part of a vehicle that happens to be the same colour. A transparent PNG beats both.
+        </p>
+      </div>
+
+      {/* --- what it drives ------------------------------------------ */}
+      <div className="rounded-lg border border-slate-200 bg-white p-2">
+        <Toggle
+          checked={widget.driveFilter}
+          onChange={(v) => set({ driveFilter: v })}
+          label="Filter the rest of the page to the vehicle on screen"
+        />
+        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+          Pressing Next then narrows every other widget on this page — KPI cards, tables,
+          charts — to that row, matched on <strong>both key columns</strong>. On the model
+          alone every colour of it would stay in the numbers.
+          {!keys[0] && (
+            <>
+              {' '}
+              <strong className="text-amber-700">Pick at least one key column above</strong>, or
+              there is nothing to match on.
+            </>
+          )}
+        </p>
+      </div>
+
+      {/* --- how it moves -------------------------------------------- */}
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
+        <Toggle checked={widget.autoSpin} onChange={(v) => set({ autoSpin: v })} label="Turn by itself" />
+        <Toggle checked={widget.reverse} onChange={(v) => set({ reverse: v })} label="Other way round" />
+        <Toggle
+          checked={widget.shadow !== false}
+          onChange={(v) => set({ shadow: v })}
+          label="Drop shadow"
+        />
+        <Toggle checked={widget.glide !== false} onChange={(v) => set({ glide: v })} label="Coast after a flick" />
+        <Toggle checked={widget.zoom !== false} onChange={(v) => set({ zoom: v })} label="Zoom" />
+        <Toggle
+          checked={widget.fullscreen !== false}
+          onChange={(v) => set({ fullscreen: v })}
+          label="Fullscreen"
+        />
+        {widget.autoSpin && (
+          <Field label="ms per frame" className="w-28">
+            <TextInput
+              type="number"
+              value={widget.spinMs ?? DEFAULT_SPIN.spinMs}
+              onChange={(v) => set({ spinMs: Number(v) || DEFAULT_SPIN.spinMs })}
+            />
+          </Field>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ChoiceEditor({ widget, set, cols }) {
   const { tabOptions, tabHeaders, labelFor } = useWorkspaceCtx()
   const list = widget.columnChoices || []

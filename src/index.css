@@ -39,9 +39,25 @@ body {
   color: var(--card-text, inherit);
   backdrop-filter: blur(10px);
 }
-/* A white sheen on a dark surface is just a smear. */
-.card-invert .card {
+/* A white sheen on a dark surface is just a smear.
+
+   Dropped whenever an admin has SET a background, not only when they also
+   tick "light text": picking #101014 and getting a grey wash down the top
+   84px is the colour control appearing not to work, and there was no way to
+   switch the sheen off on its own -- `card-invert` was honoured by the code
+   and had no control anywhere in the editor. */
+.card-invert .card,
+.card-ownbg .card {
   background: var(--card-bg, rgba(255, 255, 255, 0.9));
+}
+
+/* A card asked for no background gets no frosting of what is behind it
+   either: `backdrop-filter` on a see-through card is a blurred smear of the
+   page rather than the page. The shadow goes with it -- a shadow cast by
+   something invisible is a grey cloud floating on the canvas. */
+.card-clear .card {
+  backdrop-filter: none;
+  box-shadow: var(--card-shadow, none);
 }
 
 /* When a page's backdrop is dark, the chrome that sits directly ON it -- the

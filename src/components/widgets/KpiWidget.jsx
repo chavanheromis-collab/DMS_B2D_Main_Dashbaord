@@ -186,7 +186,15 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
   // there -- with an emoji it would be a large empty tile.
   const sideImage = widget.iconPlacement === 'side' && Boolean(safeImageUrl(widget.iconUrl))
   const imageSize = Number(widget.iconSize) || 52
-  const isFiltered = !widget.ignoreFilters && Math.abs(baseline - value) > 0.001
+  // The share bar and its "of N unfiltered · TAB" caption.
+  //
+  // OPT-IN. It used to appear by itself on every KPI the moment a page had
+  // any filter on it -- nobody asked for it and there was no way to stop
+  // it, so a card showing one number showed two lines of small print about
+  // a number nobody had asked about. It is genuinely useful when somebody
+  // wants it, which is why it is a switch rather than a deletion.
+  const isFiltered =
+    widget.showShare === true && !widget.ignoreFilters && Math.abs(baseline - value) > 0.001
   const share = baseline > 0 ? Math.min(100, (value / baseline) * 100) : 0
 
   const crossFilter = useMemo(() => deriveCrossFilter(widget), [widget])
@@ -225,9 +233,17 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
           handleClick()
         }
       }}
-      className={`group relative overflow-hidden rounded-2xl border bg-white p-4 shadow-[0_6px_20px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+      // `card`, not a hand-rolled surface. This used to spell out its own
+      // `rounded-2xl border bg-white p-4 shadow-…`, which meant the Look tab
+      // did nothing to it: `.card` is the element that reads the custom
+      // properties an admin's colours arrive as (see lib/widgetStyle.js), and
+      // a hard-coded `bg-white` painted straight over them.
+      //
+      // Everything below is what this widget adds ON TOP of a card -- the
+      // lift on hover, and the ring when it is the thing being drilled by.
+      className={`card group relative overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg ${
         clickable ? 'cursor-pointer' : ''
-      } ${isDrilled ? 'border-transparent ring-2 ring-offset-1' : 'border-slate-200/70'}`}
+      } ${isDrilled ? 'ring-2 ring-offset-1' : ''}`}
       style={isDrilled ? { '--tw-ring-color': color } : undefined}
       title={
         clickable

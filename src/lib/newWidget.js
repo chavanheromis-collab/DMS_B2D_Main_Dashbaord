@@ -34,6 +34,7 @@ import { DEFAULT_SANKEY } from './sankeyData.js'
 import { DEFAULT_WORDCLOUD } from './wordCloud.js'
 import { DEFAULT_PROFILE } from './columnProfile.js'
 import { DEFAULT_COUNTDOWN } from './countdown.js'
+import { DEFAULT_SPIN } from './spin360.js'
 
 // ---------------------------------------------------------------------
 // A new widget, ready to look at
@@ -52,6 +53,23 @@ import { DEFAULT_COUNTDOWN } from './countdown.js'
 // empty box until somebody picks three more fields is a widget nobody
 // finishes; every one of these is chosen so the thing DRAWS the moment it
 // lands on the page.
+
+/**
+ * The two columns most likely to name a vehicle.
+ *
+ * A model code repeats across every colour it is sold in and a colour code
+ * repeats across every model, so it takes both -- which is also why this
+ * looks for two different things rather than the two best matches for one.
+ * Whatever it gets wrong is two dropdowns to correct, against a widget that
+ * starts blank if it guesses nothing.
+ */
+function guessKeyColumns(columns) {
+  const cols = columns || []
+  const find = (re) => cols.find((c) => re.test(String(c)))
+  const model = find(/model|variant|vehicle|product/i)
+  const colour = find(/colou?r|shade|paint/i)
+  return [model, colour].filter(Boolean).slice(0, 2)
+}
 
 /**
  * A new widget of `type`, pinned to `tab`.
@@ -503,6 +521,19 @@ export function makeWidget({ type = 'table', tab, name, cols = [], kpiCount = 0 
       fit: 'contain',
       bare: false,
       rounded: true,
+    })
+  } else if (type === 'spin360') {
+    Object.assign(base, {
+      ...DEFAULT_SPIN,
+      title: name ? `${name} — 360°` : '360° Viewer',
+      width: 'half',
+      height: 420,
+      // The two key columns are guessed from the tab's own headers, because
+      // "model" and "colour" are what these are called on every vehicle
+      // sheet anybody has -- and a widget that draws nothing until three
+      // more fields are picked is a widget nobody finishes.
+      keyColumns: guessKeyColumns(cols),
+      folderColumn: (cols || []).find((c) => /folder|360|drive/i.test(c)) || '',
     })
   } else if (type === 'countdown') {
     Object.assign(base, {

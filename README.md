@@ -1823,6 +1823,86 @@ formatting, so `SO-1001`, ` so-1001 ` and `1,001` vs `1001` all behave.
 | **Roll-ups** | Summarise the matched rows — "sum of Amount across every quotation for this order". A match-count column is always added. |
 | **Fill-in rules** | Swap in another column wherever a value is missing — or fails any check. |
 
+### Turning a vehicle round
+
+A 360° viewer is a stack of photographs taken at even angles and a rule for
+which one to show. There is no 3D in it and there should not be: the
+photographs already **are** the model, lit and finished, and nothing built in
+a browser is going to look more like the bike than the bike does. What *is*
+built is the disc it stands on, because that is the one thing a photographer
+cannot supply — it has to sit under whatever vehicle the row happens to name.
+
+Add a **360° Viewer** widget, and set three things.
+
+**Which vehicle a row is — two key columns.** A model code repeats across
+every colour it is sold in, and a colour code repeats across every model. It
+takes the pair to name the thing a set of photographs actually belongs to,
+which is exactly what a file called `HDLHCDRSCFIBLK_005` is saying. A row
+missing either half names nothing, rather than collapsing every colour of a
+model onto one set.
+
+**Where the frames are.** A Drive folder id, taken from a **column on the
+row** so one widget serves every model in the table — next year's bike is
+then a row somebody adds, not a dashboard somebody edits. A fixed id typed
+into the widget is the fallback for a viewer showing one vehicle.
+
+**How big, in pixels.** The vehicle's width, the platform's width, and the
+platform's **depth** — free of its width, because how far above the disc you
+stand is a different question from how big it is, and tying them makes one of
+the two unusable.
+
+#### What it does with them
+
+- **The frame count is read, never assumed.** Twelve is what this set happens
+  to have; eight, sixteen and thirty-six are all normal.
+- **Ordered by the number at the end of the filename**, not by the name. The
+  day somebody exports without zero padding, a string sort puts frame 10
+  between 1 and 2 and the bike jumps about as it turns. Anything with no
+  number goes last — a cover photo in the same folder must not become frame 1.
+- **Dragging the width of the viewer is one full turn**, so the gesture means
+  the same on a 300px card and a 900px one, and it **wraps** both ways. A
+  viewer that stops at the ends is a slider, and somebody will drag past the
+  end within three seconds.
+- **Every frame is rendered once and all but one hidden.** Swapping a single
+  `src` re-requests on every frame and the bike flickers as it turns.
+- Auto-spin stops **while somebody is holding it** — one that keeps turning
+  under the finger cannot be pointed at anything.
+
+#### What it needs from Google
+
+The browser cannot ask Drive for these: a folder id plus a file **name** is
+not a URL and cannot be made into one — every Drive file is addressed by its
+own id, which only a listing knows. So `/api/drive` lists the folder with the
+same service account that reads the spreadsheets.
+
+Two setup steps, both one-off:
+
+1. The service account needs the **`drive.readonly`** scope. It gets its own
+   auth client rather than widening the Sheets one, so a Drive
+   misconfiguration can never stop a spreadsheet loading.
+2. **Share the folder** with the service account's email, exactly like sharing
+   with a person — the same rule the spreadsheets already follow. A folder
+   that is not shared comes back saying so, and saying which address to add.
+
+Shared Drives are handled (`supportsAllDrives`), because "the folder is shared
+but comes back empty" is a support call nobody can diagnose. Listings are
+cached at the edge for five minutes: a 360° set does not change between two
+people looking at the same vehicle.
+
+### A page you present rather than scroll
+
+**Pages → Background → Start from a look** writes a whole page style in one
+press: a full-bleed dark ground, glass cards floating on it, room to breathe.
+Every field it sets was already settable one at a time — what was missing was
+the first press, because eleven individually reasonable choices have to agree
+with each other before a page looks like anything, and pale cards on a black
+ground is not a dark theme but an unreadable one.
+
+A preset is **not a mode**. It writes the ordinary fields and gets out of the
+way, so the next thing you nudge behaves exactly as it always did. Nothing
+stores "which preset this page is on" — a page that remembered one would fight
+you the moment you changed a single colour.
+
 ### A column that is a dropdown
 
 An editable cell is a free-text box, which is right for a note and wrong for

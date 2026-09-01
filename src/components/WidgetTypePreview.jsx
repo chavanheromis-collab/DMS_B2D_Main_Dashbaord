@@ -469,6 +469,24 @@ const SKETCHES = {
       </div>
     </Frame>
   ),
+  spin360: () => (
+    <Frame className="items-center justify-center">
+      <div className="relative flex h-10 w-16 items-end justify-center">
+        {/* the disc, seen from a low angle */}
+        <div className="absolute bottom-0 h-3 w-14 rounded-[50%] bg-indigo-500/25" />
+        <div className="absolute bottom-0 h-3 w-14 rounded-[50%] border border-indigo-400/40" />
+        {/* the vehicle, as a shape rather than a photograph */}
+        <div className="relative mb-1.5 flex items-end gap-0.5">
+          <div className={`h-3.5 w-3.5 rounded-full border-2 border-slate-400`} />
+          <div className={`mb-1 h-2 w-4 rounded-sm ${FAINT}`} />
+          <div className={`h-3.5 w-3.5 rounded-full border-2 border-slate-400`} />
+        </div>
+        {/* the turn */}
+        <div className="absolute -bottom-0.5 left-1/2 h-4 w-16 -translate-x-1/2 rounded-[50%] border-b border-dashed border-indigo-400/50" />
+      </div>
+      <div className={`mt-1 h-1 w-8 ${FAINT}`} />
+    </Frame>
+  ),
   countdown: () => (
     <Frame className="items-center justify-center">
       <div className={`h-1 w-10 ${FAINT}`} />

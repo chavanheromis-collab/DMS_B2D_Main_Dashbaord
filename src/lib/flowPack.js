@@ -271,6 +271,12 @@ export function pinnedHeight(item) {
 export const MAX_ROW_SPAN = 12
 
 /**
+ * Four. Past that a "column" is a sliver, and the admin wanted a pixel
+ * width all along -- which this canvas has always been able to give them.
+ */
+export const MAX_COL_SPAN = 4
+
+/**
  * How many rows a widget was told to cover.
  *
  * One is the answer for everything nobody has spanned, so a page that has
@@ -279,6 +285,63 @@ export const MAX_ROW_SPAN = 12
  * as they are together" -- which is the tall chart beside three stacked
  * KPIs, the layout a single row could never express.
  */
+/**
+ * How many of its row's columns a widget takes.
+ *
+ * The sideways partner to `rowSpan`, and the same idea turned ninety
+ * degrees: `rowSpan` says "hold this width down through N rows", `colSpan`
+ * says "take N of the columns this row has".
+ *
+ * WHAT A COLUMN IS. Not a page-wide grid -- this canvas has never had one,
+ * and adding one would mean every existing page suddenly had to fit it.
+ * A row's columns are simply the shares its own widgets asked for: three
+ * widgets asking for 1, 1 and 2 make a row of four columns and get a
+ * quarter, a quarter and a half. That is what "based on the columns
+ * available per row" means, and it needs no page setting to get wrong.
+ *
+ * A row where nobody asked keeps pixel widths exactly as it always had.
+ */
+export function colSpanOf(item) {
+  const n = Number(item?.colSpan)
+  if (!Number.isFinite(n) || n < 1) return 0
+  return Math.min(MAX_COL_SPAN, Math.round(n))
+}
+
+/**
+ * The width each widget in one row gets, when any of them asked in columns.
+ *
+ * `{ [id]: px }` for the ones that asked, and nothing for the ones that did
+ * not -- those keep the pixel width they always had, and the columns divide
+ * up what is left. A row can mix the two: a pinned 300px sidebar beside two
+ * widgets splitting the rest is a perfectly ordinary thing to want.
+ */
+export function columnWidths(items, canvasWidth, gapX = 12, fit = 1) {
+  const list = items || []
+  const asking = list.filter((item) => colSpanOf(item) > 0)
+  // A fast path, not a guard: the loop at the bottom already yields {} for
+  // an empty `asking`. What this saves is measuring every widget on every
+  // row of every page that has never used a column, which is most of them.
+  if (asking.length === 0) return {}
+
+  const shares = asking.reduce((n, item) => n + colSpanOf(item), 0)
+  const fixed = list
+    .filter((item) => colSpanOf(item) === 0)
+    .reduce((n, item) => n + requiredWidth(item, canvasWidth, fit), 0)
+
+  // Every gap between the widgets on this line, including the ones either
+  // side of the fixed-width ones -- a share that ignored them overflows the
+  // row by exactly the gaps, which is how a two-column layout ends up
+  // wrapping onto two lines.
+  const gaps = Math.max(0, list.length - 1) * gapX
+  const spare = Math.max(0, (canvasWidth || 0) - fixed - gaps)
+
+  const out = {}
+  for (const item of asking) {
+    out[item.id] = Math.max(MIN_WIDTH, Math.round((spare * colSpanOf(item)) / shares))
+  }
+  return out
+}
+
 export function rowSpanOf(item) {
   const n = Number(item?.rowSpan)
   if (!Number.isFinite(n) || n < 1) return 1
@@ -397,9 +460,14 @@ export function packRowGroups(
 
     const placed = []
 
+    // Widths asked for in COLUMNS, worked out across everything queued for
+    // this row -- which is known before any of it is placed, so a share
+    // never depends on where the packing happens to put things.
+    const byColumn = columnWidths(waiting, canvas, gapX, fit)
+
     for (let i = 0; i < waiting.length; i += 1) {
       const item = waiting[i]
-      const width = requiredWidth(item, canvas, fit)
+      const width = byColumn[item.id] ?? requiredWidth(item, canvas, fit)
       const span = rowSpanOf(item)
       const pin = pinnedHeight(item)
       // A spanning widget is drawn at the height of its band, so measuring

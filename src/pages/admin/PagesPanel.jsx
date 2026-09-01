@@ -4,6 +4,7 @@ import { uid } from '../../lib/config'
 import { PAGE_ICONS, emptyPage, navLabelFor } from '../../lib/workspace'
 import { Btn, Field, SectionTabs, Select, TextInput, Toggle, stableEqual } from './ui.jsx'
 import BackgroundEditor from './BackgroundEditor.jsx'
+import { PAGE_PRESETS, applyPreset, currentPreset } from '../../lib/pagePresets'
 import { backgroundIsSet } from '../../lib/pageBackground'
 import { WIDGET_THEMES } from '../../lib/widgetStyle'
 import { PageIcon } from '../../components/PageIcon.jsx'
@@ -435,7 +436,49 @@ export function PageSettings({ page, pages, sources, onSave, onDraft }) {
 
       {/* --- Canvas background ----------------------------------------- */}
       {part === 'background' && (
-        <BackgroundEditor background={draft.background} onChange={(background) => set({ background })} />
+        <div className="space-y-3">
+          {/* The first press. Every field below is settable one at a time,
+              but eleven individually reasonable choices have to agree with
+              each other before a page looks like anything -- and pale cards
+              on a black ground is not a dark theme, it is an unreadable
+              one. A preset writes the ordinary fields and gets out of the
+              way; nothing here is a mode. */}
+          <div>
+            <p className="mb-1 text-[11px] font-medium text-slate-500">Start from a look</p>
+            <div className="flex flex-wrap gap-1.5">
+              {PAGE_PRESETS.map((preset) => {
+                const on = currentPreset({ background: draft.background, design: draft.design }) === preset.value
+                return (
+                  <button
+                    key={preset.value}
+                    onClick={() => set(applyPreset(preset, { background: draft.background, design: draft.design }))}
+                    title={preset.hint}
+                    aria-pressed={on}
+                    className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-all ${
+                      on ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    {/* The swatch is the look: a ground, a card on it, and
+                        the line between them. Ten names in a list is ten
+                        names. */}
+                    <span className="flex h-7 w-10 shrink-0 items-center justify-center rounded" style={{ background: preset.swatch[0] }}>
+                      <span
+                        className="h-4 w-6 rounded-sm border"
+                        style={{ background: preset.swatch[1], borderColor: preset.swatch[2] }}
+                      />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[12px] font-medium text-ink">{preset.label}</span>
+                      <span className="block text-[10px] leading-snug text-slate-400">{preset.hint}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <BackgroundEditor background={draft.background} onChange={(background) => set({ background })} />
+        </div>
       )}
 
       {part === 'sources' && (

@@ -85,10 +85,19 @@ export function appliedFilters(controls, values, activeButtonIds = [], crossFilt
 
   // A drill is a filter the reader made by clicking, and it is the one most
   // likely to be forgotten: nothing in the bar shows it.
+  //
+  // A PINNED one is more likely still, because nothing shows it anywhere --
+  // it is the page following its own 360° viewer. It belongs on a printout
+  // for exactly that reason: it is not a drill somebody did, so it is
+  // labelled as what it is, and it changes what every number means.
   for (const cf of crossFilters || []) {
     if (!cf) continue
     const text = cf.label || valueText(cf.value)
     if (!text) continue
+    if (cf.pinned) {
+      lines.push({ label: 'Showing', value: text, fixed: true })
+      continue
+    }
     lines.push({ label: 'Drilled into', value: text, drilled: true })
   }
 
