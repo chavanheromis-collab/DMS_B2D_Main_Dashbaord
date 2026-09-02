@@ -2077,8 +2077,9 @@ export default function Dashboard() {
               several, or drag a box across the canvas to catch them, and they all move together — Escape lets
               go. The pill on each widget has the same four
               numbers if you would rather type them, and its <strong>🖌</strong> changes how that one widget
-              looks. The page is designed at {DESIGN_WIDTH}px and drawn smaller on a narrower screen, so one
-              arrangement serves every monitor; a phone stacks it one to a line. The <strong>palette</strong>{' '}
+              looks. The page is designed at {DESIGN_WIDTH}px: a narrower screen draws the whole
+              arrangement smaller, a wider one stretches the cards to fill it without inflating the text, and a
+              phone stacks it one to a line. One arrangement, every screen. The <strong>palette</strong>{' '}
               button in the page header opens spacing, text size and the card surface.
             </span>
             {savingLayout && <span className="text-[10px] font-medium text-indigo-500">saving…</span>}

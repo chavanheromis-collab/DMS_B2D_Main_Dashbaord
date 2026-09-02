@@ -14,6 +14,8 @@ import {
   HANDLES,
   isPlaced,
   MAGNET,
+  drawnWidth,
+  MAX_CANVAS,
   MIN_H,
   MIN_W,
   marquee,
@@ -521,22 +523,35 @@ test('the bottom of the canvas is the lowest edge, not the lowest top', () => {
 // The same arrangement on another screen
 // ---------------------------------------------------------------------
 
-test('a narrower screen draws the same arrangement smaller', () => {
-  assert.equal(scaleFor(640, 1280), 0.5)
+test('a narrower screen shrinks the whole arrangement, both ways', () => {
+  // Shrinking only the widths would squash it: a chart half as wide and
+  // just as tall is not the same picture.
+  assert.deepEqual(scaleFor(640, 1280), { x: 0.5, y: 0.5 })
 })
 
-test('a wider one does not blow it up', () => {
-  // Enlarging every widget on a bigger monitor makes the text bigger too,
-  // which is nobody's idea of using the extra room.
-  assert.equal(scaleFor(1920, 1280), 1)
+test('a wider one uses the room, and only in the direction there is room', () => {
+  // The complaint this answers: a page pinned at 1280 on a desktop, with
+  // the rest of the monitor left empty. It now fills -- but only the
+  // widths grow, because inflating the text as well is a dashboard viewed
+  // through a magnifying glass.
+  assert.deepEqual(scaleFor(1920, 1280), { x: 1.5, y: 1 })
+})
+
+test('an ultra-wide monitor turns the extra room into margin', () => {
+  // Past a point, more width is not a reason to draw a KPI card two feet
+  // across.
+  assert.deepEqual(scaleFor(4000, 1280), { x: MAX_CANVAS / 1280, y: 1 })
+  assert.equal(drawnWidth(4000), MAX_CANVAS)
+  assert.equal(drawnWidth(1600), 1600, 'and anything narrower is drawn as it is')
+  assert.equal(drawnWidth(0), 0, 'an unmeasured canvas has no width yet')
 })
 
 test('an unmeasured canvas is drawn at its design size, not at nothing', () => {
-  assert.equal(scaleFor(0, 1280), 1)
+  assert.deepEqual(scaleFor(0, 1280), { x: 1, y: 1 })
 })
 
 test('a rectangle is drawn at the scale the canvas is at', () => {
-  assert.deepEqual(toPixels(r('a', 100, 200, 400, 240), 0.5), {
+  assert.deepEqual(toPixels(r('a', 100, 200, 400, 240), { x: 0.5, y: 0.5 }), {
     left: 50,
     top: 100,
     width: 200,
@@ -544,8 +559,18 @@ test('a rectangle is drawn at the scale the canvas is at', () => {
   })
 })
 
+test('and a stretched one grows sideways only', () => {
+  assert.deepEqual(toPixels(r('a', 100, 200, 400, 240), { x: 1.5, y: 1 }), {
+    left: 150,
+    top: 200,
+    width: 600,
+    height: 240,
+  })
+})
+
 test('the canvas is as tall as its lowest widget', () => {
-  assert.equal(canvasHeight([r('a', 0, 100, 100, 300)], 0.5), 200)
+  assert.equal(canvasHeight([r('a', 0, 100, 100, 300)], { x: 1, y: 0.5 }), 200)
+  assert.equal(canvasHeight([r('a', 0, 100, 100, 300)], { x: 1.5, y: 1 }), 400, 'stretching does not add height')
 })
 
 test('on a phone everything goes full width, in reading order', () => {
@@ -760,7 +785,7 @@ test('a band starts on the canvas itself, not on a widget', () => {
   // Otherwise pressing on a card both drags it and draws a box.
   const canvas = canvasSrc()
   assert.ok(canvas.includes('onPointerDown={free ? startBand : undefined}'))
-  assert.ok(canvas.includes('if (event.target !== hostRef.current) return'))
+  assert.ok(canvas.includes('if (event.target !== stageRef.current) return'))
 })
 
 test('a shift-click chooses rather than drags', () => {
@@ -822,4 +847,44 @@ test('what is chosen is visible before anything moves', () => {
   // and the promise of this canvas is that a widget IS its rectangle.
   assert.ok(css.includes('outline: 2px solid rgb(99 102 241)'))
   assert.ok(!/\.widget-chosen[^{]*\{[^}]*border:/.test(css))
+})
+
+// ---------------------------------------------------------------------
+// Wiring: filling the screen
+// ---------------------------------------------------------------------
+
+test('the canvas scales in both directions, not one number for both', () => {
+  const canvas = canvasSrc()
+  assert.ok(canvas.includes('const dx = drag.dx / scale.x'))
+  assert.ok(canvas.includes('const dy = drag.dy / scale.y'))
+  assert.ok(canvas.includes('minWidth: MIN_W * scale.x, minHeight: MIN_H * scale.y'))
+})
+
+test('what is measured is not what is resized', () => {
+  // Setting the width of the element the observer is watching is a loop:
+  // the new width changes what it reads, which changes the width again.
+  // On an ultra-wide monitor the page would flicker for ever.
+  const canvas = canvasSrc()
+  assert.ok(canvas.includes('const ro = new ResizeObserver(read)'))
+  assert.ok(canvas.includes('ro.observe(el)'))
+  const measured = canvas.slice(canvas.indexOf('const el = '), canvas.indexOf('ro.disconnect'))
+  assert.ok(measured.includes('const el = hostRef.current'), 'the host is what is watched')
+  assert.ok(!measured.includes('stageRef'), 'and the stage never is')
+  // ...and the host carries no width of its own.
+  const host = canvas.slice(canvas.indexOf('<div ref={hostRef}'), canvas.indexOf('<div ref={stageRef}'))
+  assert.ok(!host.includes('width:'), 'the measured element is never given a width')
+  assert.ok(canvas.includes('width: drawn > 0 ? drawn : undefined'), 'the stage is')
+})
+
+test('the band is drawn against the stage, which is what it is drawn on', () => {
+  // Against the host, a centred canvas would put every band a few hundred
+  // pixels to the left of the hand.
+  const canvas = canvasSrc()
+  assert.ok(canvas.includes('if (event.target !== stageRef.current) return'))
+  assert.ok(canvas.includes('const host = stageRef.current.getBoundingClientRect()'))
+  // ...and read back into DESIGN pixels. On a stretched canvas the pixels
+  // under the hand and the pixels the widgets live in are not the same, so
+  // a band read straight off the screen would catch the wrong widgets.
+  assert.ok(canvas.includes('x: (event.clientX - host.left) / scale.x'))
+  assert.ok(canvas.includes('y: (event.clientY - host.top) / scale.y'))
 })

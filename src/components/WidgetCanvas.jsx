@@ -4,6 +4,7 @@ import {
   canvasHeight,
   changedIn,
   DESIGN_WIDTH,
+  drawnWidth,
   HANDLES,
   marquee,
   MIN_H,
@@ -42,9 +43,12 @@ const HANDLE_STYLE = {
  * Nothing flows, nothing wraps, nothing is pushed aside, and nothing floats
  * up to close a hole. Where you put it is where it stays.
  *
- * A narrower screen draws the same arrangement proportionally smaller; a
- * phone gives up on the arrangement and stacks, because a 400px card drawn
- * at a third of its size is a card nobody can read.
+ * A narrower screen draws the same arrangement proportionally smaller. A
+ * wider one STRETCHES it: the cards grow to use the room, and the text
+ * inside them does not, because a big monitor is a reason for more content
+ * and not for bigger letters. A phone gives up on the arrangement
+ * altogether and stacks, since a 400px card drawn at a third of its size is
+ * a card nobody can read.
  *
  * Several can be chosen at once -- shift-click, or drag a band across the
  * canvas -- and then they move together as one.
@@ -61,7 +65,14 @@ export default function WidgetCanvas({
   free = false,
   onLayout,
 }) {
+  // Two elements, and the difference matters. The HOST is measured and is
+  // always the full width it is given; the STAGE is what the widgets are
+  // drawn on, and is narrower when the screen is wider than the canvas
+  // stretches. Measuring the stage instead would be a feedback loop --
+  // setting its width changes what the observer reads, which changes its
+  // width -- and on an ultra-wide monitor the page would flicker for ever.
   const hostRef = useRef(null)
+  const stageRef = useRef(null)
   const [width, setWidth] = useState(0)
 
   // Held in refs so a caller passing a fresh arrow function every render
@@ -91,7 +102,11 @@ export default function WidgetCanvas({
   const stored = useMemo(() => placeAll(items, { gap: gapY }), [items, gapY])
 
   const phone = width > 0 && width < STACK_BELOW
-  const scale = phone ? 1 : scaleFor(width)
+  // Two numbers, one per direction -- see lib/freeLayout.js. A stacked
+  // phone is already drawn at the width it has, so it needs no scaling.
+  const scale = phone ? { x: 1, y: 1 } : scaleFor(width)
+  // Past MAX_CANVAS the extra room becomes margin rather than more stretch.
+  const drawn = phone ? width : drawnWidth(width)
 
   // On a phone the arrangement is the wrong question and everything goes
   // full width in reading order. Everywhere else it IS the arrangement,
@@ -131,7 +146,10 @@ export default function WidgetCanvas({
   // The band, in design pixels, while one is being drawn.
   const band = useMemo(() => {
     if (!drag || drag.mode !== 'band' || !far) return null
-    return marquee(drag.from, { x: drag.from.x + drag.dx / scale, y: drag.from.y + drag.dy / scale })
+    return marquee(drag.from, {
+      x: drag.from.x + drag.dx / scale.x,
+      y: drag.from.y + drag.dy / scale.y,
+    })
   }, [drag, far, scale])
 
   // Who the band is currently over. Shown while it is being drawn, so it is
@@ -146,8 +164,8 @@ export default function WidgetCanvas({
     if (chosen.length === 0) return null
     // In design pixels, not in the pixels under the hand: on a scaled
     // canvas those differ, and the design is what gets saved.
-    const dx = drag.dx / scale
-    const dy = drag.dy / scale
+    const dx = drag.dx / scale.x
+    const dy = drag.dy / scale.y
     const others = shown.filter((item) => !drag.ids.includes(item.id))
     if (drag.handle) {
       const out = resizeBy(chosen[0], drag.handle, dx, dy, others, { loose: drag.loose })
@@ -281,11 +299,14 @@ export default function WidgetCanvas({
   /** A press on the canvas itself: the start of a rubber band. */
   const startBand = (event) => {
     if (!free || phone || event.button !== 0) return
-    if (event.target !== hostRef.current) return
-    const host = hostRef.current.getBoundingClientRect()
+    if (event.target !== stageRef.current) return
+    const host = stageRef.current.getBoundingClientRect()
     begin(event, {
       mode: 'band',
-      from: { x: (event.clientX - host.left) / scale, y: (event.clientY - host.top) / scale },
+      from: {
+        x: (event.clientX - host.left) / scale.x,
+        y: (event.clientY - host.top) / scale.y,
+      },
     })
   }
 
@@ -326,12 +347,18 @@ export default function WidgetCanvas({
   }, [shown, scale, phone, width])
 
   return (
+    <div ref={hostRef} className={className}>
     <div
-      ref={hostRef}
+      ref={stageRef}
       onPointerDown={free ? startBand : undefined}
-      className={`relative ${className} ${drag ? 'select-none' : ''}`}
+      className={`relative ${drag ? 'select-none' : ''}`}
       style={{
         height: width > 0 ? canvasHeight(shown, scale) : undefined,
+        // Centred once the screen is wider than the canvas will stretch.
+        // The alternative is a page whose right-hand third is empty on an
+        // ultra-wide monitor.
+        width: drawn > 0 ? drawn : undefined,
+        marginInline: 'auto',
         // Room to put something below everything, so "down here" is a place
         // the hand can actually reach.
         paddingBottom: free ? 96 : undefined,
@@ -377,14 +404,14 @@ export default function WidgetCanvas({
             key={`x${guide.at}`}
             aria-hidden
             className="pointer-events-none absolute top-0 bottom-0 z-40 w-px bg-fuchsia-500"
-            style={{ left: Math.round(guide.at * scale) }}
+            style={{ left: Math.round(guide.at * scale.x) }}
           />
         ) : (
           <span
             key={`y${guide.at}`}
             aria-hidden
             className="pointer-events-none absolute left-0 right-0 z-40 h-px bg-fuchsia-500"
-            style={{ top: Math.round(guide.at * scale) }}
+            style={{ top: Math.round(guide.at * scale.y) }}
           />
         )
       )}
@@ -413,7 +440,7 @@ export default function WidgetCanvas({
             } ${free && !phone ? 'group/free cursor-grab' : ''} ${
               dragging && !drag.handle ? 'cursor-grabbing' : ''
             } ${chosen ? 'widget-chosen' : ''}`}
-            style={{ ...box, minWidth: MIN_W * scale, minHeight: MIN_H * scale }}
+            style={{ ...box, minWidth: MIN_W * scale.x, minHeight: MIN_H * scale.y }}
           >
             {item.content}
 
@@ -445,6 +472,7 @@ export default function WidgetCanvas({
           </div>
         )
       })}
+    </div>
     </div>
   )
 }

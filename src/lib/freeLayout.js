@@ -459,32 +459,57 @@ export function placeAll(items, { canvasWidth = DESIGN_WIDTH, defaultW = 400, de
 // ---------------------------------------------------------------------
 
 /**
- * How much to scale the whole canvas by.
+ * Beyond this the canvas stops stretching and is centred in what is left.
  *
- * Never up: a page designed at 1280 shown on a 1600px monitor is drawn at
- * 1280 with room to spare, not blown up to fill the glass. Enlarging every
- * widget on a bigger screen makes the text bigger too, which is nobody's
- * idea of using the extra room.
+ * An ultra-wide monitor is not a reason to draw a KPI card two feet across.
+ * Past this width the extra room becomes margin, which is what every wide
+ * layout on the web does and what a reader's eye expects.
+ */
+export const MAX_CANVAS = 2048
+
+/**
+ * How much to scale the canvas by, horizontally and vertically.
+ *
+ * Two numbers, because the two directions want different answers.
+ *
+ *   NARROWER THAN THE DESIGN, both shrink together. The arrangement was
+ *   drawn to fit a certain width and shrinking only one axis would squash
+ *   it -- a chart half as wide and just as tall is not the same picture.
+ *
+ *   WIDER, only the widths grow. A monitor with more room is a reason to
+ *   make the cards wider, not to inflate the text inside them: blowing the
+ *   whole thing up is how a dashboard on a big screen ends up looking like
+ *   a dashboard on a small screen viewed through a magnifying glass.
+ *
+ * That is the whole responsive story, and it needs no breakpoints: the page
+ * fills a laptop, fills a desktop, and gives up and stacks on a phone.
  */
 export function scaleFor(canvasWidth, designWidth = DESIGN_WIDTH) {
   const width = num(canvasWidth, 0)
-  if (!(width > 0) || !(designWidth > 0)) return 1
-  return Math.min(1, width / designWidth)
+  if (!(width > 0) || !(designWidth > 0)) return { x: 1, y: 1 }
+  const room = Math.min(width, MAX_CANVAS) / designWidth
+  return room < 1 ? { x: room, y: room } : { x: room, y: 1 }
+}
+
+/** How wide the canvas actually draws, which past MAX_CANVAS is a margin. */
+export function drawnWidth(canvasWidth) {
+  const width = num(canvasWidth, 0)
+  return width > 0 ? Math.min(width, MAX_CANVAS) : 0
 }
 
 /** A rectangle as it is actually drawn, at this scale. */
-export function toPixels(rect, scale = 1) {
+export function toPixels(rect, scale = { x: 1, y: 1 }) {
   return {
-    left: Math.round(rect.x * scale),
-    top: Math.round(rect.y * scale),
-    width: Math.round(rect.w * scale),
-    height: Math.round(rect.h * scale),
+    left: Math.round(rect.x * scale.x),
+    top: Math.round(rect.y * scale.y),
+    width: Math.round(rect.w * scale.x),
+    height: Math.round(rect.h * scale.y),
   }
 }
 
 /** How tall the canvas has to be, at this scale. */
-export function canvasHeight(layout, scale = 1) {
-  return Math.round(bottomOf(layout) * scale)
+export function canvasHeight(layout, scale = { x: 1, y: 1 }) {
+  return Math.round(bottomOf(layout) * scale.y)
 }
 
 /**
