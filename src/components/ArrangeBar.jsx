@@ -145,21 +145,13 @@ export default function ArrangeBar({
   index,
   order,
   onOrder,
-  widthPx,
-  heightPx,
-  row,
-  onRow,
-  rowOrder,
-  onRowOrder,
-  rowSpan,
-  colSpan,
-  onRowSpan,
-  onColSpan,
-  onSizeMode,
+  // The four numbers a widget IS. The same ones a drag sets -- typing
+  // them and dragging to them are the same act. See lib/freeLayout.js.
+  rect,
+  onRect,
   widgetType,
   style,
   measured,
-  onSize,
   onStyle,
   onEdit,
   onRename,
@@ -188,31 +180,13 @@ export default function ArrangeBar({
   // was typed. Showing the typed number here was the whole of the "it says
   // the same size on every layout" complaint: it did, because it was
   // reading the design back rather than the drawing.
-  const w = measured?.width || widthPx
-  const h = measured?.height || heightPx
-  const pinned = Boolean(widthPx || heightPx)
+  const w = rect?.w ?? measured?.width
+  const h = rect?.h ?? measured?.height
 
-  // How much the typed design was scaled to reach this screen.
+  // How much the design was scaled to reach this screen. Only ever down --
+  // a page designed at the design width is drawn at it, or smaller.
   const scale = Number(measured?.scale) > 0 ? Number(measured.scale) : 1
   const shrunk = scale < 0.995 || measured?.stacked
-
-  // How much of this widget's ROW is going spare.
-  //
-  // Not waste any more -- a widget takes exactly the width it asks for, so
-  // there is no dead strip beside anything. This is the number somebody
-  // actually needs: "there are 340 pixels left on this row", which is what
-  // decides whether to widen this widget or bring the next one up onto it.
-  const spans = Math.max(1, Math.round(Number(rowSpan) || 1))
-  // Derived, never stored. A widget with a column width IS in column mode,
-  // so there is no third piece of state to fall out of step with the two it
-  // describes.
-  const columnMode = Number(colSpan) >= 1
-  const spare = Math.round(measured?.spare ?? 0)
-  const roomy = spare > 24 && !measured?.stacked
-  // Back into the numbers the W box is in. The spare is measured on the
-  // glass; the box is a design width, and on a scaled canvas those differ.
-  const fillRow = () =>
-    onSize({ widthPx: String(Math.round((widthPx || (w || 0) / scale) + spare / scale)) })
 
   if (painting) {
     return (
@@ -235,19 +209,14 @@ export default function ArrangeBar({
           anchorTo(e)
           setOpen(true)
         }}
-        className={`no-print absolute -left-1 -top-1 z-20 inline-flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[10px] font-medium tabular-nums shadow-sm backdrop-blur transition-colors ${
-          pinned
-            ? 'border-indigo-300 bg-indigo-50/90 text-indigo-700 hover:bg-indigo-100'
-            : 'border-slate-200 bg-white/85 text-slate-500 hover:bg-white'
-        }`}
-        title={`Position, width and height of ${title}`}
+        className="no-print absolute -left-1 -top-1 z-20 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white/85 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-white"
+        title={`Where ${title} is, and how big`}
       >
         <span className="font-bold">{order || index}</span>
+        {/* Where it is. An address somebody can read off the page and
+            type straight back into the boxes. */}
         <span className="rounded bg-slate-100 px-1 text-[9px] font-semibold text-slate-500">
-          {/* "R2" is a row. "R2-4" is three rows this widget covers, which
-              is the thing somebody needs to see without opening anything. */}
-          R{measured?.row ?? row ?? 1}
-          {spans > 1 ? `-${(measured?.row ?? row ?? 1) + spans - 1}` : ''}
+          {Math.round(rect?.x ?? 0)}, {Math.round(rect?.y ?? 0)}
         </span>
         {w && h ? (
           <span className="opacity-70">
@@ -265,7 +234,6 @@ export default function ArrangeBar({
             </span>
           )
         )}
-        {roomy && <span className="font-semibold text-slate-400">{spare} free</span>}
       </button>
     )
   }
@@ -282,126 +250,49 @@ export default function ArrangeBar({
         className="w-11 rounded border border-slate-200 px-1 py-0.5 text-center text-xs tabular-nums"
         aria-label={`Position of ${title}`}
       />
-      <Group label="Where">
-      <NumberBox
-        label="row"
-        value={row ?? ''}
-        // Which row this widget belongs in. Blank is the first one, and a
-        // widget that will not fit in the row it asked for goes to the next
-        // -- so a number here is a preference, never a promise the layout
-        // has to break something else to keep.
-        placeholder={measured?.row ?? 1}
-        onCommit={(raw) => onRow(raw)}
-        title={`Which row ${title} sits in`}
-      />
-      <NumberBox
-        label="pos"
-        value={rowOrder ?? ''}
-        // Where in THAT row. The page's own order decides which row things
-        // land in; this is the second question, and renumbering a whole
-        // page to move the third KPI in front of the second is not an edit
-        // anybody should have to make. Blank keeps the place the page order
-        // already gave it.
-        placeholder="—"
-        onCommit={(raw) => onRowOrder?.(raw)}
-        title={`Where ${title} sits within its row`}
-      />
+      {/* WHERE IT IS and HOW BIG. Four numbers, no modes, nothing
+          derived from what happens to be beside it -- the same four a
+          drag sets, for anybody who would rather type them. */}
+      <Group label="At">
+        <NumberBox
+          label="x"
+          value={rect?.x ?? ''}
+          placeholder={0}
+          onCommit={(raw) => onRect?.({ x: Math.max(0, Math.round(Number(raw) || 0)) })}
+          title={`How far from the left of the page ${title} sits`}
+        />
+        <NumberBox
+          label="y"
+          value={rect?.y ?? ''}
+          placeholder={0}
+          onCommit={(raw) => onRect?.({ y: Math.max(0, Math.round(Number(raw) || 0)) })}
+          title={`How far down the page ${title} sits`}
+        />
       </Group>
 
-      {/* HOW BIG. One question that was asked two ways, which was the whole
-          problem: a width in pixels and a width in columns both set the
-          width, and with both on screen the column silently won. Now the
-          mode is a switch and only the boxes IN FORCE are shown. Nothing
-          was taken away -- both ways still exist, one at a time. */}
       <Group label="Size">
-        <button
-          onClick={() => onSizeMode?.(columnMode ? 'px' : 'cols')}
-          className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
-            columnMode
-              ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-              : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-          }`}
+        <NumberBox
+          label="wide"
+          value={rect?.w ?? ''}
+          placeholder={400}
+          onCommit={(raw) => onRect?.({ w: Math.round(Number(raw) || 0) })}
           title={
-            columnMode
-              ? `${title} is sized in columns of its row — click for pixels`
-              : `${title} is sized in pixels — click for columns of its row`
+            shrunk
+              ? `How wide ${title} is — this screen is narrower, so it is drawing at ${Math.round(
+                  (rect?.w ?? 0) * scale
+                )}px`
+              : `How wide ${title} is`
           }
-        >
-          {columnMode ? 'cols' : 'px'}
-        </button>
-
-        {columnMode ? (
-          <>
-            <NumberBox
-              label="wide"
-              value={colSpan ?? ''}
-              // Columns of its own row: three widgets asking 1, 1 and 2
-              // make a row of four and get a quarter, a quarter and a half,
-              // whatever the screen is.
-              placeholder={1}
-              onCommit={(raw) => onColSpan?.(raw)}
-              title={`How many of its row's columns ${title} takes`}
-            />
-            <NumberBox
-              label="tall"
-              value={rowSpan ?? ''}
-              placeholder={1}
-              onCommit={(raw) => onRowSpan?.(raw)}
-              title={`How many rows ${title} covers`}
-            />
-          </>
-        ) : (
-          <>
-            <NumberBox
-              label="wide"
-              value={widthPx ?? ''}
-              // The measured size, greyed: it says what the widget IS
-              // without pretending the page pinned it, so an empty box
-              // still means "auto".
-              placeholder={measured?.width ?? 'auto'}
-              onCommit={(raw) => onSize({ widthPx: raw })}
-              title={
-                shrunk
-                  ? `Width of ${title} in pixels, for a full-width screen — this one is narrower, so it is drawing at ${Math.round(
-                      w || 0
-                    )}px`
-                  : `Width of ${title} in pixels`
-              }
-            />
-            <NumberBox
-              label="tall"
-              value={heightPx ?? ''}
-              placeholder={measured?.height ?? 'auto'}
-              onCommit={(raw) => onSize({ heightPx: raw })}
-              title={
-                measured?.band
-                  ? `Height of ${title} in pixels — the rows it covers come to ${measured.band}px, and a bigger number grows them`
-                  : `Height of ${title} in pixels`
-              }
-            />
-            {/* Still reachable in pixel mode, because a tall chart beside
-                stacked KPIs is a ROW span whatever its width is measured
-                in -- hiding it here would have taken a feature away. */}
-            <NumberBox
-              label="rows"
-              value={rowSpan ?? ''}
-              placeholder={1}
-              onCommit={(raw) => onRowSpan?.(raw)}
-              title={`How many rows ${title} covers`}
-            />
-          </>
-        )}
+        />
+        <NumberBox
+          label="tall"
+          value={rect?.h ?? ''}
+          placeholder={240}
+          onCommit={(raw) => onRect?.({ h: Math.round(Number(raw) || 0) })}
+          title={`How tall ${title} is`}
+        />
       </Group>
 
-      {roomy && (
-        <button
-          onClick={fillRow}
-          className="rounded p-0.5 text-slate-400 hover:text-indigo-600"
-          title={`${spare}px are going spare on this row — widen this widget to ${Math.round((w || 0) + spare)}px to use all of it`}
-        >
-          <Maximize2 size={12} />
-        </button>
-      )}
       {onEdit && (
         <button
           onClick={(e) => {
@@ -462,15 +353,6 @@ export default function ArrangeBar({
           title="How this widget looks"
         >
           <Paintbrush size={12} />
-        </button>
-      )}
-      {pinned && (
-        <button
-          onClick={() => onSize({ widthPx: '', heightPx: '' })}
-          className="rounded p-0.5 text-slate-300 hover:text-rose-500"
-          title="Back to automatic size"
-        >
-          <X size={12} />
         </button>
       )}
     </div>

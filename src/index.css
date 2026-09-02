@@ -840,6 +840,18 @@ aside.fixed.right-0 {
   overflow: auto;
 }
 
+/* A widget that is currently chosen, so a gesture will move it.
+ *
+ * An outline rather than a border: a border would change the widget's own
+ * size, and the whole promise of this canvas is that a widget is exactly
+ * the rectangle it was given. Drawn on the wrapper, so no widget type has
+ * to know that selection exists. */
+.widget-chosen > * > .card,
+.widget-chosen > .card {
+  outline: 2px solid rgb(99 102 241);
+  outline-offset: 1px;
+}
+
 /* ------------------------------------------------------------------ */
 /* Flow diagram canvas                                                 */
 /* ------------------------------------------------------------------ */

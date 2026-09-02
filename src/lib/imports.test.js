@@ -19,6 +19,16 @@ import path from 'node:path'
 // own lib modules export, and only where they are CALLED. A string literal
 // is never followed by an open bracket, which keeps the noise down without
 // having to parse JavaScript.
+//
+// It happened a fourth time, and this scanner watched it go past: a
+// DESIGN_WIDTH used in a sentence of JSX, never imported, shipped green and
+// crashed the page on render. Two holes, both here -- the scan collected
+// only `export function`, so the constant was never on the list at all; and
+// it looked only for a call, and a constant is never called.
+//
+// So constants are checked too, but only SHOUTING ones. A bare identifier
+// is a much noisier thing to hunt than a call, and the shouting name is
+// what makes it safe: no prose in a JSX sentence is spelt DESIGN_WIDTH.
 
 const SRC = path.resolve(import.meta.dirname, '..')
 
@@ -36,11 +46,18 @@ const files = walk(SRC)
 
 /** Every function `src/lib` exports, and which file it lives in. */
 const exported = new Map()
+
+/** ...and every SHOUTING constant, which has to be checked a different way. */
+const constants = new Map()
+
 for (const file of files) {
   if (path.dirname(file) !== path.join(SRC, 'lib')) continue
   const text = fs.readFileSync(file, 'utf8')
   for (const [, name] of text.matchAll(/export (?:async )?function ([A-Za-z_$][\w$]*)/g)) {
     if (!exported.has(name)) exported.set(name, file)
+  }
+  for (const [, name] of text.matchAll(/export const ([A-Z][A-Z0-9_]*)\s*=/g)) {
+    if (!constants.has(name)) constants.set(name, file)
   }
 }
 
@@ -50,7 +67,12 @@ function bindings(text) {
   // One pass over the whole clause, because `import A, { b as c } from` is
   // three bindings in one line and matching the halves separately misses
   // both of them.
-  for (const [, clause] of text.matchAll(/import\s+([^;]*?)\s+from\s*['"]/g)) {
+  //
+  // `export { x } from './other.js'` counts as well. It introduces no local
+  // binding, but the name IS legitimately spelt in this file, and reading
+  // it as a use of something unimported is a false alarm -- which is the
+  // one thing a scanner cannot afford.
+  for (const [, clause] of text.matchAll(/(?:import|export)\s+([^;]*?)\s+from\s*['"]/g)) {
     for (const part of clause.replace(/[{}]/g, ',').split(',')) {
       const name = part.trim().split(/\s+as\s+/).pop().trim()
       if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name)
@@ -75,19 +97,82 @@ function bindings(text) {
   return names
 }
 
+/**
+ * Names one file uses without importing them.
+ *
+ * A function rather than a loop body so it can be aimed at a snippet whose
+ * answer is known -- see the positive control below. Every other assertion
+ * here is "the real files are clean", and clean is exactly what a scanner
+ * that has quietly stopped working also reports.
+ */
+function unimportedUses(text, { fns = new Map(), consts = new Map() } = {}, self = null) {
+  // Quoted strings and comments are prose, not code. A label reading
+  // "Indian compact (₹1.2 Cr)" is not a call to compact(), and a comment
+  // naming a constant is not a use of it -- one false alarm is all it takes
+  // for a scanner to start being ignored. Template literals are left alone,
+  // because `${fn()}` inside one is a real call.
+  const code = text
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+
+  const known = bindings(text)
+  const out = []
+
+  for (const [name, home] of fns) {
+    if (home === self || known.has(name)) continue
+    if (new RegExp(`(?<![\\w$.])${name}\\s*\\(`).test(code)) out.push({ name, home, how: 'calls' })
+  }
+
+  // A constant is never called, so there is no bracket to look for: the
+  // whole use is the bare name. Only safe because the name SHOUTS.
+  for (const [name, home] of consts) {
+    if (home === self || known.has(name)) continue
+    if (new RegExp(`(?<![\\w$.])${name}(?![\\w$])`).test(code)) out.push({ name, home, how: 'uses' })
+  }
+
+  return out
+}
+
+test('the scan reports a use it is shown, and stays quiet otherwise', () => {
+  // The positive control, written around the bug that got past this file:
+  // a SHOUTING constant read in a sentence of JSX and never imported.
+  const shape = { fns: new Map([['helper', 'lib/x.js']]), consts: new Map([['DESIGN_WIDTH', 'lib/x.js']]) }
+
+  const bad = 'const el = <p>designed at {DESIGN_WIDTH}px</p>'
+  assert.deepEqual(unimportedUses(bad, shape).map((p) => p.name), ['DESIGN_WIDTH'])
+
+  const good = "import { DESIGN_WIDTH } from './x.js'\nconst el = <p>{DESIGN_WIDTH}</p>"
+  assert.deepEqual(unimportedUses(good, shape), [], 'an imported one is not a problem')
+
+  const own = 'export const DESIGN_WIDTH = 1280'
+  assert.deepEqual(unimportedUses(own, shape, 'lib/x.js'), [], 'nor is the file that defines it')
+
+  const local = 'const DESIGN_WIDTH = 1280\nconst el = <p>{DESIGN_WIDTH}</p>'
+  assert.deepEqual(unimportedUses(local, shape), [], 'nor one the file declares itself')
+
+  const prose = '// DESIGN_WIDTH is what the page is drawn against\nconst a = 1'
+  assert.deepEqual(unimportedUses(prose, shape), [], 'a comment naming it is not a use')
+
+  const property = 'const w = opts.DESIGN_WIDTH'
+  assert.deepEqual(unimportedUses(property, shape), [], 'and a property is not a bare name')
+
+  const called = 'function go() { helper(1) }'
+  assert.deepEqual(unimportedUses(called, shape).map((p) => p.name), ['helper'], 'calls too')
+})
+
 test('every lib function a file calls is a function it can see', () => {
   assert.ok(exported.size > 50, 'the export scan itself has to be finding things')
+  assert.ok(constants.size > 5, 'and so does the constant scan')
 
   const problems = []
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8')
-    const known = bindings(text)
-
-    for (const [name, home] of exported) {
-      if (home === file || known.has(name)) continue
-      if (new RegExp(`(?<![\\w$.])${name}\\s*\\(`).test(text)) {
-        problems.push(`${path.relative(SRC, file)} calls ${name}() from ${path.relative(SRC, home)}`)
-      }
+    for (const { name, home, how } of unimportedUses(text, { fns: exported, consts: constants }, file)) {
+      problems.push(
+        `${path.relative(SRC, file)} ${how} ${name}${how === 'calls' ? '()' : ''} from ${path.relative(SRC, home)}`
+      )
     }
   }
 

@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Layers, Palette, Printer, Redo2, RefreshCw, RotateCcw, Undo2 } from 'lucide-react'
+import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Layers, Move, Palette, Printer, Redo2, RefreshCw, RotateCcw, Undo2 } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
 import { usePageData, useLocalState } from '../hooks/usePageData'
@@ -38,8 +38,6 @@ const WidgetsPanel = lazy(() => import('./admin/WidgetsPanel.jsx'))
 const ControlsPanel = lazy(() => import('./admin/ControlsPanel.jsx'))
 const PageSettings = lazy(() => import('./admin/PagesPanel.jsx').then((m) => ({ default: m.PageSettings })))
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
-import { MIN_HEIGHT_PX, MIN_WIDTH_PX, heightStyle } from '../lib/gridSpan'
-import { MAX_ROW_SPAN } from '../lib/flowPack'
 import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
 import { buildChoices } from '../lib/columnChoices'
 import { matchTargets } from '../lib/spin360'
@@ -74,6 +72,15 @@ import { PageIcon } from '../components/PageIcon.jsx'
 import AppShell from '../components/AppShell.jsx'
 import CrossFilterChips from '../components/CrossFilterChips.jsx'
 import WidgetCanvas from '../components/WidgetCanvas.jsx'
+import {
+  changedIn,
+  clampRect,
+  DESIGN_WIDTH,
+  isPlaced,
+  patchOf,
+  placeAll,
+  seedFrom,
+} from '../lib/freeLayout'
 import ArrangeBar from '../components/ArrangeBar.jsx'
 import PageDesignPanel from '../components/PageDesignPanel.jsx'
 import KpiWidget from '../components/widgets/KpiWidget.jsx'
@@ -155,6 +162,9 @@ export default function Dashboard() {
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState(null)
   const [arranging, setArranging] = useState(false)
+  // Free mode: drag widgets instead of typing their numbers. Not stored --
+  // it is how somebody is working this minute, not a property of the page,
+  // and a drag saves exactly what the boxes save either way.
 
   // --- editing the page, on the page -------------------------------------
   // A dashboard opens as a thing you LOOK at, for everybody including the
@@ -232,8 +242,9 @@ export default function Dashboard() {
           height,
           span: layout?.span,
           spanWidth: layout?.spanWidth,
-          left: layout?.box?.left,
-          top: layout?.box?.top,
+          left: layout?.left,
+          top: layout?.top,
+          canvasWidth: layout?.canvasWidth,
         },
       }
     })
@@ -271,6 +282,7 @@ export default function Dashboard() {
   )
   const access = accessByPage[pageId]
   const canView = canViewPage(access, isAdmin)
+
 
   // What is on screen: the draft while an admin is designing, the saved
   // design the rest of the time.
@@ -1090,65 +1102,66 @@ export default function Dashboard() {
 
   const deleteWidget = (id) => writeWidgets(atLevel((list) => list.filter((w) => w.id !== id)))
 
-  async function saveWidgetSize(widgetId, patch) {
-    if (!isAdmin || !page?.id) return
+  // Every widget's rectangle, as the page currently has it -- what the
+  // arrange boxes read, and what a typed change is applied to.
+  const rects = useMemo(() => {
+    return Object.fromEntries(placeAll(levelWidgets || []).map((rect) => [rect.id, rect]))
+  }, [levelWidgets])
 
-    const floors = { widthPx: MIN_WIDTH_PX, heightPx: MIN_HEIGHT_PX }
-    const clean = {}
-    for (const [key, value] of Object.entries(patch)) {
-      const n = Number(value)
-      // A row is a position, not a measurement: it takes no pixel floor,
-      // and blank means the first row rather than "no row".
-      if (key === 'row') {
-        clean.row = Number.isFinite(n) && n >= 1 ? Math.round(n) : null
-        continue
-      }
-      // Nor is a position within a row. Unset is a real answer -- "leave
-      // it where the page order put it" -- so it is stored as nothing.
-      if (key === 'rowOrder') {
-        clean.rowOrder = Number.isFinite(n) ? Math.round(n) : null
-        continue
-      }
-      // Nor is a span. One row is what everything does, so it is written as
-      // nothing at all rather than as a 1 on every widget on the page.
-      if (key === 'rowSpan') {
-        clean.rowSpan = Number.isFinite(n) && n > 1 ? Math.min(MAX_ROW_SPAN, Math.round(n)) : null
-        continue
-      }
-      clean[key] =
-        value === '' || value === null || !Number.isFinite(n) || n <= 0
-          ? null
-          : Math.max(floors[key] || 1, Math.round(n))
-    }
-
-    const current = levelWidgets.find((w) => w.id === widgetId)
-    // Nothing to write. The handle commits on blur as well as on a pause, so
-    // tabbing out of a box nobody edited used to cost a whole page write.
-    if (current && Object.entries(clean).every(([k, v]) => (current[k] ?? null) === v)) return
-
-    const widgets = atLevel((list) =>
-      list.map((w) =>
-        w.id === widgetId
-          ? {
-              ...w,
-              ...clean,
-              // A pinned width is only honoured in pixel mode, and typing one
-              // here is how somebody says that is what they want.
-              ...(clean.widthPx ? { widthMode: 'px' } : null),
-            }
-          : w
+  /**
+   * A rectangle, saved.
+   *
+   * Takes a list because it is the same path however the change was made --
+   * one widget dragged, one widget typed into, or a whole page seeded on
+   * its first load. One write and one undo entry for the whole gesture,
+   * since one gesture is what it was.
+   */
+  async function saveLayout(changed) {
+    if (!isAdmin || !page?.id || !(changed || []).length) return
+    const patches = new Map(changed.map((rect) => [rect.id, patchOf(rect)]))
+    await writeWidgets(
+      atLevel((list) =>
+        list.map((w) => {
+          const patch = patches.get(w.id)
+          return patch ? { ...w, ...patch } : w
+        })
       )
     )
-
-    setSavingLayout(true)
-    try {
-      await setDoc(doc(db, 'dashboards', page.id), stripUndefined({ widgets }), { merge: true })
-    } finally {
-      setSavingLayout(false)
-    }
   }
 
-  // Saving a dragged column order writes back to this page's document, so it
+  /**
+   * A rectangle typed into the arrange boxes.
+   *
+   * Goes through the same clamping a drag does, so typing "x 400" and
+   * dragging to 400 are the same act -- two ways of saying it, one layout.
+   */
+  function setRect(widgetId, part) {
+    const rect = rects[widgetId]
+    if (!rect) return
+    const next = clampRect({ ...rect, ...part })
+    return saveLayout(changedIn([rect], [next]))
+  }
+
+  /**
+   * A page that was arranged by the engine this replaced.
+   *
+   * Seeded once, from what the old packer was actually drawing, so nobody's
+   * dashboard rearranges itself overnight. After that every widget has a
+   * rectangle of its own and this never runs again.
+   */
+  useEffect(() => {
+    if (!isAdmin || !page?.id || !(levelWidgets || []).length) return
+    if ((levelWidgets || []).every(isPlaced)) return
+    const measured = (levelWidgets || [])
+      .map((w) => [w.id, sizes[w.id]])
+      .filter(([, box]) => box && Number.isFinite(box.left) && Number.isFinite(box.top))
+    if (measured.length !== levelWidgets.length) return
+    const canvas = measured.map(([, box]) => box.canvasWidth).find((n) => Number.isFinite(n) && n > 0)
+    saveLayout(seedFrom(Object.fromEntries(measured), { canvasWidth: canvas || 1280 }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, page?.id, levelWidgets, sizes])
+
+  // Saving a dragged column order writes back to this page's document  // Saving a dragged column order writes back to this page's document, so it
   // applies to every user rather than living in one browser session.
   async function saveColumnOrder(widgetId, columns) {
     if (!page) return
@@ -1482,22 +1495,17 @@ export default function Dashboard() {
                 return {
                   id: widget.id,
                   width: widget.width,
-                  // An exact 1-12 span, which overrides the named preset.
-                  widthUnits: widget.widthUnits,
-                  // ...unless the admin chose pixels, which overrides both.
-                  widthPx: widgetUsesPx(widget) ? widgetWidthPx(widget) : null,
-                  row: widget.row,
-                  // Where in that row, if anybody has said. See lib/flowPack.js.
-                  rowOrder: widget.rowOrder,
-                  // How many rows it covers. See lib/flowPack.js -- it holds
-                  // its width in each of them, and is as tall as they are.
-                  rowSpan: widget.rowSpan,
-                  // A typed height, which a span honours exactly rather than
-                  // stretching over the top of.
-                  heightPx: widget.heightPx,
-                  // A pinned height is a better guess than the type's, and
-                  // using it here means the column packing is right on the
-                  // first frame rather than after the widget measures.
+                  // Its rectangle, carried through so the canvas can read it.
+                  // Without these four the layout engine sees a page of
+                  // unplaced widgets and invents one afresh every render.
+                  boxX: widget.boxX,
+                  boxY: widget.boxY,
+                  boxW: widget.boxW,
+                  boxH: widget.boxH,
+                  // Only used until a widget has a rectangle of its own: a
+                  // better first guess than a flat default, so a page being
+                  // placed for the first time is roughly right immediately.
+                  estimatedWidth: widgetUsesPx(widget) ? widgetWidthPx(widget) : null,
                   estimatedHeight: Number(widget.heightPx) > 0 ? Number(widget.heightPx) : estimateWidgetHeight(widget.type),
                   content: (
                     // The wrapper publishes this widget's appearance as CSS
@@ -1506,15 +1514,10 @@ export default function Dashboard() {
                     // always did -- no widget component knows about theming.
                     <div
                       data-widget={widget.id}
-                      className={`rise-in group/widget relative ${styleClass(themed)} ${
-                        Number(widget.heightPx) > 0 ? 'widget-sized' : ''
-                      }`}
+                      className={`rise-in group/widget relative widget-sized ${styleClass(themed)}`}
                       style={{
                         animationDelay: `${Math.min(index * 45, 360)}ms`,
                         ...(styleVars(themed) || {}),
-                        // A pinned height, expressed so a phone can still
-                        // keep the promise -- see lib/gridSpan.js.
-                        ...(heightStyle(widget.heightPx) || {}),
                       }}
                     >
                       {/* In edit mode the widget IS the way in: it lights
@@ -1595,35 +1598,13 @@ export default function Dashboard() {
                           index={index + 1}
                           order={widgetOrder[widget.id] ?? ''}
                           onOrder={(v) => setWidgetOrder(widget.id, v)}
-                          row={widget.row ?? ''}
-                          onRow={(v) => saveWidgetSize(widget.id, { row: v })}
                           widgetType={widget.type}
-                          rowOrder={widget.rowOrder ?? ''}
-                          onRowOrder={(v) => saveWidgetSize(widget.id, { rowOrder: v })}
-                          rowSpan={widget.rowSpan ?? ''}
-                          onRowSpan={(v) => saveWidgetSize(widget.id, { rowSpan: v })}
-                          colSpan={widget.colSpan ?? ''}
-                          onColSpan={(v) => saveWidgetSize(widget.id, { colSpan: v })}
-                          // Switching mode CLEARS the other one, so the two
-                          // can never both be set and silently disagree --
-                          // which is what made the six boxes confusing.
-                          onSizeMode={(mode) =>
-                            saveWidgetSize(
-                              widget.id,
-                              mode === 'cols'
-                                ? { colSpan: '1', widthPx: '' }
-                                : { colSpan: '', widthPx: '' }
-                            )
-                          }
-                          // Only what is actually IN FORCE. A pixel width
-                          // is ignored unless the widget is in pixel mode,
-                          // and a number that is being ignored has no
-                          // business sitting in the box that sets it.
-                          widthPx={widgetUsesPx(widget) ? widget.widthPx : ''}
-                          heightPx={widget.heightPx ?? ''}
+                          // The same four numbers a drag sets, for anybody
+                          // who would rather type them. See lib/freeLayout.js.
+                          rect={rects[widget.id]}
+                          onRect={(part) => setRect(widget.id, part)}
                           style={widget.style}
                           measured={sizes[widget.id]}
-                          onSize={(patch) => saveWidgetSize(widget.id, patch)}
                           onStyle={isAdmin ? (next) => saveWidgetStyle(widget.id, next) : undefined}
                           onEdit={
                             isAdmin
@@ -2090,15 +2071,15 @@ export default function Dashboard() {
           <div className="no-print flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs text-indigo-800">
             <ArrowUpDown size={13} />
             <span>
-              <strong>Drag the ⣿ handle</strong> to move a widget — that reorders the page for everyone. Every
-              widget also wears a pill showing its position and real size; click it to edit, or use its 🖌 to
-              change how that one widget looks. <strong>#</strong> is the position: lower first, blank leaves it
-              where it is, and it is yours alone. <strong>W</strong> and <strong>H</strong> are pixels and belong to
-              the page — or set a width in <em>columns</em> instead and no pixels are involved at all. They save
-              when you leave the box, press Enter, or pause; Escape puts back what was saved. An amber{' '}
-              <strong>+n</strong> means that widget claims n pixels of the canvas it doesn’t use, and the ⤢ inside
-              widens it to close the gap. The <strong>palette</strong> button in the page header opens spacing,
-              columns, text size and the card surface.
+              <strong>Drag a widget</strong> to move it and <strong>drag a handle</strong> to resize it — it goes
+              exactly where you put it and stays there. Pink lines show what it has lined up with; hold{' '}
+              <strong>Alt</strong> to place it to the pixel instead. <strong>Shift-click</strong> to pick out
+              several, or drag a box across the canvas to catch them, and they all move together — Escape lets
+              go. The pill on each widget has the same four
+              numbers if you would rather type them, and its <strong>🖌</strong> changes how that one widget
+              looks. The page is designed at {DESIGN_WIDTH}px and drawn smaller on a narrower screen, so one
+              arrangement serves every monitor; a phone stacks it one to a line. The <strong>palette</strong>{' '}
+              button in the page header opens spacing, text size and the card surface.
             </span>
             {savingLayout && <span className="text-[10px] font-medium text-indigo-500">saving…</span>}
             <div className="ml-auto flex gap-2">
@@ -2109,7 +2090,9 @@ export default function Dashboard() {
                 <RotateCcw size={11} /> Reset to default
               </button>
               <button
-                onClick={() => setArranging(false)}
+                onClick={() => {
+                  setArranging(false)
+                }}
                 className="rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-indigo-700"
               >
                 Done
@@ -2333,7 +2316,10 @@ export default function Dashboard() {
               items={widgetItems}
               gapX={design.gapX}
               gapY={design.gapY}
-              showRows={isAdmin && arranging}
+              // Dragging IS how you arrange, so it is on for the whole of
+              // arrange mode. There is nothing else it could be.
+              free={isAdmin && arranging}
+              onLayout={saveLayout}
               onMeasure={noteSize}
             />
 

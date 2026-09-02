@@ -1,33 +1,75 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { fitFor, packRowGroups, rowGaps, rowSlack } from '../lib/flowPack'
+import {
+  boundsOf,
+  canvasHeight,
+  changedIn,
+  DESIGN_WIDTH,
+  HANDLES,
+  marquee,
+  MIN_H,
+  MIN_W,
+  moveMany,
+  placeAll,
+  resizeBy,
+  scaleFor,
+  STACK_BELOW,
+  stacked,
+  toggle,
+  toPixels,
+  within,
+} from '../lib/freeLayout'
+
+/** Below this, a press is a click on the widget rather than a drag of it. */
+const DRAG_THRESHOLD = 4
+
+/** Where each handle sits on the widget, and which way it points. */
+const HANDLE_STYLE = {
+  nw: { top: -5, left: -5, cursor: 'nwse-resize' },
+  n: { top: -5, left: '50%', marginLeft: -5, cursor: 'ns-resize' },
+  ne: { top: -5, right: -5, cursor: 'nesw-resize' },
+  e: { top: '50%', right: -5, marginTop: -5, cursor: 'ew-resize' },
+  se: { bottom: -5, right: -5, cursor: 'nwse-resize' },
+  s: { bottom: -5, left: '50%', marginLeft: -5, cursor: 'ns-resize' },
+  sw: { bottom: -5, left: -5, cursor: 'nesw-resize' },
+  w: { top: '50%', left: -5, marginTop: -5, cursor: 'ew-resize' },
+}
 
 /**
- * The page's widgets, laid out by the space each one needs.
+ * The page's widgets, each exactly where it was put.
  *
- * No columns. A widget asks for a width in pixels and gets exactly that;
- * they are placed in the admin's own order, left to right, each starting
- * where the one before it ended; and when the next one will not fit in what
- * is left of the row, it starts a new one. See lib/flowPack.js for why that
- * is the whole model.
+ * One layout model, and the simplest one that can say anything: a widget is
+ * a rectangle on a canvas of a fixed design width. See lib/freeLayout.js.
+ * Nothing flows, nothing wraps, nothing is pushed aside, and nothing floats
+ * up to close a hole. Where you put it is where it stays.
  *
- * Nothing here is draggable. Sizes are typed, in pixels, in the arrange bar
- * -- which is exact, repeatable, and the same on every screen, none of which
- * is true of a mouse. This component only draws.
+ * A narrower screen draws the same arrangement proportionally smaller; a
+ * phone gives up on the arrangement and stacks, because a 400px card drawn
+ * at a third of its size is a card nobody can read.
  *
- * `onMeasure` reports each widget's real size back, so the arrange bar can
- * show what a widget IS rather than an empty box, and say how much room is
- * going spare on its row.
+ * Several can be chosen at once -- shift-click, or drag a band across the
+ * canvas -- and then they move together as one.
+ *
+ * `onLayout(changed)` is handed the rectangles a gesture actually altered.
  */
-export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = false, className = '', onMeasure }) {
+export default function WidgetCanvas({
+  items,
+  gapX = 12,
+  gapY = 12,
+  className = '',
+  onMeasure,
+  // Arranging: drag to move, drag a handle to resize.
+  free = false,
+  onLayout,
+}) {
   const hostRef = useRef(null)
-  const itemRefs = useRef(new Map())
   const [width, setWidth] = useState(0)
-  const [heights, setHeights] = useState({})
 
-  // Held in a ref so a caller passing a fresh arrow function every render
-  // cannot re-create every observer on every render.
+  // Held in refs so a caller passing a fresh arrow function every render
+  // cannot re-create the observer or rebind the pointer handlers.
   const measure = useRef(onMeasure)
   measure.current = onMeasure
+  const commit = useRef(onLayout)
+  commit.current = onLayout
 
   useLayoutEffect(() => {
     const el = hostRef.current
@@ -39,159 +81,367 @@ export default function WidgetCanvas({ items, gapX = 12, gapY = 12, showRows = f
     return () => ro.disconnect()
   }, [])
 
-  // How this arrangement meets the screen it got: the room is there, it is
-  // somewhat narrower and everything scales together, or it is a phone and
-  // the widgets go one to a line. See lib/flowPack.js.
-  const { fit, stacked } = useMemo(() => fitFor(items, width, gapX), [items, width, gapX])
+  // ---------------------------------------------------------------------
+  // The layout
+  // ---------------------------------------------------------------------
 
-  const layout = useMemo(
-    () => packRowGroups(items, { canvasWidth: width, gapX, gapY, heights, fit, stacked }),
-    [items, width, gapX, gapY, heights, fit, stacked]
+  // Every widget's rectangle, in design pixels -- including one invented
+  // for anything nobody has placed yet, because "not placed" must not mean
+  // "invisible".
+  const stored = useMemo(() => placeAll(items, { gap: gapY }), [items, gapY])
+
+  const phone = width > 0 && width < STACK_BELOW
+  const scale = phone ? 1 : scaleFor(width)
+
+  // On a phone the arrangement is the wrong question and everything goes
+  // full width in reading order. Everywhere else it IS the arrangement,
+  // drawn proportionally to fit the glass.
+  const shown = useMemo(
+    () => (phone ? stacked(stored, width, { gap: gapY }) : stored),
+    [phone, stored, width, gapY]
   )
 
-  const slack = useMemo(
-    () => rowSlack(layout.rows, layout.positions, width, gapX),
-    [layout, width, gapX]
-  )
+  // ---------------------------------------------------------------------
+  // Dragging
+  // ---------------------------------------------------------------------
 
-  // The empty space at the end of each row, and what would fit in it.
-  const gaps = useMemo(
-    () => (showRows && width > 0 ? rowGaps(layout.rows, layout.positions, width, gapX, undefined, gapY) : []),
-    [showRows, layout, width, gapX, gapY]
-  )
+  // The drag lives in a ref and is MIRRORED into state. The ref is what the
+  // pointer handlers read -- they fire between renders and must see the
+  // move that just happened, not the one React has drawn -- and the state
+  // is only so that the widget follows the hand.
+  const dragRef = useRef(null)
+  const [drag, setDrag] = useState(null)
 
-  // One observer per widget, so a table that grows a row pushes what is
-  // below it down without anything else being recomputed.
-  const key = items
-    .map((i) => `${i.id}:${i.widthPx ?? ''}:${i.width ?? ''}:${i.row ?? ''}:${i.rowOrder ?? ''}:${i.rowSpan ?? ''}`)
-    .join('|')
+  // Which widgets a gesture will apply to. Not stored on the page: it is
+  // who is holding the mouse this minute, not anything about the dashboard.
+  const [selection, setSelection] = useState(() => new Set())
+
+  // Nothing can be chosen that is not there any more -- a deleted widget
+  // left in the set would be dragged by every gesture and saved by none.
   useEffect(() => {
-    const observers = []
-    itemRefs.current.forEach((node, id) => {
-      if (!node) return
-      const ro = new ResizeObserver((entries) => {
-        const box = entries[0]?.contentRect
-        const h = box?.height
-        if (!h) return
-        setHeights((prev) => (Math.abs((prev[id] || 0) - h) > 1 ? { ...prev, [id]: h } : prev))
-      })
-      ro.observe(node)
-      observers.push(ro)
+    setSelection((prev) => {
+      const live = new Set(items.map((item) => item.id))
+      if ([...prev].every((id) => live.has(id))) return prev
+      return new Set([...prev].filter((id) => live.has(id)))
     })
-    return () => observers.forEach((ro) => ro.disconnect())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  }, [items])
 
-  // Reported after layout, so the number an admin sees is the number that
-  // was actually drawn -- including how much of the row is going spare,
-  // which is what somebody needs in order to decide what to type.
+  const far = drag && (Math.abs(drag.dx) >= DRAG_THRESHOLD || Math.abs(drag.dy) >= DRAG_THRESHOLD)
+
+  // The band, in design pixels, while one is being drawn.
+  const band = useMemo(() => {
+    if (!drag || drag.mode !== 'band' || !far) return null
+    return marquee(drag.from, { x: drag.from.x + drag.dx / scale, y: drag.from.y + drag.dy / scale })
+  }, [drag, far, scale])
+
+  // Who the band is currently over. Shown while it is being drawn, so it is
+  // obvious what letting go will choose.
+  const banding = useMemo(() => (band ? new Set(within(shown, band)) : null), [band, shown])
+
+  // What the drag has reached: the moved rectangles, and the lines they
+  // lined up with on the way.
+  const preview = useMemo(() => {
+    if (!drag || !free || drag.mode === 'band' || !far) return null
+    const chosen = shown.filter((item) => drag.ids.includes(item.id))
+    if (chosen.length === 0) return null
+    // In design pixels, not in the pixels under the hand: on a scaled
+    // canvas those differ, and the design is what gets saved.
+    const dx = drag.dx / scale
+    const dy = drag.dy / scale
+    const others = shown.filter((item) => !drag.ids.includes(item.id))
+    if (drag.handle) {
+      const out = resizeBy(chosen[0], drag.handle, dx, dy, others, { loose: drag.loose })
+      return { rects: [out.rect], guides: out.guides }
+    }
+    return moveMany(chosen, dx, dy, others, { loose: drag.loose })
+  }, [drag, free, far, shown, scale])
+
+  const boxes = useMemo(() => {
+    const out = {}
+    for (const rect of shown) out[rect.id] = toPixels(rect, scale)
+    for (const rect of preview?.rects || []) out[rect.id] = toPixels(rect, scale)
+    return out
+  }, [shown, scale, preview])
+
+  // The result has to reach the handler that saves it, and that handler was
+  // bound once. Written down here rather than recomputed there, so what is
+  // saved is exactly what was on the screen when the hand let go.
+  if (dragRef.current) {
+    dragRef.current.result = preview?.rects ?? null
+    dragRef.current.chose = banding
+    dragRef.current.base = shown
+  }
+
+  // One pointerdown starts it; the window finishes it. On the element
+  // alone, a hand that outruns the widget mid-drag would drop it there.
+  useEffect(() => {
+    if (!free) return undefined
+
+    const move = (event) => {
+      const d = dragRef.current
+      if (!d) return
+      const next = {
+        ...d,
+        dx: event.clientX - d.startX,
+        dy: event.clientY - d.startY,
+        // Read every time: somebody who presses Alt half way through a drag
+        // means it from that moment, not from the moment they started.
+        loose: event.altKey,
+      }
+      dragRef.current = next
+      setDrag(next)
+    }
+
+    const up = () => {
+      const d = dragRef.current
+      dragRef.current = null
+      setDrag(null)
+      if (!d) return
+
+      if (d.mode === 'band') {
+        // A band that was never really drawn is a click on the background,
+        // and a click on the background means "nothing".
+        setSelection(d.chose ? new Set(d.chose) : new Set())
+        return
+      }
+
+      if (!d.result) return
+      const changed = changedIn(d.base, d.result)
+      if (changed.length > 0) commit.current?.(changed)
+    }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+  }, [free])
+
+  // Arranging turned off mid-drag -- the effect above has gone, so nothing
+  // is left to finish this one.
+  useEffect(() => {
+    if (free) return
+    dragRef.current = null
+    setDrag(null)
+  }, [free])
+
+  const begin = (event, extra) => {
+    const d = {
+      handle: null,
+      ids: [],
+      startX: event.clientX,
+      startY: event.clientY,
+      dx: 0,
+      dy: 0,
+      loose: event.altKey,
+      result: null,
+      base: shown,
+      ...extra,
+    }
+    dragRef.current = d
+    setDrag(d)
+  }
+
+  const startDrag = (event, id, handle = null) => {
+    if (!free || event.button !== 0) return
+    // A widget's own controls keep working while the page is being
+    // arranged: a search box you cannot type in is not an arranged page,
+    // it is a broken one.
+    if (!handle && event.target?.closest?.('input, textarea, select, button, a, [contenteditable="true"]')) {
+      return
+    }
+    event.stopPropagation()
+
+    // A handle resizes the one widget it is on, whatever else is chosen:
+    // "make these five the same size" is a different feature, and guessing
+    // at it here would make one careless drag rewrite five widgets.
+    if (handle) {
+      begin(event, { handle, ids: [id] })
+      return
+    }
+
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey
+    if (additive) {
+      // Adding to a selection is not the start of a drag. Somebody
+      // shift-clicking a fourth card is choosing, not moving.
+      setSelection((prev) => toggle(prev, id, true))
+      return
+    }
+
+    // Grabbing something already in the selection drags the whole of it;
+    // grabbing anything else chooses that one and drags it alone.
+    const chosen = selection.has(id) ? [...selection] : [id]
+    if (!selection.has(id)) setSelection(new Set([id]))
+    begin(event, { ids: chosen })
+  }
+
+  /** A press on the canvas itself: the start of a rubber band. */
+  const startBand = (event) => {
+    if (!free || phone || event.button !== 0) return
+    if (event.target !== hostRef.current) return
+    const host = hostRef.current.getBoundingClientRect()
+    begin(event, {
+      mode: 'band',
+      from: { x: (event.clientX - host.left) / scale, y: (event.clientY - host.top) / scale },
+    })
+  }
+
+  // Escape lets go of everything -- the way out of a selection that is
+  // about to be dragged by accident.
+  useEffect(() => {
+    if (!free) return undefined
+    const key = (event) => {
+      if (event.key === 'Escape') setSelection(new Set())
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [free])
+
+  // Nothing stays chosen once the page is no longer being arranged.
+  useEffect(() => {
+    if (!free) setSelection(new Set())
+  }, [free])
+
+  // ---------------------------------------------------------------------
+  // Measuring back
+  // ---------------------------------------------------------------------
+
+  // Reported after layout, so the number an admin sees in the arrange boxes
+  // is the number that was actually drawn.
   useEffect(() => {
     if (!measure.current || width <= 0) return
-    for (const [id, box] of Object.entries(layout.positions)) {
-      measure.current(id, box.width, Math.round(heights[id] ?? box.height), {
-        left: box.left,
-        top: box.top,
-        row: box.row,
-        // What the typed numbers were scaled BY to reach this screen, so the
-        // arrange bar can show what is actually drawn instead of repeating
-        // the number that was typed on a different one.
-        scale: fit,
-        stacked,
-        // How tall the rows a span covers are, so the height box can say
-        // what the number it is offering to replace actually is.
-        band: box.bandHeight,
-        spare: slack[id] ?? 0,
+    for (const rect of shown) {
+      measure.current(rect.id, rect.w, rect.h, {
+        left: rect.x,
+        top: rect.y,
+        scale,
+        stacked: phone,
         canvasWidth: Math.round(width),
+        designWidth: DESIGN_WIDTH,
       })
     }
-  }, [layout, slack, heights, width])
+  }, [shown, scale, phone, width])
 
   return (
     <div
       ref={hostRef}
-      className={`relative ${className}`}
-      style={{ height: width > 0 ? layout.containerHeight : undefined }}
+      onPointerDown={free ? startBand : undefined}
+      className={`relative ${className} ${drag ? 'select-none' : ''}`}
+      style={{
+        height: width > 0 ? canvasHeight(shown, scale) : undefined,
+        // Room to put something below everything, so "down here" is a place
+        // the hand can actually reach.
+        paddingBottom: free ? 96 : undefined,
+      }}
     >
-      {/* Where each row begins and ends. Only while arranging: a reader
-          does not need to be told that a dashboard has rows, and an admin
-          deciding which row to put something in does. */}
-      {showRows &&
-        width > 0 &&
-        layout.rows.map((r) => (
-          <div
-            key={r.row}
-            aria-hidden
-            className="pointer-events-none absolute -left-1 -right-1 rounded-lg border border-dashed border-indigo-200"
-            style={{ top: r.top - 4, height: r.height + 8 }}
-          >
-            <span className="absolute -top-2 left-1 rounded bg-indigo-50 px-1 text-[9px] font-semibold text-indigo-500">
-              Row {r.row}
-            </span>
-            {/* Space a widget from a row above is standing in. Without this
-                the row looks like it has room going spare, and the number
-                in the arrange bar looks like a lie. */}
-            {(r.blocked || []).map((b) => (
-              <span
-                key={`held-${b.left}`}
-                className="absolute top-0 bottom-0 rounded bg-indigo-50/40"
-                style={{ left: b.left + 4, width: b.right - b.left }}
-              />
-            ))}
-          </div>
-        ))}
-
-      {/* What would fit in the space left over. The number somebody
-          actually needs while arranging is not "there is room" but "there is
-          room for 340 by 94", and that is a rectangle, not a caption. */}
-      {gaps.map((gap) => (
+      {/* The rubber band, and how many it has got. The count is the part
+          that matters: a band is drawn over widgets, so what it has caught
+          is otherwise something you have to squint at. */}
+      {band && (
         <div
-          key={`gap-${gap.row}-${gap.left}-${gap.top}`}
           aria-hidden
-          className="pointer-events-none absolute flex items-center justify-center rounded-lg border-2 border-dashed border-slate-300/80 bg-slate-50/40"
-          style={{ left: gap.left, top: gap.top, width: gap.width, height: gap.height }}
+          className="pointer-events-none absolute z-40 rounded border border-indigo-500 bg-indigo-500/10"
+          style={toPixels(band, scale)}
         >
-          <span className="rounded bg-white/85 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
-            {/* In the numbers you would TYPE, not the ones on the glass: on
-                a scaled canvas those are different, and the whole point of
-                this box is that it tells you what to put in the W field. */}
-            {Math.round(gap.width / fit)} × {Math.round(gap.height / fit)}
-          </span>
+          {banding?.size > 0 && (
+            <span className="absolute -top-2 left-1 rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow">
+              {banding.size}
+            </span>
+          )}
         </div>
-      ))}
+      )}
+
+      {/* What is chosen, drawn round the outside of it. Without this a
+          selection is invisible until something moves. */}
+      {selection.size > 1 && !band && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute z-10 rounded-lg border border-dashed border-indigo-400"
+          style={(() => {
+            const box = boundsOf((preview?.rects || shown).filter((rect) => selection.has(rect.id)))
+            if (!box) return { display: 'none' }
+            const px = toPixels(box, scale)
+            return { left: px.left - 4, top: px.top - 4, width: px.width + 8, height: px.height + 8 }
+          })()}
+        />
+      )}
+
+      {/* The lines the drag has lined up with. A snap you cannot see is a
+          widget that appears to move on its own. */}
+      {preview?.guides.map((guide) =>
+        guide.axis === 'x' ? (
+          <span
+            key={`x${guide.at}`}
+            aria-hidden
+            className="pointer-events-none absolute top-0 bottom-0 z-40 w-px bg-fuchsia-500"
+            style={{ left: Math.round(guide.at * scale) }}
+          />
+        ) : (
+          <span
+            key={`y${guide.at}`}
+            aria-hidden
+            className="pointer-events-none absolute left-0 right-0 z-40 h-px bg-fuchsia-500"
+            style={{ top: Math.round(guide.at * scale) }}
+          />
+        )
+      )}
 
       {items.map((item) => {
-        const box = layout.positions[item.id]
+        const box = boxes[item.id]
         // Before the canvas has been measured, a plain stacked flow rather
-        // than everything at zero width in the top-left corner.
+        // than everything at zero size in the top-left corner.
         if (!box || width <= 0) {
           return (
-            <div key={item.id} ref={(node) => itemRefs.current.set(item.id, node)} className="relative mb-3 w-full">
+            <div key={item.id} className="relative mb-3 w-full">
               {item.content}
             </div>
           )
         }
+        const dragging = preview && drag?.ids.includes(item.id)
+        const chosen = selection.has(item.id) || banding?.has(item.id)
         return (
           <div
             key={item.id}
-            ref={(node) => itemRefs.current.set(item.id, node)}
-            // A widget told to cover several rows is as tall as they are
-            // together -- otherwise "spans rows 2 to 4" would mean nothing
-            // more than "starts at row 2", and the room it reserved below
-            // itself would sit visibly empty underneath it.
-            className={`absolute transition-[top,left,width] duration-300 ease-out ${
-              box.spanned || box.fitted ? 'widget-fit' : ''
-            }`}
-            style={{
-              top: box.top,
-              left: box.left,
-              width: box.width,
-              // Imposed either because the widget covers several rows, or
-              // because a typed height came down with the typed width it was
-              // chosen against.
-              height: box.spanned || box.fitted ? box.height : undefined,
-            }}
+            onPointerDown={free && !phone ? (event) => startDrag(event, item.id) : undefined}
+            className={`absolute widget-fit ${
+              dragging
+                ? 'z-30 opacity-90 shadow-2xl'
+                : 'transition-[top,left,width,height] duration-150 ease-out'
+            } ${free && !phone ? 'group/free cursor-grab' : ''} ${
+              dragging && !drag.handle ? 'cursor-grabbing' : ''
+            } ${chosen ? 'widget-chosen' : ''}`}
+            style={{ ...box, minWidth: MIN_W * scale, minHeight: MIN_H * scale }}
           >
             {item.content}
+
+            {/* Eight handles, ON the widget rather than inside it, so no
+                widget has to know they exist. Not on a phone, where the
+                arrangement is not what is being drawn. */}
+            {free && !phone && selection.size <= 1 && (
+              <>
+                {HANDLES.map((handle) => (
+                  <span
+                    key={handle}
+                    onPointerDown={(event) => startDrag(event, item.id, handle)}
+                    title="Drag to resize — hold Alt to place it exactly"
+                    className="absolute z-20 h-2.5 w-2.5 rounded-sm border border-indigo-500 bg-white opacity-0 transition-opacity group-hover/free:opacity-100"
+                    style={HANDLE_STYLE[handle]}
+                  />
+                ))}
+                {dragging && drag.ids[0] === item.id && (
+                  <span className="pointer-events-none absolute -top-2 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white shadow">
+                    {drag.handle
+                      ? `${Math.round(preview.rects[0].w)} × ${Math.round(preview.rects[0].h)}`
+                      : `${Math.round(preview.rects[0].x)}, ${Math.round(preview.rects[0].y)}${
+                          drag.ids.length > 1 ? ` · ${drag.ids.length} widgets` : ''
+                        }`}
+                  </span>
+                )}
+              </>
+            )}
           </div>
         )
       })}

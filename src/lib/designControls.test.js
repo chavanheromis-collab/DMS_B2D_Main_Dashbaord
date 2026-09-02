@@ -76,36 +76,6 @@ test('the page draws its widgets on the columnless canvas', () => {
   assert.ok(!dashboard.includes('MasonryGrid'), 'and the column packer is gone')
 })
 
-test('the canvas packs into rows by the space each widget asked for', () => {
-  assert.ok(canvas.includes('packRowGroups(items, { canvasWidth: width, gapX, gapY, heights, fit, stacked })'))
-  assert.ok(canvas.includes('rowSlack(layout.rows, layout.positions, width, gapX)'))
-})
-
-test('a widget can be put in a row, and the rows are shown while arranging', () => {
-  assert.ok(bar.includes('onCommit={(raw) => onRow(raw)}'))
-  assert.ok(dashboard.includes("onRow={(v) => saveWidgetSize(widget.id, { row: v })}"))
-  assert.ok(dashboard.includes("if (key === 'row') {"), 'a row takes no pixel floor')
-  assert.ok(dashboard.includes('showRows={isAdmin && arranging}'))
-  assert.ok(canvas.includes('layout.rows.map((r) => ('))
-  assert.ok(canvas.includes('Row {r.row}'))
-})
-
-test('a widget can be told to cover several rows', () => {
-  assert.ok(bar.includes('onCommit={(raw) => onRowSpan?.(raw)}'))
-  assert.ok(dashboard.includes("onRowSpan={(v) => saveWidgetSize(widget.id, { rowSpan: v })}"))
-  assert.ok(dashboard.includes("if (key === 'rowSpan') {"), 'a count takes no pixel floor either')
-  assert.ok(dashboard.includes('rowSpan: widget.rowSpan'), 'and the canvas is told about it')
-})
-
-test('a spanning widget is drawn as tall as the rows it covers', () => {
-  // Otherwise "covers rows 2 to 4" would mean no more than "starts at row
-  // 2", and the room it reserved below itself would sit visibly empty.
-  assert.ok(canvas.includes('height: box.spanned || box.fitted ? box.height : undefined'))
-  assert.ok(canvas.includes("box.spanned || box.fitted ? 'widget-fit' : ''"))
-  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
-  assert.ok(css.includes('.widget-fit > * > .card'), 'and the card inside it fills that height')
-})
-
 test('a shrunk widget keeps its heading; only the body scrolls', () => {
   // The card is the scroll container, so the title, the count beside it and
   // the export button used to scroll away with the chart -- and a widget
@@ -164,60 +134,14 @@ test('the rule covers BOTH shapes a heading is written in', () => {
   assert.ok(css.includes(':is(.widget-title, *:has(.widget-title))'), 'so both are matched')
 })
 
-test('the pill says which rows a widget covers, not just where it starts', () => {
-  assert.ok(bar.includes('spans > 1 ?'))
-})
-
-test('space held by a span is shown as held while arranging', () => {
-  assert.ok(canvas.includes('(r.blocked || []).map('))
-})
-
-test('the canvas asks how the arrangement meets the screen it got', () => {
-  assert.ok(canvas.includes('const { fit, stacked } = useMemo(() => fitFor(items, width, gapX)'))
-})
-
-test('the pill shows what is DRAWN, not what was typed', () => {
-  // "It says the same size on every layout" was exactly this: it was
-  // reading the design back rather than the drawing.
-  assert.ok(bar.includes('const w = measured?.width || widthPx'))
-  assert.ok(bar.includes('const h = measured?.height || heightPx'))
-  assert.ok(bar.includes('const scale = Number(measured?.scale) > 0'))
-})
-
-test('a screen that is not the one this was arranged for says so', () => {
-  assert.ok(bar.includes('stacked</span>'))
-  assert.ok(bar.includes('{Math.round(scale * 100)}%'))
-  assert.ok(canvas.includes('scale: fit'))
-  assert.ok(canvas.includes('stacked,'))
-})
-
-test('filling the row types a DESIGN width, not a screen one', () => {
-  // The spare is measured on the glass; the W box is in design pixels, and
-  // on a scaled canvas those are different numbers.
-  assert.ok(bar.includes('spare / scale'))
-})
-
-test('nothing on the canvas is draggable', () => {
-  // Sizes are typed, in pixels: exact, repeatable, and the same on every
-  // screen, none of which is true of a mouse.
-  for (const gone of ['onPointerDown', 'setPointerCapture', 'draggable', 'resizeBox']) {
-    assert.ok(!canvas.includes(gone), `${gone} is still there`)
-  }
-})
-
-test('the canvas reports what it drew, including the room left on the row', () => {
-  assert.ok(canvas.includes('spare: slack[id] ?? 0'))
-  assert.ok(bar.includes('measured?.spare'))
-  assert.ok(bar.includes('const fillRow = ()'), 'and one click uses it up')
-})
-
-// --- one widget's own size and look --------------------------------------
-
-test('a widget is sized by typing a number of pixels, not by dragging', () => {
-  assert.ok(bar.includes('type="number"'))
-  assert.ok(bar.includes('onCommit={(raw) => onSize({ widthPx: raw })}'))
-  assert.ok(bar.includes('onCommit={(raw) => onSize({ heightPx: raw })}'))
-  assert.ok(dashboard.includes('async function saveWidgetSize(widgetId, patch)'))
+test('free mode leaves a widget own controls working', () => {
+  // A search box you cannot type in is not an arranged page, it is a
+  // broken one.
+  assert.ok(
+    canvas.includes(
+      'input, textarea, select, button, a, [contenteditable="true"]'
+    )
+  )
 })
 
 test('every widget can be restyled from the widget', () => {
@@ -262,35 +186,6 @@ test('clicking away or pressing Escape closes it', () => {
 })
 
 // --- what fits in the space left over ------------------------------------
-
-test('the empty space is drawn as a box with its size in it', () => {
-  // "There is room" is not the question anybody has while arranging; "there
-  // is room for 428 by 94" is.
-  assert.ok(canvas.includes('rowGaps(layout.rows, layout.positions, width, gapX, undefined, gapY)'))
-  assert.ok(canvas.includes('gaps.map((gap) => ('))
-  assert.ok(canvas.includes('border-dashed'))
-  // In the numbers the W box is in, which on a scaled canvas are not the
-  // ones on the glass -- the point of the box is that it tells you what to
-  // type, and a number you cannot type is worse than no number.
-  assert.ok(canvas.includes('{Math.round(gap.width / fit)} × {Math.round(gap.height / fit)}'))
-})
-
-test('the gaps are only drawn while arranging', () => {
-  assert.ok(canvas.includes('showRows && width > 0 ? rowGaps('))
-})
-
-test('the room under a short widget is offered too, not just the room beside it', () => {
-  // A widget half the height of the one beside it leaves a rectangle, and a
-  // rectangle that fits is not one anybody wants left empty -- as long as
-  // the rectangle is one TYPED heights guarantee rather than one today's
-  // data happens to leave.
-  const pack = read('lib/flowPack.js')
-  assert.ok(pack.includes('line.shelves.push('))
-  assert.ok(pack.includes('stacked: true'))
-  assert.ok(pack.includes('under: true'))
-})
-
-// --- controls are part of the page's design ------------------------------
 
 const controlBar = read('components/ControlBar.jsx')
 
@@ -341,14 +236,6 @@ test('every one of these is admin-only', () => {
 
 // --- each row sorts itself, and the header comes when it is called -------
 
-test('a widget can be placed within its row, not just in it', () => {
-  assert.ok(bar.includes('onCommit={(raw) => onRowOrder?.(raw)}'))
-  assert.ok(dashboard.includes("onRowOrder={(v) => saveWidgetSize(widget.id, { rowOrder: v })}"))
-  assert.ok(dashboard.includes("if (key === 'rowOrder') {"), 'a position takes no pixel floor')
-  assert.ok(dashboard.includes('rowOrder: widget.rowOrder'), 'and the canvas is told')
-  assert.ok(canvas.includes('${i.rowOrder ?? \'\'}'), 'a re-order re-measures')
-})
-
 test('the header can be reached from wherever you scrolled to', () => {
   // A dashboard is long and the controls that decide what it says are at
   // the top of it. Scrolling back loses the row you were reading.
@@ -371,4 +258,23 @@ test('scrolling back to the header puts the stand-in away', () => {
 test('the backdrop and the page-wide text are reachable from edit mode', () => {
   assert.ok(dashboard.includes('Background &amp; text'))
   assert.ok(dashboard.includes('setDesigning(true)'))
+})
+
+test('the pill shows what is DRAWN, not what was typed', () => {
+  // On a narrower screen the design and the drawing are different numbers,
+  // and the one on the glass is the one somebody is looking at.
+  assert.ok(bar.includes('const scale = Number(measured?.scale) > 0 ? Number(measured.scale) : 1'))
+  assert.ok(bar.includes('Math.round( (rect?.w ?? 0) * scale )'))
+})
+
+test('a screen that is not the one this was arranged for says so', () => {
+  // Rather than letting the numbers quietly look wrong.
+  assert.ok(bar.includes('const shrunk = scale < 0.995 || measured?.stacked'))
+  assert.ok(bar.includes('{Math.round(scale * 100)}%'))
+  assert.ok(bar.includes('stacked'))
+})
+
+test('the canvas reports what it actually drew', () => {
+  assert.ok(canvas.includes('measure.current(rect.id, rect.w, rect.h, {'))
+  assert.ok(canvas.includes('canvasWidth: Math.round(width)'))
 })

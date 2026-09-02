@@ -349,11 +349,14 @@ test('the form edits the widget as it is STORED, not as it is drawn', () => {
   assert.ok(!dashboard.includes('view.widgets.find((w) => w.id === editTarget.id)'))
 })
 
-test('the W box shows the width that is actually in force', () => {
-  // A pixel width is ignored unless the widget is in pixel mode, and a
-  // number that is being ignored has no business sitting in the box that
-  // sets it -- that is "it shows one thing and does another".
-  assert.ok(dashboard.includes("widthPx={widgetUsesPx(widget) ? widget.widthPx : ''}"))
+test('the size boxes show the size that is actually in force', () => {
+  // A number that is being ignored has no business sitting in the box that
+  // sets it -- that was "it shows one thing and does another". There is now
+  // one width per widget and no mode that can override it, so the box and
+  // the drawing cannot disagree.
+  assert.ok(dashboard.includes('rect={rects[widget.id]}'))
+  assert.ok(dashboard.includes('onRect={(part) => setRect(widget.id, part)}'))
+  assert.ok(!dashboard.includes('widgetUsesPx(widget) ? widget.widthPx'), 'no mode left to check')
 })
 
 test('in edit mode the widget itself is the way in', () => {

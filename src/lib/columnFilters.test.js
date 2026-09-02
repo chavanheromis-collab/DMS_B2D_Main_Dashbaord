@@ -19,7 +19,6 @@ import {
   widthUnitsFor,
   widthUnitsLabel,
 } from './config.js'
-import { drawnWidth, spanForItem, spanForPixels, spanForWidth } from './gridSpan.js'
 
 const rows = [
   { Model: 'SPLENDOR +', SKU: 'A1', Stock: '159' },
@@ -200,18 +199,6 @@ test('spans read back as fractions people recognise', () => {
   assert.equal(widthUnitsLabel(5), '5/12')
 })
 
-test('an exact span still goes full width on a phone', () => {
-  // A 2-unit widget held at 2 units on a 360px screen would be an
-  // unreadable sliver.
-  assert.equal(spanForWidth(null, 'lg', 3), 3)
-  assert.equal(spanForWidth(null, 'md', 3), 6)
-  assert.equal(spanForWidth(null, 'base', 3), 12)
-  // A widget already half the canvas doesn't double past full width.
-  assert.equal(spanForWidth(null, 'md', 8), 12)
-})
-
-// --- pixel widths -------------------------------------------------------
-
 test('pixel mode only applies when a real number is set', () => {
   assert.equal(widgetUsesPx({ widthMode: 'preset', widthPx: 400 }), false)
   assert.equal(widgetUsesPx({ widthMode: 'px' }), false, 'the mode alone is not a width')
@@ -227,60 +214,3 @@ test('a pixel width is clamped to something renderable', () => {
   assert.equal(widgetWidthPx({}), null)
 })
 
-test('a pixel width claims whole columns, rounding UP', () => {
-  // Rounding down would let the next widget be placed underneath and
-  // overlap: a widget 1.2 columns wide really does occupy two.
-  const colWidth = 100
-  const gap = 12
-  assert.equal(spanForPixels(100, colWidth, gap), 1)
-  assert.equal(spanForPixels(120, colWidth, gap), 2, '1.2 columns takes two')
-  assert.equal(spanForPixels(212, colWidth, gap), 2, 'exactly two columns plus the gap')
-  assert.equal(spanForPixels(223, colWidth, gap), 3)
-})
-
-test('a few pixels of overhang do not cost a whole column', () => {
-  // A widget three pixels past a boundary used to claim the entire next
-  // column: a hundred-pixel dead strip beside it, permanently unfillable,
-  // bought with three pixels nobody can see. Within the tolerance it is
-  // drawn a hair narrower instead -- much the smaller lie.
-  assert.equal(spanForPixels(213, 100, 12), 2, 'one pixel over is not another column')
-  assert.equal(spanForPixels(222, 100, 12), 2, 'still inside the tolerance')
-  assert.equal(spanForPixels(223, 100, 12), 3, 'past it, and the column is genuinely needed')
-})
-
-test('the tolerance can never cause an overlap', () => {
-  // Whatever it claims, it is drawn no wider -- so the neighbour's room
-  // stays the neighbour's.
-  const colWidth = 100
-  const gap = 12
-  for (const px of [120, 213, 222, 260, 412]) {
-    const span = spanForPixels(px, colWidth, gap)
-    const spanWidth = span * colWidth + (span - 1) * gap
-    assert.ok(
-      drawnWidth(px, { left: 0, containerWidth: 1332, spanWidth }) <= spanWidth,
-      `${px}px must not draw wider than the ${span} columns it claimed`
-    )
-  }
-})
-
-test('a pixel width never claims more than the whole canvas', () => {
-  assert.equal(spanForPixels(99999, 100, 12), 12)
-})
-
-test('before the container is measured, pixels fall back to the standard span', () => {
-  // Dividing by a zero column width would be NaN columns.
-  assert.equal(spanForPixels(400, 0, 12), null)
-  assert.equal(spanForItem({ widthPx: 400, width: 'quarter' }, 'lg', 0, 12), 3)
-})
-
-test('pixels beat the standard width once the container is known', () => {
-  assert.equal(spanForItem({ widthPx: 400, width: 'quarter' }, 'lg', 100, 12), 4)
-  // ...and a widget with no pixel width still uses its preset.
-  assert.equal(spanForItem({ width: 'quarter' }, 'lg', 100, 12), 3)
-})
-
-test('without an exact span the named presets behave as before', () => {
-  assert.equal(spanForWidth('quarter', 'lg'), 3)
-  assert.equal(spanForWidth('quarter', 'base'), 12)
-  assert.equal(spanForWidth('full', 'lg'), 12)
-})
