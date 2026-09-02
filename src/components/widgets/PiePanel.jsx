@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Sector } from 'recharts'
-import { DEFAULT_PIE_OPTIONS, PIE_PERCENT_BASES, REST_LABEL, labelledSlices, legendScrollStart, legendWindowSize, pieSlices, pieWindow, rollupNote, sliceLabel } from '../../lib/pieData.js'
+import { DEFAULT_PIE_OPTIONS, PIE_PERCENT_BASES, REST_LABEL, labelledSlices, legendScrollStart, legendWindowSize, listColumns, pieSlices, pieWindow, rollupNote, sliceLabel } from '../../lib/pieData.js'
 
 /**
  * A part-of-whole chart that survives real data.
@@ -68,6 +68,9 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
 
   const showLabels = widget.showLabels && widget.pieLabels !== 'none'
   const showLegend = widget.pieLegend !== false
+  // Which of the three columns the list draws. All three unless somebody
+  // has said otherwise -- see lib/pieData.js.
+  const listCols = listColumns(widget.pieListStyle)
   const labelStyle = widget.labelStyle || 'name_percent'
   const isRose = type === 'rose'
   const donut = type === 'donut'
@@ -154,6 +157,7 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
             // Scrolling lists EVERY category; rolling up lists the slices
             // that were drawn, which already include Other.
             slices={scrolling ? result.slices : slices}
+            columns={listCols}
             colorFor={colorFor}
             fmt={fmt}
             hover={hover}
@@ -294,6 +298,7 @@ const ROW_HEIGHT = 24
 
 function SliceList({
   slices,
+  columns,
   colorFor,
   fmt,
   hover,
@@ -350,15 +355,29 @@ function SliceList({
                   className="h-2.5 w-2.5 shrink-0 rounded-sm"
                   style={{ backgroundColor: slice.isOther ? '#cbd5e1' : colorFor(slice, i) }}
                 />
-                <span className={`min-w-0 flex-1 truncate text-[11px] ${slice.isOther ? 'italic text-slate-400' : 'text-slate-600'}`}>
-                  {slice.name}
-                </span>
-                <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-700">
-                  {fmt(slice.value)}
-                </span>
-                <span className="w-9 shrink-0 text-right text-[10px] tabular-nums text-slate-400">
-                  {(slice.percent * 100).toFixed(slice.percent < 0.1 ? 1 : 0)}%
-                </span>
+                {columns.name && (
+                  <span
+                    className={`min-w-0 flex-1 truncate text-[11px] ${
+                      slice.isOther ? 'italic text-slate-400' : 'text-slate-600'
+                    }`}
+                  >
+                    {slice.name}
+                  </span>
+                )}
+                {/* Without a name there is nothing to push the numbers over
+                    to the right, so the spacer takes its place -- otherwise
+                    a list of values alone huddles against the swatch. */}
+                {!columns.name && <span className="min-w-0 flex-1" />}
+                {columns.value && (
+                  <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-700">
+                    {fmt(slice.value)}
+                  </span>
+                )}
+                {columns.percent && (
+                  <span className="w-9 shrink-0 text-right text-[10px] tabular-nums text-slate-400">
+                    {(slice.percent * 100).toFixed(slice.percent < 0.1 ? 1 : 0)}%
+                  </span>
+                )}
               </button>
             </li>
           )

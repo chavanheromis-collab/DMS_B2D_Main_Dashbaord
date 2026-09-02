@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Copy, Maximize2, Paintbrush, Pencil, SlidersHorizontal, Trash2, X } from 'lucide-react'
+import { Copy, Paintbrush, Pencil, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import TypographyFields, { MarkTextFields } from './TypographyFields.jsx'
+import ChartVisualFields from './ChartVisualFields.jsx'
 import { hasChartText } from '../lib/typography'
 import { DEFAULT_WIDGET_STYLE, SHADOW_LEVELS, WIDGET_THEMES } from '../lib/widgetStyle'
 
@@ -434,6 +435,13 @@ function WidgetPaint({ title, style, onStyle, onClose, chartText = false }) {
             value={s.legendText}
             onChange={(v) => set({ legendText: v })}
           />
+          {/* The text is one decision and the DRAWING is another: the grid,
+              the axes, the TOOLTIP, how solid a bar is. These lived only in
+              the admin panel, so from the widget's own brush -- which is
+              where anybody looks first -- the tooltip could not be changed
+              at all. Same component the panel uses, so the two cannot
+              drift apart. */}
+          <ChartVisualFields value={s.chartVisuals} onChange={(v) => set({ chartVisuals: v })} />
         </div>
       )}
 

@@ -454,6 +454,36 @@ test('the admin picks what a slice label says', () => {
   assert.ok(panel.includes('options={PIE_LABEL_STYLES}'))
 })
 
+test('and the list beside it is told separately what to show', () => {
+  const panel = read('pages/admin/WidgetsPanel.jsx')
+  // Two different questions: what is written ON the circle, and what each
+  // row of the list beside it carries.
+  assert.ok(panel.includes('options={PIE_LIST_STYLES}'))
+  assert.ok(panel.includes("value={widget.pieListStyle || 'name_value_percent'}"))
+  // ...and writes back to the field it read from. The label picker sits
+  // directly above it and takes the same six values, so a picker wired to
+  // the wrong one would look like it worked and change the wrong thing.
+  assert.ok(panel.includes('onChange={(v) => set({ pieListStyle: v })}'))
+  const pie = read('components/widgets/PiePanel.jsx')
+  assert.ok(pie.includes('const listCols = listColumns(widget.pieListStyle)'))
+  assert.ok(pie.includes('columns={listCols}'))
+})
+
+test('the list picker is only offered when there is a list', () => {
+  const panel = read('pages/admin/WidgetsPanel.jsx')
+  assert.ok(panel.includes('{widget.pieLegend !== false && ('))
+})
+
+test('the generic legend switch is not offered where nothing reads it', () => {
+  const panel = read('pages/admin/WidgetsPanel.jsx')
+  // PiePanel reads `pieLegend` and nothing else, so on a pie the Legend
+  // toggle was a control that did nothing -- worse than a missing one,
+  // because somebody spends a minute proving it does nothing.
+  const pie = read('components/widgets/PiePanel.jsx')
+  assert.ok(!pie.includes('widget.showLegend'), 'the pie still ignores it')
+  assert.ok(panel.includes("{!['pie', 'donut', 'rose'].includes(widget.chartType || 'bar') && ("))
+})
+
 // --- a log axis, and a chart about proportions ---------------------------
 
 const chart = read('components/widgets/ChartWidget.jsx')

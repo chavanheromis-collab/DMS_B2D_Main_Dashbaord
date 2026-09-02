@@ -470,6 +470,19 @@ export function chartVisualClass(visuals) {
   return out.join(' ')
 }
 
+/**
+ * The tooltip's surface, before any of this is set.
+ *
+ * Recharts writes its own inline style on that element -- white, a grey
+ * border -- so a default has to be given inline too, or the first thing an
+ * admin sees is a tooltip that does not match anything else on the card.
+ * The `.cv-tooltip` CSS overrides it once there IS a setting.
+ *
+ * Exported because three chart files were carrying the same literal, which
+ * is two chances for the default to drift.
+ */
+export const TOOLTIP_SURFACE = { borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }
+
 // ---------------------------------------------------------------------
 // The two things CSS cannot reach
 // ---------------------------------------------------------------------

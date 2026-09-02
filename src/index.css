@@ -780,16 +780,21 @@ aside.fixed.right-0 {
 /* HTML rather than SVG, so this is ordinary styling. Recharts writes the
    surface as an inline style on the same element, which is why the
    background and border need the same override the fill labels do. */
-.cv-tooltip :where(.recharts-default-tooltip) {
+/* `.chart-tip` is a tooltip a widget drew for itself rather than letting
+   Recharts draw it -- the trend chart sorts its rows by value, which the
+   default cannot do. It is still a tooltip, so it answers to the tooltip
+   settings; without this it was the one tooltip on the page that ignored
+   them, which reads as the setting being broken. */
+.cv-tooltip :where(.recharts-default-tooltip, .chart-tip) {
   background-color: var(--chartv-tooltip-bg, #fff) !important;
   border: 1px solid var(--chartv-tooltip-border, #e2e8f0) !important;
   border-radius: var(--chartv-tooltip-radius, 10px) !important;
   color: var(--chartv-tooltip-text, inherit);
 }
-.cv-tooltip :where(.recharts-tooltip-label, .recharts-tooltip-item, .recharts-tooltip-item-name, .recharts-tooltip-item-value) {
+.cv-tooltip :where(.recharts-tooltip-label, .recharts-tooltip-item, .recharts-tooltip-item-name, .recharts-tooltip-item-value, .chart-tip-label, .chart-tip-item) {
   color: var(--chartv-tooltip-text, inherit) !important;
 }
-.cv-tooltip-size :where(.recharts-default-tooltip, .recharts-tooltip-label, .recharts-tooltip-item) {
+.cv-tooltip-size :where(.recharts-default-tooltip, .recharts-tooltip-label, .recharts-tooltip-item, .chart-tip, .chart-tip-label, .chart-tip-item) {
   font-size: var(--chartv-tooltip-size) !important;
 }
 /* The band that follows the pointer. Its default is a very pale grey that

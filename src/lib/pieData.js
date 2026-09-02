@@ -145,6 +145,48 @@ export const PIE_LABEL_STYLES = [
 ]
 
 /**
+ * What the category list beside the pie shows in each row.
+ *
+ * The same six the slice labels offer, plus all three together -- which is
+ * what the list has always drawn, and so has to remain sayable, or turning
+ * the option on for the first time would silently change every existing
+ * pie in the workspace.
+ */
+export const PIE_LIST_STYLES = [
+  { value: 'name_value_percent', label: 'Name, value and %' },
+  ...PIE_LABEL_STYLES,
+]
+
+/**
+ * Which of the three columns a list style asks for.
+ *
+ * Booleans rather than a string, because the list is a ROW of aligned
+ * columns and not a sentence: the values have to line up under each other
+ * down the list, which they cannot do if they arrive already joined
+ * together. `sliceLabel` next door builds the sentence for the pie itself.
+ */
+export function listColumns(style) {
+  switch (style) {
+    case 'name':
+      return { name: true, value: false, percent: false }
+    case 'value':
+      return { name: false, value: true, percent: false }
+    case 'percent':
+      return { name: false, value: false, percent: true }
+    case 'name_value':
+      return { name: true, value: true, percent: false }
+    case 'name_percent':
+      return { name: true, value: false, percent: true }
+    case 'value_percent':
+      return { name: false, value: true, percent: true }
+    case 'name_value_percent':
+    default:
+      // What the list drew before it was ever an option.
+      return { name: true, value: true, percent: true }
+  }
+}
+
+/**
  * A one-line description of what was rolled up, for the caption under the
  * chart. Silence about a roll-up is how a reader ends up trusting a picture
  * that is hiding a third of the data.

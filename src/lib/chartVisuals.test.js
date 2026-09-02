@@ -18,6 +18,7 @@ import {
   hasChartVisuals,
   mergeVisuals,
   resolveVisuals,
+  TOOLTIP_SURFACE,
 } from './chartVisuals.js'
 
 const classes = (v) => new Set(chartVisualClass(v).split(' ').filter(Boolean))
@@ -409,4 +410,66 @@ test('the preview is drawn by the same functions as the page', () => {
   for (const fn of ['chartVisualClass', 'chartVisualVars', 'barRadius', 'barGapProps', 'gridProps', 'fillLabelColor']) {
     assert.ok(fields.includes(fn), `the preview does not use ${fn}`)
   }
+})
+
+// ---------------------------------------------------------------------
+// A tooltip a widget drew for itself is still a tooltip
+// ---------------------------------------------------------------------
+
+test('the default surface is stated once, and both chart files use it', () => {
+  // The same literal was carried in two files, which is one chance for the
+  // default to drift and one tooltip that stops matching the others.
+  assert.deepEqual(TOOLTIP_SURFACE, { borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 })
+  for (const file of ['components/widgets/ChartWidget.jsx', 'components/widgets/ComparisonWidgets.jsx']) {
+    const src = read(file)
+    assert.ok(src.includes('TOOLTIP_SURFACE'), file)
+    assert.ok(!src.includes("border: '1px solid #e2e8f0', fontSize: 12"), `${file} still carries its own copy`)
+  }
+})
+
+test('the settings reach a hand-built tooltip too', () => {
+  // The trend chart draws its own, because it sorts rows by value and the
+  // default cannot. It was the one tooltip on the page that ignored every
+  // tooltip setting, which reads as the setting being broken.
+  const css = read('index.css')
+  assert.ok(css.includes('.cv-tooltip :where(.recharts-default-tooltip, .chart-tip)'))
+
+  // The COLOUR rule specifically. Looking for the class names anywhere in
+  // the file matched the size rule further down, so dropping them from the
+  // colour rule went unnoticed.
+  const colourRule = css.slice(css.indexOf('.cv-tooltip :where(.recharts-tooltip-label'))
+  assert.ok(colourRule.slice(0, 260).includes('.chart-tip-label, .chart-tip-item'))
+
+  // Recharts writes the surface as an inline style on that same element,
+  // so the override has to be `!important` or it never lands.
+  const surface = css.slice(css.indexOf('.cv-tooltip :where(.recharts-default-tooltip, .chart-tip)'))
+  for (const prop of ['background-color', 'border', 'border-radius']) {
+    const line = surface.split(/\r?\n/).find((l) => l.trim().startsWith(`${prop}:`))
+    assert.ok(line && line.includes('!important'), `${prop} must beat the inline style`)
+  }
+
+  const trend = read('components/widgets/AnalyticsWidgets.jsx')
+  assert.ok(trend.includes('className="chart-tip rounded-lg'))
+  assert.ok(trend.includes('className="chart-tip-label mb-1'))
+  // Every line of writing in it, not just one -- the name, the number, the
+  // total and the average are four separate elements.
+  assert.equal(trend.split('chart-tip-item').length - 1, 4, 'every row answers to the setting')
+})
+
+test('the size setting reaches it as well', () => {
+  const css = read('index.css')
+  const rule = css.slice(css.indexOf('.cv-tooltip-size'))
+  assert.ok(rule.slice(0, 200).includes('.chart-tip'))
+})
+
+test('the widget own brush can change how a chart is drawn', () => {
+  // These lived only in the admin panel, so from the brush on the widget --
+  // which is where anybody looks first -- the tooltip could not be changed
+  // at all, and the setting looked broken.
+  const bar = read('components/ArrangeBar.jsx')
+  assert.ok(bar.includes('<ChartVisualFields value={s.chartVisuals} onChange={(v) => set({ chartVisuals: v })} />'))
+  assert.ok(bar.includes("import ChartVisualFields from './ChartVisualFields.jsx'"))
+  // The same component the admin panel uses, so the two cannot drift.
+  const editor = read('pages/admin/StyleEditor.jsx')
+  assert.ok(editor.includes('<ChartVisualFields value={style.chartVisuals}'))
 })

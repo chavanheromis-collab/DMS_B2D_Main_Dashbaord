@@ -22,6 +22,7 @@ import { DEFAULT_PIE_OPTIONS, PIE_LABEL_STYLES, PIE_PERCENT_BASES } from '../../
 import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
 import { hasCustomStyle } from '../../lib/widgetStyle'
 import { COLOR_MODES, DEFAULT_REFERENCE, REFERENCE_KINDS, chartCaps, unsupportedNote } from '../../lib/chartOptions'
+import { PIE_LIST_STYLES } from '../../lib/pieData'
 import {
   BAND_KINDS,
   CUMULATIVE_MODES,
@@ -971,7 +972,14 @@ function ChartAdvanced({ widget, set }) {
           {caps.grid && (
             <Toggle checked={widget.showGrid !== false} onChange={(v) => set({ showGrid: v })} label="Grid lines" />
           )}
-          <Toggle checked={!!widget.showLegend} onChange={(v) => set({ showLegend: v })} label="Legend" />
+          {/* Not on a pie: there the category list beside the circle IS
+              the legend, and it has its own switch. This one is not wired
+              to anything in PiePanel, and a control that does nothing is
+              worse than a missing one -- somebody will spend a minute
+              proving it does nothing. */}
+          {!['pie', 'donut', 'rose'].includes(widget.chartType || 'bar') && (
+            <Toggle checked={!!widget.showLegend} onChange={(v) => set({ showLegend: v })} label="Legend" />
+          )}
         </div>
 
         {mode === 'rank' && (
@@ -1486,6 +1494,15 @@ function ChartEditor({ widget, cols, set }) {
               label="Show the category list beside it"
             />
           </div>
+          {widget.pieLegend !== false && (
+            <Field label="Each row shows" className="w-44">
+              <Select
+                value={widget.pieListStyle || 'name_value_percent'}
+                onChange={(v) => set({ pieListStyle: v })}
+                options={PIE_LIST_STYLES}
+              />
+            </Field>
+          )}
         </div>
 
         <div className="flex flex-wrap items-end gap-3 border-t border-slate-200/70 pt-2">

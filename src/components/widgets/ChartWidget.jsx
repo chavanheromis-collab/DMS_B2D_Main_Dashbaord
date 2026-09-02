@@ -35,7 +35,7 @@ import ExportButton from '../ExportButton.jsx'
 import PiePanel from './PiePanel.jsx'
 import { arrowRightPath, arrowUpPath, cylinderCapRadius, nestedCircles } from '../../lib/chartShapes.js'
 import { chartExtent, legendStyle } from '../../lib/chartScroll.js'
-import { autoFillLabels, barGapProps, barRadius, fillLabelColor, gridProps } from '../../lib/chartVisuals.js'
+import { autoFillLabels, barGapProps, barRadius, fillLabelColor, gridProps, TOOLTIP_SURFACE } from '../../lib/chartVisuals.js'
 import {
   axisTicks,
   chartCaps,
@@ -552,7 +552,7 @@ export default function ChartWidget({
   const showLegend = widget.showLegend === true
 
   const tooltipStyle = {
-    contentStyle: { borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 },
+    contentStyle: TOOLTIP_SURFACE,
     formatter: (v, key) =>
       key === 'cumulativePct' ? [pct(v), 'Cumulative'] : [fmt(v), widget.valueLabel || 'Value'],
   }

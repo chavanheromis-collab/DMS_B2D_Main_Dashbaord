@@ -459,8 +459,11 @@ function TrendTooltip({ active, payload, label, single, valueLabel, percentMode,
   const ma = payload.find((p) => String(p.dataKey).endsWith('__ma'))
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white/95 px-2 py-1.5 text-[11px] shadow-lg backdrop-blur">
-      <p className="mb-1 font-semibold text-slate-700">{label}</p>
+    // `chart-tip` is how the tooltip settings reach a tooltip a widget
+    // drew for itself -- see index.css. Without it this was the one
+    // tooltip on the page that ignored them.
+    <div className="chart-tip rounded-lg border border-slate-200 bg-white/95 px-2 py-1.5 text-[11px] shadow-lg backdrop-blur">
+      <p className="chart-tip-label mb-1 font-semibold text-slate-700">{label}</p>
       <ul className="space-y-0.5">
         {rows.map((row) => (
           <li key={row.key} className="flex items-center gap-2">
@@ -468,21 +471,21 @@ function TrendTooltip({ active, payload, label, single, valueLabel, percentMode,
               className="h-2 w-2 shrink-0 rounded-sm"
               style={{ backgroundColor: colorOf(row.key, order.indexOf(row.key)) }}
             />
-            <span className="min-w-0 flex-1 truncate text-slate-500">{row.name}</span>
-            <span className="shrink-0 font-semibold tabular-nums text-slate-800">
+            <span className="chart-tip-item min-w-0 flex-1 truncate text-slate-500">{row.name}</span>
+            <span className="chart-tip-item shrink-0 font-semibold tabular-nums text-slate-800">
               {percentMode ? `${row.value.toFixed(1)}%` : fmt(row.value)}
             </span>
           </li>
         ))}
       </ul>
       {!single && !percentMode && rows.length > 1 && (
-        <p className="mt-1 flex justify-between gap-3 border-t border-slate-100 pt-1 text-slate-500">
+        <p className="chart-tip-item mt-1 flex justify-between gap-3 border-t border-slate-100 pt-1 text-slate-500">
           <span>Total</span>
           <span className="font-bold tabular-nums text-slate-800">{fmt(total)}</span>
         </p>
       )}
       {ma?.value != null && (
-        <p className="mt-1 text-[10px] text-slate-400">Average {fmt(Number(ma.value))}</p>
+        <p className="chart-tip-item mt-1 text-[10px] text-slate-400">Average {fmt(Number(ma.value))}</p>
       )}
     </div>
   )

@@ -7,6 +7,9 @@ import {
   labelledSlices,
   legendScrollStart,
   legendWindowSize,
+  listColumns,
+  PIE_LABEL_STYLES,
+  PIE_LIST_STYLES,
   pieSlices,
   pieWindow,
   rollupNote,
@@ -275,4 +278,52 @@ test('the first row in view is worked out from the scroll', () => {
   assert.equal(legendScrollStart(0, 22), 0)
   assert.equal(legendScrollStart(44, 22), 2)
   assert.equal(legendScrollStart(50, 22), 2, 'the nearest row, not a fraction of one')
+})
+
+// ---------------------------------------------------------------------
+// What the category list beside the pie shows
+// ---------------------------------------------------------------------
+
+test('the list shows all three columns unless somebody has said otherwise', () => {
+  // What it has always drawn. Anything else here would silently change
+  // every pie in the workspace the day this option shipped.
+  assert.deepEqual(listColumns(undefined), { name: true, value: true, percent: true })
+  assert.deepEqual(listColumns('name_value_percent'), { name: true, value: true, percent: true })
+})
+
+test('and an unknown style falls back to all three rather than to nothing', () => {
+  // A row with no columns is an empty list, which reads as "no data".
+  assert.deepEqual(listColumns('nonsense'), { name: true, value: true, percent: true })
+})
+
+test('each style asks for exactly the columns it names', () => {
+  assert.deepEqual(listColumns('name'), { name: true, value: false, percent: false })
+  assert.deepEqual(listColumns('value'), { name: false, value: true, percent: false })
+  assert.deepEqual(listColumns('percent'), { name: false, value: false, percent: true })
+  assert.deepEqual(listColumns('name_value'), { name: true, value: true, percent: false })
+  assert.deepEqual(listColumns('name_percent'), { name: true, value: false, percent: true })
+  assert.deepEqual(listColumns('value_percent'), { name: false, value: true, percent: true })
+})
+
+test('every style offered is a style that resolves to something', () => {
+  // The dropdown and the resolver are two lists that have to agree, and
+  // the way they stop agreeing is somebody adding to one of them.
+  for (const { value } of PIE_LIST_STYLES) {
+    const cols = listColumns(value)
+    assert.ok(cols.name || cols.value || cols.percent, `${value} draws nothing`)
+  }
+})
+
+test('the list offers everything the slice labels do, and all three besides', () => {
+  const labels = PIE_LABEL_STYLES.map((o) => o.value)
+  const list = PIE_LIST_STYLES.map((o) => o.value)
+  for (const value of labels) assert.ok(list.includes(value), value)
+  assert.ok(list.includes('name_value_percent'))
+  assert.equal(list.length, labels.length + 1)
+})
+
+test('the option the list defaults to is the first one offered', () => {
+  // The default has to be reachable by picking it, or somebody who changes
+  // their mind cannot get back to it.
+  assert.equal(PIE_LIST_STYLES[0].value, 'name_value_percent')
 })

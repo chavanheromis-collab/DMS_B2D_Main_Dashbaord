@@ -20,9 +20,10 @@ import { HEAT_SCALES, PALETTE } from '../../lib/config'
 import { seriesColor } from '../../lib/seriesData.js'
 import { buildRoster, needsRoster } from '../../lib/valueColors.js'
 import { chartExtent, legendStyle } from '../../lib/chartScroll.js'
-import { barGapProps, barRadius, gridProps } from '../../lib/chartVisuals.js'
+import { barGapProps, barRadius, gridProps, TOOLTIP_SURFACE } from '../../lib/chartVisuals.js'
 
-const tooltipBox = { borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }
+// The one place this default is stated -- see lib/chartVisuals.js.
+const tooltipBox = TOOLTIP_SURFACE
 
 /**
  * The category a chart click landed on.
