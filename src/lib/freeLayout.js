@@ -537,6 +537,55 @@ export function stacked(layout, canvasWidth, { gap = 12 } = {}) {
 }
 
 // ---------------------------------------------------------------------
+// Widgets that stay put while the page scrolls
+// ---------------------------------------------------------------------
+// A KPI row or a filter card is read WHILE looking at the table underneath
+// it. Scrolling to the bottom of four thousand rows and losing the numbers
+// that say what you are looking at is the whole problem.
+//
+// Not CSS `position: sticky`: that needs an element in normal flow, and
+// every widget on this canvas is absolutely positioned. So the widget stays
+// exactly where it is and is nudged down by however far the page has
+// scrolled past it -- which lands it in the same place sticky would, while
+// leaving it a full member of the canvas. It keeps its z-order, its drag
+// handles and its place in the arrangement, none of which survive being
+// taken out to `position: fixed`.
+
+/** Has the admin pinned this widget? */
+export function isPinned(item) {
+  return item?.pinned === true || item?.pinned === 'true'
+}
+
+/**
+ * How far to nudge the pinned widgets so they hold their place.
+ *
+ * ONE number for ALL of them, worked out from the box that contains the
+ * lot -- see `boundsOf`. Nudging each by its own amount was the first
+ * version and it was wrong: every pinned widget stuck to the top of the
+ * screen independently, so three KPI cards laid out one below another all
+ * converged on the same line and drew on top of each other. Pinning several
+ * widgets means keeping the ARRANGEMENT of them on screen, not stacking
+ * them in a pile.
+ *
+ * Zero until the page has scrolled past the top of that box -- pinned
+ * widgets behave like any others until they would leave the screen, which
+ * is what makes them feel pinned rather than detached.
+ *
+ * `limit` is how far down the canvas goes. Without it the group rides the
+ * scroll for ever and ends up hanging below the page it belongs to.
+ */
+export function pinnedShift(box, { scrollY = 0, stageTop = 0, inset = 0, limit = null } = {}) {
+  if (!box) return 0
+  const past = scrollY + inset - (stageTop + box.top)
+  if (!(past > 0)) return 0
+  if (limit === null) return Math.round(past)
+  // The furthest it may travel before its own bottom edge would leave the
+  // canvas.
+  const room = Math.max(0, limit - box.top - box.height)
+  return Math.round(Math.min(past, room))
+}
+
+// ---------------------------------------------------------------------
 // Arriving from the engine this replaced
 // ---------------------------------------------------------------------
 

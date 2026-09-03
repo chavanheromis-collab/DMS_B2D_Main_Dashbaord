@@ -12,6 +12,7 @@ import {
   edgesOf,
   freeSpot,
   HANDLES,
+  isPinned,
   isPlaced,
   MAGNET,
   drawnWidth,
@@ -22,6 +23,7 @@ import {
   moveBy,
   moveMany,
   patchOf,
+  pinnedShift,
   placeAll,
   rectOf,
   resizeBy,
@@ -591,6 +593,90 @@ test('a phone stack has nothing on top of anything else', () => {
 })
 
 // ---------------------------------------------------------------------
+// Widgets that stay put while the page scrolls
+// ---------------------------------------------------------------------
+
+test('a widget is only pinned when the admin said so', () => {
+  assert.equal(isPinned({ id: 'a' }), false)
+  assert.equal(isPinned({ id: 'a', pinned: false }), false)
+  assert.equal(isPinned({ id: 'a', pinned: true }), true)
+  // Everything on this page saves through the same box-and-string path.
+  assert.equal(isPinned({ id: 'a', pinned: 'true' }), true)
+  assert.equal(isPinned(undefined), false)
+  // ...which is exactly why "truthy" is the wrong test: the STRING "false"
+  // is truthy, and a setting saved that way would pin the widget while the
+  // control that wrote it showed off.
+  assert.equal(isPinned({ id: 'a', pinned: 'false' }), false)
+  assert.equal(isPinned({ id: 'a', pinned: 'no' }), false)
+  assert.equal(isPinned({ id: 'a', pinned: 1 }), false)
+})
+
+const drawn = { left: 0, top: 200, width: 400, height: 100 }
+
+test('a pinned widget does not move until the page scrolls past it', () => {
+  // What makes it feel pinned rather than detached: it behaves like any
+  // other widget right up until it would leave the top of the screen.
+  assert.equal(pinnedShift(drawn, { scrollY: 0, stageTop: 60 }), 0)
+  assert.equal(pinnedShift(drawn, { scrollY: 260, stageTop: 60 }), 0, 'exactly level is not past')
+})
+
+test('and then it holds its place, however far the page goes', () => {
+  assert.equal(pinnedShift(drawn, { scrollY: 400, stageTop: 60 }), 140)
+  assert.equal(pinnedShift(drawn, { scrollY: 900, stageTop: 60 }), 640)
+})
+
+test('an inset holds it below whatever sits above the canvas', () => {
+  // A page header the widget would otherwise slide under.
+  assert.equal(pinnedShift(drawn, { scrollY: 400, stageTop: 60, inset: 50 }), 190)
+})
+
+test('it never rides the scroll off the bottom of its own canvas', () => {
+  // Without a limit a pinned widget follows the scroll for ever and ends
+  // up hanging below the page it belongs to.
+  assert.equal(pinnedShift(drawn, { scrollY: 9999, stageTop: 0, limit: 1000 }), 700)
+  assert.equal(pinnedShift(drawn, { scrollY: 9999, stageTop: 0, limit: 250 }), 0, 'a canvas with no room')
+})
+
+test('a widget with no box is not nudged anywhere', () => {
+  assert.equal(pinnedShift(null, { scrollY: 400 }), 0)
+})
+
+test('several pinned widgets keep their arrangement instead of piling up', () => {
+  // The bug this replaced: each stuck to the top of the screen on its own,
+  // so three KPI cards laid out one below another all converged on the same
+  // line and drew over each other. Pinning several means keeping the
+  // ARRANGEMENT of them on screen.
+  const cards = [
+    { id: 'a', x: 0, y: 100, w: 200, h: 60 },
+    { id: 'b', x: 0, y: 180, w: 200, h: 60 },
+    { id: 'c', x: 0, y: 260, w: 200, h: 60 },
+  ]
+  const group = boundsOf(cards)
+  const shift = pinnedShift(toPixels(group, { x: 1, y: 1 }), { scrollY: 500, stageTop: 0 })
+
+  // One number, applied to all of them -- so the gaps between them are the
+  // gaps they were arranged with.
+  const after = cards.map((c) => ({ ...c, y: c.y + shift }))
+  assert.equal(after[1].y - after[0].y, 80)
+  assert.equal(after[2].y - after[1].y, 80)
+  // ...and the topmost has been brought to where the scroll has reached.
+  assert.equal(after[0].y, 500)
+})
+
+test('and the group does not move until the scroll reaches the FIRST of them', () => {
+  // Taken from the box that contains the lot: if it were measured from the
+  // lowest widget the group would jump the moment the scroll passed the
+  // top one.
+  const group = boundsOf([
+    { id: 'a', x: 0, y: 100, w: 200, h: 60 },
+    { id: 'b', x: 0, y: 400, w: 200, h: 60 },
+  ])
+  const px = toPixels(group, { x: 1, y: 1 })
+  assert.equal(pinnedShift(px, { scrollY: 50, stageTop: 0 }), 0)
+  assert.equal(pinnedShift(px, { scrollY: 300, stageTop: 0 }), 200)
+})
+
+// ---------------------------------------------------------------------
 // Arriving from the engine this replaced
 // ---------------------------------------------------------------------
 
@@ -887,4 +973,65 @@ test('the band is drawn against the stage, which is what it is drawn on', () => 
   // a band read straight off the screen would catch the wrong widgets.
   assert.ok(canvas.includes('x: (event.clientX - host.left) / scale.x'))
   assert.ok(canvas.includes('y: (event.clientY - host.top) / scale.y'))
+})
+
+// ---------------------------------------------------------------------
+// Wiring: staying put
+// ---------------------------------------------------------------------
+
+test('a pinned widget is nudged, not repositioned', () => {
+  // A transform costs no layout and leaves `top` saying where the widget
+  // actually belongs -- which is what the arrange boxes read back.
+  const canvas = canvasSrc()
+  assert.ok(canvas.includes('transform: held > 0 ? `translateY(${held}px)` : undefined'))
+  assert.ok(canvas.includes('zIndex: held > 0 ? 20 : undefined'), 'and drawn above what slides under it')
+})
+
+test('...and only for a reader, never while the canvas is being arranged', () => {
+  // It would slide out from under the hand trying to move it.
+  const canvas = canvasSrc()
+  assert.ok(canvas.includes('if (pinnedIds.size === 0 || free || phone || width <= 0) return 0'))
+})
+
+test('it cannot ride the scroll off the bottom of its own canvas', () => {
+  const canvas = canvasSrc()
+  assert.ok(canvas.includes('limit: canvasHeight(shown, scale)'))
+})
+
+test('a page with nothing pinned listens to no scroll at all', () => {
+  // A scroll handler that never changes anything is still a scroll handler
+  // running on every frame of every scroll.
+  const canvas = canvasSrc()
+  assert.ok(canvas.includes('if (pinnedIds.size === 0) return undefined'))
+  assert.ok(canvas.includes("window.addEventListener('scroll', read, { passive: true })"))
+  assert.ok(canvas.includes("window.removeEventListener('scroll', read)"))
+})
+
+test('the admin turns it on, and only the admin', () => {
+  const bar = barSrc()
+  assert.ok(bar.includes('onClick={() => onPinned(!pinned)}'))
+  const dash = dashSrc()
+  assert.ok(dash.includes('pinned={widget.pinned === true}'))
+  assert.ok(dash.includes('onPinned={ isAdmin ?'))
+  assert.ok(dash.includes('pinned: widget.pinned,'), 'and the canvas is told')
+})
+
+test('a widget that will behave differently for a reader says so while arranging', () => {
+  const canvas = canvasSrc()
+  assert.ok(canvas.includes('stays put'))
+  const bar = barSrc()
+  assert.ok(bar.includes('{pinned && <Pin size={9}'), 'and on the closed pill')
+})
+
+test('the whole pinned group is nudged by one number, not each widget by its own', () => {
+  const canvas = canvasSrc()
+  assert.ok(canvas.includes('const group = boundsOf(shown.filter((rect) => pinnedIds.has(rect.id)))'))
+  // The scroll and the canvas top, unaltered. A stray offset here would
+  // make the group jump early or late, and nothing else would notice.
+  assert.ok(canvas.includes('scrollY: scroll.y,'))
+  assert.ok(canvas.includes('stageTop: scroll.stageTop,'))
+  assert.ok(canvas.includes('limit: canvasHeight(shown, scale),'))
+  assert.ok(canvas.includes('const held = isPinned(item) ? pinShift : 0'))
+  // Worked out once, outside the loop that draws the widgets.
+  assert.equal(canvas.split('pinnedShift(').length, 2, 'exactly one place computes it')
 })

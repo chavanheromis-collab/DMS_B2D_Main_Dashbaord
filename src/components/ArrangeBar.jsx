@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Copy, Paintbrush, Pencil, SlidersHorizontal, Trash2, X } from 'lucide-react'
+import { Copy, Paintbrush, Pencil, Pin, PinOff, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import TypographyFields, { MarkTextFields } from './TypographyFields.jsx'
 import ChartVisualFields from './ChartVisualFields.jsx'
 import { hasChartText } from '../lib/typography'
@@ -150,6 +150,10 @@ export default function ArrangeBar({
   // them and dragging to them are the same act. See lib/freeLayout.js.
   rect,
   onRect,
+  // Whether this widget holds its place while the page scrolls under it --
+  // a layout behaviour, not a look, so it belongs beside the numbers.
+  pinned = false,
+  onPinned,
   widgetType,
   style,
   measured,
@@ -219,6 +223,7 @@ export default function ArrangeBar({
         <span className="rounded bg-slate-100 px-1 text-[9px] font-semibold text-slate-500">
           {Math.round(rect?.x ?? 0)}, {Math.round(rect?.y ?? 0)}
         </span>
+        {pinned && <Pin size={9} className="shrink-0 text-indigo-500" />}
         {w && h ? (
           <span className="opacity-70">
             {Math.round(w)}×{Math.round(h)}
@@ -293,6 +298,26 @@ export default function ArrangeBar({
           title={`How tall ${title} is`}
         />
       </Group>
+
+      {/* Stays put while the page scrolls. A KPI row or a filter card is
+          read WHILE looking at the table underneath it, and scrolling to
+          the bottom of four thousand rows and losing the numbers that say
+          what you are looking at is the whole problem. */}
+      {onPinned && (
+        <button
+          onClick={() => onPinned(!pinned)}
+          className={`rounded p-0.5 transition-colors ${
+            pinned ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'
+          }`}
+          title={
+            pinned
+              ? `${title} stays in place while the page scrolls — click to let it scroll away`
+              : `Keep ${title} in place while the page scrolls`
+          }
+        >
+          {pinned ? <Pin size={12} /> : <PinOff size={12} />}
+        </button>
+      )}
 
       {onEdit && (
         <button

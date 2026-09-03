@@ -6,10 +6,12 @@ import {
   DESIGN_WIDTH,
   drawnWidth,
   HANDLES,
+  isPinned,
   marquee,
   MIN_H,
   MIN_W,
   moveMany,
+  pinnedShift,
   placeAll,
   resizeBy,
   scaleFor,
@@ -102,6 +104,38 @@ export default function WidgetCanvas({
   const stored = useMemo(() => placeAll(items, { gap: gapY }), [items, gapY])
 
   const phone = width > 0 && width < STACK_BELOW
+  // ---------------------------------------------------------------------
+  // Widgets that stay put while the page scrolls
+  // ---------------------------------------------------------------------
+
+  const pinnedIds = useMemo(
+    () => new Set((items || []).filter(isPinned).map((item) => item.id)),
+    [items]
+  )
+
+  // How far the page has scrolled, and where this canvas starts in it.
+  // Both are needed to work out how far a pinned widget has been passed.
+  const [scroll, setScroll] = useState({ y: 0, stageTop: 0 })
+
+  useEffect(() => {
+    // No listener at all on a page with nothing pinned, which is most of
+    // them -- a scroll handler that never changes anything is still a
+    // scroll handler running on every frame of every scroll.
+    if (pinnedIds.size === 0) return undefined
+    const read = () => {
+      const el = stageRef.current
+      const top = el ? el.getBoundingClientRect().top + window.scrollY : 0
+      setScroll((prev) => (prev.y === window.scrollY && prev.stageTop === top ? prev : { y: window.scrollY, stageTop: top }))
+    }
+    read()
+    window.addEventListener('scroll', read, { passive: true })
+    window.addEventListener('resize', read)
+    return () => {
+      window.removeEventListener('scroll', read)
+      window.removeEventListener('resize', read)
+    }
+  }, [pinnedIds])
+
   // Two numbers, one per direction -- see lib/freeLayout.js. A stacked
   // phone is already drawn at the width it has, so it needs no scaling.
   const scale = phone ? { x: 1, y: 1 } : scaleFor(width)
@@ -173,6 +207,22 @@ export default function WidgetCanvas({
     }
     return moveMany(chosen, dx, dy, others, { loose: drag.loose })
   }, [drag, free, far, shown, scale])
+
+  // How far the pinned widgets have to travel to hold their place. ONE
+  // number for all of them, taken from the box that contains the lot --
+  // nudging each by its own amount makes every one stick to the top of the
+  // screen independently, and three cards laid out one below another end up
+  // drawn on top of each other.
+  const pinShift = useMemo(() => {
+    if (pinnedIds.size === 0 || free || phone || width <= 0) return 0
+    const group = boundsOf(shown.filter((rect) => pinnedIds.has(rect.id)))
+    if (!group) return 0
+    return pinnedShift(toPixels(group, scale), {
+      scrollY: scroll.y,
+      stageTop: scroll.stageTop,
+      limit: canvasHeight(shown, scale),
+    })
+  }, [pinnedIds, free, phone, width, shown, scale, scroll])
 
   const boxes = useMemo(() => {
     const out = {}
@@ -429,6 +479,11 @@ export default function WidgetCanvas({
         }
         const dragging = preview && drag?.ids.includes(item.id)
         const chosen = selection.has(item.id) || banding?.has(item.id)
+
+        // A pinned widget holds its place while the rest of the page
+        // scrolls under it. The shift is the GROUP's, so several pinned
+        // widgets keep their arrangement instead of piling up.
+        const held = isPinned(item) ? pinShift : 0
         return (
           <div
             key={item.id}
@@ -439,14 +494,33 @@ export default function WidgetCanvas({
                 : 'transition-[top,left,width,height] duration-150 ease-out'
             } ${free && !phone ? 'group/free cursor-grab' : ''} ${
               dragging && !drag.handle ? 'cursor-grabbing' : ''
-            } ${chosen ? 'widget-chosen' : ''}`}
-            style={{ ...box, minWidth: MIN_W * scale.x, minHeight: MIN_H * scale.y }}
+            } ${chosen ? 'widget-chosen' : ''} ${held > 0 ? 'widget-pinned' : ''}`}
+            style={{
+              ...box,
+              minWidth: MIN_W * scale.x,
+              minHeight: MIN_H * scale.y,
+              // Nudged rather than repositioned: a transform costs no layout
+              // and leaves `top` saying where the widget actually belongs.
+              transform: held > 0 ? `translateY(${held}px)` : undefined,
+              // Above whatever is sliding underneath it. Not above the drag
+              // chrome, which is z-30 and has to stay reachable.
+              zIndex: held > 0 ? 20 : undefined,
+            }}
           >
             {item.content}
 
             {/* Eight handles, ON the widget rather than inside it, so no
                 widget has to know they exist. Not on a phone, where the
                 arrangement is not what is being drawn. */}
+            {/* Said out loud while arranging, because a widget that will
+                behave differently for a reader than it does here is one
+                nobody would guess at. */}
+            {free && !phone && isPinned(item) && (
+              <span className="pointer-events-none absolute -top-2 right-1 z-20 rounded bg-slate-700 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow">
+                stays put
+              </span>
+            )}
+
             {free && !phone && selection.size <= 1 && (
               <>
                 {HANDLES.map((handle) => (

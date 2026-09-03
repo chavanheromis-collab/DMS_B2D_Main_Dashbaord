@@ -83,10 +83,17 @@ body {
    an error message stays red and legible instead of vanishing into the card.
    `:where()` contributes no specificity, so this wins on the strength of
    `.card-invert .card` alone and never fights a widget's inline style. */
-.card-invert .card :where(.text-ink, .text-slate-900, .text-slate-800, .text-slate-700, .text-slate-600) {
+/* `:not(.card-ink)` is what makes the inversion a DEFAULT rather than a
+   decree. `.card-invert .card` is two classes and `.card-ink` is one, so
+   without it the dark theme's grey beat every colour an admin chose -- and
+   since almost every theme is dark, "the text colour does nothing" was true
+   of almost every widget. An automatic choice must lose to a deliberate
+   one. */
+.card-invert:not(.card-ink) .card
+  :where(.text-ink, .text-slate-900, .text-slate-800, .text-slate-700, .text-slate-600, .widget-title) {
   color: #e2e8f0;
 }
-.card-invert .card :where(.text-slate-500, .text-slate-400, .text-slate-300) {
+.card-invert:not(.card-muted) .card :where(.text-slate-500, .text-slate-400, .text-slate-300) {
   color: #94a3b8;
 }
 .card-invert .card :where(.border-slate-100, .border-slate-200) {
@@ -378,7 +385,12 @@ aside.fixed.right-0 {
   align-items: center;
   gap: 0.375rem;
   font-weight: 600;
-  color: #1e293b;
+  /* The chosen colour, or the near-black it always was. A heading is the
+     one piece of text on a card that carries its own class rather than a
+     Tailwind grey, so the remap that catches everything else (`.card-ink`,
+     see below) never reached it -- the heading was the only text on the
+     card that ignored the colour picker. */
+  color: var(--card-text, #1e293b);
   letter-spacing: -0.012em;
 }
 
@@ -526,6 +538,23 @@ aside.fixed.right-0 {
 }
 .card-weight :where(.font-semibold, .font-medium, .font-bold) {
   font-weight: var(--card-weight);
+}
+
+/* A chart is drawn in SVG, so its writing takes `fill` and not `color` --
+   which meant setting the widget's text colour changed everything on the
+   card EXCEPT the axis labels, and having to say it twice reads as it not
+   working at all.
+
+   This is the fallback, not the rule: `.chart-ink` is declared further down
+   and wins on source order, so a chart told its own colour keeps it. */
+.card-ink :where(
+    .recharts-cartesian-axis-tick-value,
+    .recharts-polar-angle-axis-tick-value,
+    .recharts-polar-radius-axis-tick-value,
+    .recharts-pie-label-text,
+    .recharts-label:not(.label-on-fill)
+  ) {
+  fill: var(--card-text);
 }
 
 /* The ones that simply inherit. On the WRAPPER rather than on `.card`, so a
@@ -843,6 +872,15 @@ aside.fixed.right-0 {
   height: auto;
   min-height: 0;
   overflow: auto;
+}
+
+/* A widget holding its place while the page scrolls under it. The shadow
+ * is the whole signal: without it a pinned widget and the widgets sliding
+ * beneath it are drawn on the same plane, and the page looks broken rather
+ * than pinned. */
+.widget-pinned > * > .card,
+.widget-pinned > .card {
+  box-shadow: 0 10px 28px -12px rgb(15 23 42 / 0.35);
 }
 
 /* A widget that is currently chosen, so a gesture will move it.

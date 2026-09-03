@@ -284,8 +284,16 @@ test('light text reaches the words inside a card, not just the surface', () => {
   // Which is the half that only works because the outer element IS a
   // `.card` -- the rules are scoped to `.card-invert .card :where(…)`.
   const css = fs.readFileSync(path.join(ROOT, 'src/index.css'), 'utf8')
-  assert.ok(css.includes('.card-invert .card :where(.text-ink, .text-slate-900'))
-  assert.ok(css.includes('.card-invert .card :where(.text-slate-500'))
+  // `:not(.card-ink)` because the inversion is a DEFAULT: it dresses the
+  // text a dark card would otherwise make unreadable, and stands aside for
+  // a colour the admin actually chose.
+  const flat = css.replace(/\s+/g, ' ')
+  assert.ok(flat.includes('.card-invert:not(.card-ink) .card :where(.text-ink, .text-slate-900'))
+  assert.ok(flat.includes('.card-invert:not(.card-muted) .card :where(.text-slate-500'))
+  // The heading too. It carries its own class rather than a Tailwind grey,
+  // so it is the one piece of text on a card the remap does not reach by
+  // accident -- and on a dark card it was near-black on near-black.
+  assert.ok(flat.includes('.text-slate-600, .widget-title)'))
 })
 
 // ---------------------------------------------------------------------

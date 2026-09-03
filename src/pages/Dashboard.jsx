@@ -1535,6 +1535,9 @@ export default function Dashboard() {
                   boxY: widget.boxY,
                   boxW: widget.boxW,
                   boxH: widget.boxH,
+                  // Whether it holds its place while the page scrolls. The
+                  // canvas is what draws it, so the canvas has to be told.
+                  pinned: widget.pinned,
                   // Only used until a widget has a rectangle of its own: a
                   // better first guess than a flat default, so a page being
                   // placed for the first time is roughly right immediately.
@@ -1636,6 +1639,17 @@ export default function Dashboard() {
                           // who would rather type them. See lib/freeLayout.js.
                           rect={rects[widget.id]}
                           onRect={(part) => setRect(widget.id, part)}
+                          pinned={widget.pinned === true}
+                          onPinned={
+                            isAdmin
+                              ? (on) =>
+                                  writeWidgets(
+                                    atLevel((list) =>
+                                      list.map((w) => (w.id === widget.id ? { ...w, pinned: on } : w))
+                                    )
+                                  )
+                              : undefined
+                          }
                           style={widget.style}
                           measured={sizes[widget.id]}
                           onStyle={isAdmin ? (next) => saveWidgetStyle(widget.id, next) : undefined}

@@ -170,7 +170,11 @@ test('ONLY the neutral greys are remapped', () => {
   // An error stays rose and a KPI keeps its accent. Choosing a text colour
   // is not a request for your errors to become invisible.
   const rules = css.match(/\.card-(ink|muted|weight) :where\([^)]*\)/g) || []
-  assert.equal(rules.length, 3)
+  // Four: the ink, the muted, the weight, and the chart's axis text, which
+  // takes the widget's colour when the chart has not been given its own.
+  // The count is the canary -- a fifth would mean somebody swept another
+  // set of classes in, and this is where they should have to say so.
+  assert.equal(rules.length, 4)
   for (const rule of rules) {
     assert.ok(!/rose|emerald|amber|indigo|red|green/.test(rule), rule)
   }
@@ -379,4 +383,58 @@ test('every custom property this app emits is read by something', () => {
   const consumers = [css, read('components/widgets/FilterPanelWidget.jsx')].join('\n')
   const unread = [...emitted].filter((p) => !consumers.includes(`var(${p}`) && !p.startsWith('--page-gap'))
   assert.deepEqual(unread, [])
+})
+
+// ---------------------------------------------------------------------
+// A colour somebody chose beats one the theme chose for them
+// ---------------------------------------------------------------------
+
+test('a dark theme does not overrule a text colour the admin picked', () => {
+  // This was the whole of "the text colour does nothing": almost every
+  // theme sets `invert`, `.card-invert .card` is two classes to
+  // `.card-ink`'s one, and so the theme's grey won every time.
+  const css = read('index.css')
+  assert.ok(css.includes('.card-invert:not(.card-ink) .card :where(.text-ink'))
+  assert.ok(css.includes('.card-invert:not(.card-muted) .card :where(.text-slate-500'))
+  // ...and the plain form is gone, or it would go on winning.
+  assert.ok(!css.includes('.card-invert .card :where(.text-ink'))
+  assert.ok(!css.includes('.card-invert .card :where(.text-slate-500'))
+})
+
+test('both classes are on the same element, or the :not could never fire', () => {
+  const both = styleClass({ theme: 'ocean', text: '#ff0000' })
+  assert.ok(both.includes('card-invert'))
+  assert.ok(both.includes('card-ink'))
+})
+
+test('the widget text colour reaches the chart as well', () => {
+  // A chart is SVG, so its writing takes `fill` and not `color`. Setting
+  // the text colour used to change everything on the card except the axis
+  // labels, and having to say it twice reads as it not working.
+  // `read` collapses whitespace, so the multi-line selector arrives on one
+  // line -- which is the shape to match against.
+  const flat = read('index.css')
+  const at = flat.indexOf('.card-ink :where( .recharts-cartesian-axis-tick-value')
+  assert.ok(at > 0, 'the widget colour is offered to the chart')
+  assert.ok(flat.slice(at, at + 400).includes('fill: var(--card-text)'))
+  // A fallback, not the rule: the chart's own colour is declared further
+  // down and wins on source order.
+  assert.ok(flat.indexOf('.chart-ink :where(') > at, 'the chart own colour still wins')
+})
+
+test('a widget heading follows the chosen text colour', () => {
+  // The heading carries its own class rather than a Tailwind grey, so the
+  // remap that catches every other piece of text on the card never reached
+  // it: the title was the one thing the colour picker did not move.
+  const flat = read('index.css')
+  const at = flat.indexOf('.widget-title { ')
+  assert.ok(at > 0)
+  assert.ok(flat.slice(at, at + 300).includes('color: var(--card-text, #1e293b)'))
+})
+
+test('...and is legible on a dark card that has no chosen colour', () => {
+  // Near-black on near-black was what it did before, which is what made
+  // the chart headings in a dark theme almost invisible.
+  const flat = read('index.css')
+  assert.ok(flat.includes('.text-slate-600, .widget-title) { color: #e2e8f0'))
 })
