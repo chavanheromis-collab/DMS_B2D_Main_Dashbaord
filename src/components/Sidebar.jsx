@@ -38,6 +38,12 @@ export const SIDEBAR_RAIL = 64
 export default function Sidebar({
   pages,
   activePageId,
+  // The account's other dashboards, if this person can open more than one.
+  // A whole dashboard -- its pages, its sheets, its entrance -- rather than
+  // a folder of pages; see lib/spaces.js.
+  spaces = [],
+  spaceId,
+  onSpace,
   collapsed,
   onToggleCollapsed,
   mobileOpen,
@@ -115,7 +121,9 @@ export default function Sidebar({
         </div>
         {!collapsed && (
           <>
-            <span className="truncate text-sm font-semibold text-ink">Dashboards</span>
+            <span className="truncate text-sm font-semibold text-ink">
+              {spaces.find((s) => s.id === spaceId)?.name || 'Dashboards'}
+            </span>
             {/* While peeking, this button is how you make it STAY -- which
                 is the whole reason it is still here. */}
             <button
@@ -144,6 +152,28 @@ export default function Sidebar({
         >
           <ChevronRight size={15} />
         </button>
+      )}
+
+      {/* --- Which dashboard ---------------------------------------------
+          Only when there IS a choice. One dashboard is the ordinary case
+          and a picker offering a single option is furniture that has to be
+          read before it can be ignored. */}
+      {!collapsed && spaces.length > 1 && (
+        <div className="px-3 pb-2">
+          <select
+            value={spaceId || ''}
+            onChange={(e) => onSpace?.(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm"
+            title="Switch dashboard — its pages, sheets and entrance are its own"
+          >
+            {spaces.map((space) => (
+              <option key={space.id} value={space.id}>
+                {space.icon ? `${space.icon} ` : ''}
+                {space.name || 'Untitled dashboard'}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
 
       {/* --- Page search ------------------------------------------------- */}

@@ -4,6 +4,8 @@ import { doc, setDoc } from 'firebase/firestore'
 import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Layers, Move, Palette, Printer, Redo2, RefreshCw, RotateCcw, Undo2 } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useSpace } from '../context/SpaceContext.jsx'
+import { activeSpace, spaceForPage, spacesForUser, stampSpace } from '../lib/spaces'
 import { usePageData, useLocalState } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, usePagePrefs, orderWidgets } from '../hooks/useUserPrefs'
@@ -152,8 +154,39 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const { user, userDoc, isAdmin, getIdToken } = useAuth()
 
-  const { pages, sourcesById, sources, loading: wsLoading } = useWorkspace()
-  const { accessByPage } = useMyAccess(user?.uid, pages.map((p) => p.id))
+  // Which of this account's dashboards is open. Each has its own pages,
+  // its own sheet connections and its own entrance -- see lib/spaces.js.
+  const { spaceId, chooseSpace, spaces } = useSpace()
+  const { pages, allPages, sourcesById, sources, loading: wsLoading } = useWorkspace(spaceId)
+  // Grants for EVERY page in the account, not just this dashboard's: which
+  // dashboards this person may open is decided by the pages they can see in
+  // each, so the answer needs all of them.
+  const { accessByPage } = useMyAccess(user?.uid, allPages.map((p) => p.id))
+
+  const allowedSpaces = useMemo(
+    () => spacesForUser(spaces, allPages, accessByPage, isAdmin),
+    [spaces, allPages, accessByPage, isAdmin]
+  )
+
+  // The dashboard the URL is asking for. A link to a page IS a link to the
+  // dashboard that page is in, so an existing bookmark needs nothing added
+  // to it -- and somebody with two dashboards, sent a link to a page in one
+  // of them, does not open it wearing the other one's sidebar.
+  const urlSpace = useMemo(() => spaceForPage(allPages, pageId), [allPages, pageId])
+
+  // Which dashboard to be in. The link wins over what this browser
+  // remembered -- a link is somebody being sent somewhere, and being sent
+  // somewhere beats having been somewhere. A dashboard they cannot open,
+  // whether asked for by link or remembered, falls back to one they can.
+  //
+  // Skipped while the grants are still arriving, or everybody would be
+  // bounced to the first dashboard for a moment on every load.
+  useEffect(() => {
+    if (allowedSpaces.length === 0) return
+    const asked = urlSpace && allowedSpaces.some((sp) => sp.id === urlSpace) ? urlSpace : spaceId
+    const next = activeSpace(asked, allowedSpaces)
+    if (next !== spaceId) chooseSpace(next)
+  }, [spaceId, urlSpace, allowedSpaces, chooseSpace])
 
   const [filterValues, setFilterValues] = useState({})
   const [activeButtonIds, setActiveButtonIds] = useState([])
@@ -1931,7 +1964,9 @@ export default function Dashboard() {
   async function addPageHere() {
     if (!isAdmin) return
     const id = newPageId()
-    const made = { ...emptyPage(), id, name: 'New page' }
+    // Stamped with the dashboard it is being made in. Without this every
+    // new page would land in the first one, whichever you were looking at.
+    const made = stampSpace({ ...emptyPage(), id, name: 'New page' }, spaceId)
     await setDoc(doc(db, 'dashboards', id), stripUndefined(made), { merge: true })
     navigate(`/d/${id}`)
     setEditing(true)
@@ -1964,6 +1999,9 @@ export default function Dashboard() {
       )}
 
       <AppShell
+        spaces={allowedSpaces}
+        spaceId={spaceId}
+        onSpace={chooseSpace}
         pages={visiblePages}
         activePageId={pageId}
         title={page?.name || 'Dashboard'}

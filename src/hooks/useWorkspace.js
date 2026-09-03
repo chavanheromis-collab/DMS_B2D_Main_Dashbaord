@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { collection, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { sortPages } from '../lib/workspace'
+import { DEFAULT_SPACE, entranceDocId, inSpace } from '../lib/spaces'
 
 /**
  * Live view of the whole workspace: every data source and every dashboard
@@ -12,9 +13,15 @@ import { sortPages } from '../lib/workspace'
  * per page -- and it means adding a page in the admin panel makes it appear
  * in everyone's sidebar without a reload.
  *
+ * `spaceId` narrows both to one dashboard -- see lib/spaces.js. The
+ * filtering is done here rather than in the query on purpose: everything
+ * stored before dashboards existed carries no space at all, and a `where`
+ * clause would return none of it. This subscription already has every
+ * document in hand, so narrowing is free.
+ *
  * Returns { sources, pages, sourcesById, pagesById, loading }.
  */
-export function useWorkspace() {
+export function useWorkspace(spaceId = DEFAULT_SPACE) {
   const [sources, setSources] = useState([])
   const [pages, setPages] = useState([])
   const [loadedSources, setLoadedSources] = useState(false)
@@ -47,14 +54,22 @@ export function useWorkspace() {
     }
   }, [])
 
-  const orderedPages = useMemo(() => sortPages(pages), [pages])
+  const mine = useMemo(() => inSpace(sources, spaceId), [sources, spaceId])
+  const orderedPages = useMemo(() => sortPages(inSpace(pages, spaceId)), [pages, spaceId])
 
-  const sourcesById = useMemo(() => Object.fromEntries(sources.map((s) => [s.id, s])), [sources])
+  const sourcesById = useMemo(() => Object.fromEntries(mine.map((s) => [s.id, s])), [mine])
   const pagesById = useMemo(() => Object.fromEntries(orderedPages.map((p) => [p.id, p])), [orderedPages])
 
   return {
-    sources,
+    sources: mine,
     pages: orderedPages,
+    // Every page in the ACCOUNT, not just this dashboard. Working out
+    // which dashboards a person may open needs their grants across all of
+    // them, and this subscription already holds every page -- asking for
+    // them again would be a second subscription that can briefly disagree
+    // with this one.
+    allPages: pages,
+    allSources: sources,
     sourcesById,
     pagesById,
     loading: !loadedSources || !loadedPages,
@@ -71,18 +86,21 @@ export function useWorkspace() {
  * falls back to the build-time brand until then, so a slow or failed read
  * degrades to "no announcements" rather than to a blank screen.
  */
-export function useEntrance() {
+export function useEntrance(spaceId = DEFAULT_SPACE) {
   const [entrance, setEntrance] = useState(null)
 
-  useEffect(
-    () =>
-      onSnapshot(
-        doc(db, 'settings', 'entrance'),
-        (snap) => setEntrance(snap.exists() ? snap.data() : null),
-        () => setEntrance(null)
-      ),
-    []
-  )
+  useEffect(() => {
+    // Each dashboard has its own entrance, and the first one keeps the
+    // document that is already there -- see `entranceDocId`. Reset on the
+    // way in, or switching dashboards would show the old one's brand until
+    // the new read lands.
+    setEntrance(null)
+    return onSnapshot(
+      doc(db, 'settings', entranceDocId(spaceId)),
+      (snap) => setEntrance(snap.exists() ? snap.data() : null),
+      () => setEntrance(null)
+    )
+  }, [spaceId])
 
   return entrance
 }

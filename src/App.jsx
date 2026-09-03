@@ -1,6 +1,7 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { useAuth } from './context/AuthContext.jsx'
+import { useSpace } from './context/SpaceContext.jsx'
 import { useEntrance, useWorkspace } from './hooks/useWorkspace'
 import Login from './components/Login.jsx'
 import PendingApproval from './components/PendingApproval.jsx'
@@ -30,9 +31,35 @@ const Admin = lazy(() => import('./pages/Admin.jsx'))
  * the old name against the current pages and forward to it. An unmatched
  * name falls through to `/`, which lands on the user's first page.
  */
+/**
+ * A link that IS a dashboard.
+ *
+ * `/s/sp_hero` opens that dashboard and lands on whatever its first page is
+ * that day. A page link would do the same job until somebody renames or
+ * deletes that page; this one names the dashboard itself, so it is the link
+ * worth putting in an email.
+ *
+ * It does not decide what the visitor may see -- it only says which
+ * dashboard they are asking for. The canvas still falls back to one they
+ * can actually open, so a link sent to the wrong person is a wrong link
+ * rather than a way in.
+ */
+function SpaceLink() {
+  const { space } = useParams()
+  const { chooseSpace } = useSpace()
+
+  useEffect(() => {
+    if (space) chooseSpace(space)
+  }, [space, chooseSpace])
+
+  // `/` lands on the first page of whichever dashboard is now open.
+  return <Navigate to="/" replace />
+}
+
 function LegacyPageRedirect() {
   const { page: name } = useParams()
-  const { pages, loading } = useWorkspace()
+  const { spaceId } = useSpace()
+  const { pages, loading } = useWorkspace(spaceId)
 
   if (loading) return <Booting label="Finding that page" />
 
@@ -43,7 +70,11 @@ function LegacyPageRedirect() {
 export default function App() {
   const { authLoading } = useAuth()
   const splash = useSplash()
-  const entrance = useEntrance()
+  // The entrance of the dashboard this browser was last in. Each has its
+  // own brand, and coming back to a different one's would read as landing
+  // in the wrong account.
+  const { spaceId } = useSpace()
+  const entrance = useEntrance(spaceId)
 
   // The entrance lives HERE rather than on the dashboard so that it covers
   // the whole boot -- signing in, resolving the session, the first data
@@ -80,6 +111,16 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* One dashboard's own link, for sharing. See `SpaceLink`. */}
+      <Route
+        path="/s/:space"
+        element={
+          <ProtectedRoute>
+            <SpaceLink />
           </ProtectedRoute>
         }
       />

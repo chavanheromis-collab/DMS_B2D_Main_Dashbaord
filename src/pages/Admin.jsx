@@ -7,6 +7,8 @@ import { db } from '../firebase'
 import { EMPTY_LAYOUT, PAGES } from '../lib/config'
 import { buildLabelMap, makeRef } from '../lib/refs'
 import { migrateLegacy, newPageId, sortPages } from '../lib/workspace'
+import { inSpace, stampSpace } from '../lib/spaces'
+import { useSpace } from '../context/SpaceContext.jsx'
 import { normalizeControls } from '../lib/pageControls'
 import { computedFor, computedHeaders } from '../lib/computed'
 import { stripUndefined } from '../lib/firestoreSafe'
@@ -17,8 +19,12 @@ import WidgetsPanel from './admin/WidgetsPanel.jsx'
 import ControlsPanel from './admin/ControlsPanel.jsx'
 import UsersPanel from './admin/UsersPanel.jsx'
 import EntrancePanel from './admin/EntrancePanel.jsx'
+import SpacesPanel from './admin/SpacesPanel.jsx'
 
 const SECTIONS = [
+  // First, because everything under it belongs to whichever dashboard is
+  // open -- the sheets, the pages, the entrance. See lib/spaces.js.
+  { key: 'spaces', label: '🗂️ Dashboards', scope: 'workspace' },
   { key: 'sources', label: '🗄️ Data Sources', scope: 'workspace' },
   { key: 'pages', label: '📄 Pages', scope: 'workspace' },
   { key: 'widgets', label: '🧱 Widgets', scope: 'page' },
@@ -38,8 +44,14 @@ const SECTIONS = [
  * draft so a half-built widget is never pushed live mid-edit.
  */
 export default function Admin() {
-  const [sources, setSources] = useState([])
-  const [pages, setPages] = useState([])
+  // Which dashboard is being administered. Everything on this screen --
+  // the sheet connections, the pages, the entrance -- belongs to one of
+  // them; see lib/spaces.js.
+  const { spaceId } = useSpace()
+  const [allSources, setSources] = useState([])
+  const [allPages, setPages] = useState([])
+  const sources = useMemo(() => inSpace(allSources, spaceId), [allSources, spaceId])
+  const pages = useMemo(() => inSpace(allPages, spaceId), [allPages, spaceId])
   const [pageId, setPageId] = useState('')
   const [section, setSection] = useState('sources')
   const [draft, setDraft] = useState(EMPTY_LAYOUT)
@@ -136,12 +148,17 @@ export default function Admin() {
   )
 
   // --- Writes ------------------------------------------------------------
-  const saveSource = (source) => setDoc(doc(db, 'dataSources', source.id), stripUndefined(source), { merge: true })
+  // Stamped with the dashboard being administered, so a sheet connected
+  // here belongs here and not to whichever dashboard happens to be first.
+  const saveSource = (source) =>
+    setDoc(doc(db, 'dataSources', source.id), stripUndefined(stampSpace(source, spaceId)), { merge: true })
   const deleteSource = (id) => deleteDoc(doc(db, 'dataSources', id))
 
   async function savePage(next) {
     const id = next.id || newPageId()
-    await setDoc(doc(db, 'dashboards', id), stripUndefined({ ...next, id }), { merge: true })
+    await setDoc(doc(db, 'dashboards', id), stripUndefined(stampSpace({ ...next, id }, spaceId)), {
+      merge: true,
+    })
     if (!next.id) setPageId(id)
   }
 
@@ -296,6 +313,7 @@ export default function Admin() {
 
           {section === 'users' && <UsersPanel pages={pages} tabHeaders={tabHeaders} labelFor={labelFor} />}
 
+          {section === 'spaces' && <SpacesPanel pages={allPages} sources={allSources} />}
           {section === 'entrance' && <EntrancePanel />}
         </div>
       </div>

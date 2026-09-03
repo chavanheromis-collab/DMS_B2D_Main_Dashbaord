@@ -246,6 +246,21 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // One whole dashboard: its own pages, its own sheet connections, its
+    // own entrance. See lib/spaces.js. Only the NAME of a dashboard lives
+    // here -- what is in it is decided by the `space` field on the pages and
+    // sources themselves, so listing this grants nothing beyond the names.
+    //
+    // Readable by any signed-in user because the sidebar has to know what a
+    // dashboard is called before it can offer it; which ones a person may
+    // actually open is still decided by their page grants, exactly as
+    // before. There is deliberately no separate grant for a dashboard: two
+    // permission models for one question is how they come to disagree.
+    match /spaces/{spaceId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     match /dataSources/{sourceId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();

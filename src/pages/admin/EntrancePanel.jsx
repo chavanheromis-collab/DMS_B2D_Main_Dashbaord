@@ -22,6 +22,8 @@ import {
   themeOf,
 } from '../../lib/entranceThemes'
 import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, stableEqual } from './ui.jsx'
+import { entranceDocId } from '../../lib/spaces'
+import { useSpace } from '../../context/SpaceContext.jsx'
 import EmojiPicker from './EmojiPicker.jsx'
 
 /**
@@ -32,18 +34,24 @@ import EmojiPicker from './EmojiPicker.jsx'
  * single load-edit-save form rather than a collection editor.
  */
 export default function EntrancePanel() {
+  // The entrance belongs to ONE dashboard: two businesses in one account
+  // do not share a login screen. The first dashboard keeps the document
+  // that is already there -- see lib/spaces.js.
+  const { spaceId, spaces } = useSpace()
   const [live, setLive] = useState(null)
   const [draft, setDraft] = useState(DEFAULT_ENTRANCE)
   const [savedAt, setSavedAt] = useState(null)
 
   useEffect(
     () =>
-      onSnapshot(doc(db, 'settings', 'entrance'), (snap) => {
+      onSnapshot(doc(db, 'settings', entranceDocId(spaceId)), (snap) => {
         const data = snap.exists() ? { ...DEFAULT_ENTRANCE, ...snap.data() } : DEFAULT_ENTRANCE
         setLive(data)
         setDraft(data)
       }),
-    []
+    // Re-read when the dashboard changes, or the panel would go on editing
+    // the one that was open when it mounted.
+    [spaceId]
   )
 
   const dirty = live !== null && !stableEqual(draft, live)
@@ -51,7 +59,7 @@ export default function EntrancePanel() {
   const ops = listOps(draft.items || [], (items) => set({ items }))
 
   async function save() {
-    await setDoc(doc(db, 'settings', 'entrance'), stripUndefined(draft), { merge: true })
+    await setDoc(doc(db, 'settings', entranceDocId(spaceId)), stripUndefined(draft), { merge: true })
     setSavedAt(new Date())
   }
 
@@ -67,6 +75,14 @@ export default function EntrancePanel() {
         <span className="flex items-center gap-1.5 text-xs text-slate-500">
           <Sparkles size={13} /> Entrance animation
         </span>
+        {/* WHOSE entrance. With several dashboards in one account, editing
+            the wrong one's login screen is a mistake nobody would catch
+            until somebody else signed in. */}
+        {spaces.length > 1 && (
+          <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+            {spaces.find((sp) => sp.id === spaceId)?.name || 'This dashboard'}
+          </span>
+        )}
         {dirty ? (
           <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
             Unsaved changes

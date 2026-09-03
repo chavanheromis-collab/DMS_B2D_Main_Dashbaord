@@ -20,6 +20,11 @@ import MessageCenter from './MessageCenter.jsx'
 export default function AppShell({
   pages,
   activePageId,
+  // Passed straight through to the sidebar, which is where the choice of
+  // dashboard belongs -- see lib/spaces.js.
+  spaces,
+  spaceId,
+  onSpace,
   children,
   title,
   actions,
@@ -86,6 +91,9 @@ export default function AppShell({
 
       <Sidebar
         pages={pages}
+        spaces={spaces}
+        spaceId={spaceId}
+        onSpace={onSpace}
         peeking={peeking && collapsed}
         onPeekEnter={allowed || peeking ? keepOpen : undefined}
         onPeekLeave={allowed || peeking ? closeLater : undefined}
