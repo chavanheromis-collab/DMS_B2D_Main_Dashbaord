@@ -1,11 +1,13 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Layers, Move, Palette, Printer, Redo2, RefreshCw, RotateCcw, Undo2 } from 'lucide-react'
+import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Eye, EyeOff, Layers, Move, Palette, Printer, Redo2, RefreshCw, RotateCcw, StickyNote, Undo2 } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSpace } from '../context/SpaceContext.jsx'
 import { activeSpace, spaceForPage, spacesForUser, stampSpace } from '../lib/spaces'
+import StickyNotes from '../components/StickyNotes.jsx'
+import { newNote } from '../lib/stickyNotes'
 import { usePageData, useLocalState } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, usePagePrefs, orderWidgets } from '../hooks/useUserPrefs'
@@ -63,7 +65,7 @@ import { canViewPage, canvasFor, canvasLabelFor, emptyPage, newPageId, sidebarPa
 import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
 import { DEFAULT_DESIGN, clampDesign, designClass, designVars, moveItem } from '../lib/pageDesign'
 import { mergeVisuals } from '../lib/chartVisuals'
-import { backgroundLayers, usesLightText } from '../lib/pageBackground'
+import { backgroundLayers, sidebarSurface, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
 import { fixedValues, initialValues, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
 import { scopeFilter } from '../lib/userScope'
@@ -345,7 +347,11 @@ export default function Dashboard() {
   )
 
   // This user's own widget arrangement for this page.
-  const { widgetOrder, setWidgetOrder, clearOrder } = useUserPrefs(user?.uid, pageId)
+  const { widgetOrder, setWidgetOrder, clearOrder, notes, setNotes } = useUserPrefs(user?.uid, pageId)
+  // Per browser rather than saved with the notes: putting them away is
+  // "get these out of my way for a minute", not a decision worth syncing
+  // to a tablet somebody left in the office.
+  const [notesHidden, setNotesHidden] = useLocalState('dash.notesHidden', false)
 
   // The tab strip: this page's sub-canvases, or its siblings if it is one.
   // Filtered to what this user may open, so a restricted sub-canvas simply
@@ -993,6 +999,10 @@ export default function Dashboard() {
       clean.order = patch.order === '' || !Number.isFinite(n) ? null : Math.round(n)
     }
     if ('advanced' in patch) clean.advanced = !!patch.advanced
+    // A control's own look, the same shape a widget's is -- see
+    // lib/widgetStyle.js. Whitelisted like the rest: this saver takes the
+    // fields it knows, so an unlisted one would be dropped in silence.
+    if ('style' in patch) clean.style = patch.style || null
 
     const controls = (page.controls || []).map((c) => (c.id === controlId ? { ...c, ...clean } : c))
     setSavingLayout(true)
@@ -1338,8 +1348,56 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, page?.id])
 
+  /**
+   * A note stuck to this page.
+   *
+   * Placed a little further down and to the right each time, so a second
+   * note does not land exactly on the first -- which is what makes adding
+   * three in a row look like adding one.
+   */
+  const addNote = () => {
+    const step = (notes?.length || 0) % 6
+    // Adding a note while they are put away would write into thin air, so
+    // it brings them back first.
+    setNotesHidden(false)
+    setNotes([...(notes || []), newNote({ x: 24 + step * 26, y: 24 + step * 22 })])
+  }
+
   const headerActions = (
     <>
+      {/* Personal, and on every page rather than only while arranging: a
+          reminder is worth writing exactly when you are reading, not when
+          you are rearranging. */}
+      <span className="inline-flex overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <button
+          onClick={addNote}
+          title="Stick a note on this page — only you see it"
+          className="p-2 text-slate-600 transition-colors hover:bg-amber-50 hover:text-amber-600"
+        >
+          <StickyNote size={15} />
+        </button>
+        {/* Only once there is something to put away. A show/hide for
+            nothing is a control that has to be read before it can be
+            ignored. Hidden is not deleted -- the notes are still saved and
+            come back untouched, which is what makes putting them away
+            something somebody will actually do. */}
+        {notes.length > 0 && (
+          <button
+            onClick={() => setNotesHidden(!notesHidden)}
+            title={
+              notesHidden
+                ? `Show your ${notes.length} note${notes.length === 1 ? '' : 's'} again`
+                : `Put your ${notes.length} note${notes.length === 1 ? '' : 's'} away — they are kept`
+            }
+            className={`flex items-center gap-1 border-l border-slate-200 px-2 text-[11px] font-semibold tabular-nums transition-colors ${
+              notesHidden ? 'bg-amber-50 text-amber-600' : 'text-slate-500 hover:bg-slate-50'
+            }`}
+          >
+            {notesHidden ? <EyeOff size={13} /> : <Eye size={13} />}
+            {notes.length}
+          </button>
+        )}
+      </span>
       {isAdmin && editing && (
         <>
           <button
@@ -2013,6 +2071,9 @@ export default function Dashboard() {
       )}
 
       <AppShell
+        // The sidebar takes the page's own colour, so a navy dashboard is
+        // not a navy canvas beside a white panel -- see lib/pageBackground.js.
+        surface={sidebarSurface(page?.background)}
         spaces={allowedSpaces}
         spaceId={spaceId}
         onSpace={chooseSpace}
@@ -2049,6 +2110,17 @@ export default function Dashboard() {
           ...(design.maxWidth > 0 ? { maxWidth: design.maxWidth, marginInline: 'auto' } : null),
         }}
       >
+        {/* This person's own notes, over the whole page rather than inside
+            the canvas: a note is ABOUT the dashboard, not part of it, and
+            belongs wherever its writer put it -- over a chart, in a margin,
+            across two widgets at once. See lib/stickyNotes.js. */}
+        <StickyNotes
+          notes={notes}
+          onNotes={setNotes}
+          canvasWidth={design.maxWidth || 0}
+          hidden={notesHidden}
+        />
+
         {/* --- The header the paper gets, and the screen does not -------
             A printed chart reading 412 is not a fact, it is a fact ABOUT a
             filter. Print it without the filters and it is a number somebody

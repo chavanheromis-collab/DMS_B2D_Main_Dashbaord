@@ -1,10 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import {
   backgroundIsSet,
   backgroundLayers,
   safeImageUrl,
+  sidebarSurface,
 } from './pageBackground.js'
 import {
   entranceDuration,
@@ -142,4 +145,117 @@ test('an admin cannot lock people out with a huge duration', () => {
   assert.ok(entranceDuration({ durationMs: 600000 }, 99) <= 9000)
   // And a nonsense value falls back to the default rather than to zero.
   assert.equal(entranceDuration({ durationMs: 'abc' }, 0), 2600)
+})
+
+// ---------------------------------------------------------------------
+// The sidebar sitting WITH the page rather than beside it
+// ---------------------------------------------------------------------
+
+test('a page with a colour lends it to the sidebar', () => {
+  // A white panel against a deep navy dashboard reads as two applications
+  // open at once.
+  assert.deepEqual(sidebarSurface({ mode: 'color', color: '#0F172A' }), {
+    background: '#0F172A',
+    light: true,
+  })
+})
+
+test('and a pale page keeps dark writing in the sidebar', () => {
+  const out = sidebarSurface({ mode: 'color', color: '#F8FAFC' })
+  assert.equal(out.background, '#F8FAFC')
+  assert.equal(out.light, false)
+})
+
+test('a gradient lends its starting colour, not the whole gradient', () => {
+  // Running one gradient down a narrow column beside a wide one shows two
+  // different slices of it, which reads as a mismatch rather than a match.
+  const out = sidebarSurface({ mode: 'gradient', gradientFrom: '#1E293B', gradientTo: '#0EA5E9' })
+  assert.equal(out.background, '#1E293B')
+  assert.ok(!String(out.background).includes('gradient'))
+})
+
+test('a page nobody has restyled leaves the sidebar exactly as it is', () => {
+  // The stock look is what the page has, so it is what the sidebar has.
+  assert.equal(sidebarSurface(null), null)
+  assert.equal(sidebarSurface({}), null)
+  assert.equal(sidebarSurface({ mode: 'color', color: '' }), null)
+})
+
+test('an image mode with no image lends nothing, colour or not', () => {
+  // The PAGE is showing the app default here -- `backgroundIsSet` says a
+  // picture mode with no picture is no backdrop at all -- so the sidebar
+  // must show the app default too. Reading the colour behind the missing
+  // image would paint the sidebar for a backdrop nobody can see.
+  assert.equal(sidebarSurface({ mode: 'image', imageUrl: '' }), null)
+  assert.equal(sidebarSurface({ mode: 'image', imageUrl: '', color: '#111827' }), null)
+})
+
+test('a photograph is not a colour, so nothing is guessed', () => {
+  // Guessing wrong is worse than not guessing.
+  assert.equal(sidebarSurface({ mode: 'image', imageUrl: 'https://example.com/a.jpg' }), null)
+})
+
+test('...unless a colour was set behind it, which is a decision somebody made', () => {
+  const out = sidebarSurface({ mode: 'image', imageUrl: 'https://example.com/a.jpg', color: '#111827' })
+  assert.equal(out.background, '#111827')
+})
+
+test('the admin can still overrule what the sidebar works out', () => {
+  // `textMode` is the existing override for the page chrome; the sidebar
+  // answers to it too rather than having a second switch of its own.
+  assert.equal(sidebarSurface({ mode: 'color', color: '#0F172A', textMode: 'dark' }).light, false)
+  assert.equal(sidebarSurface({ mode: 'color', color: '#F8FAFC', textMode: 'light' }).light, true)
+})
+
+// ---------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------
+
+const ROOT = path.resolve(import.meta.dirname, '..', '..')
+const readSrc = (p) =>
+  fs
+    .readFileSync(path.join(ROOT, p), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+    .replace(/\s+/g, ' ')
+
+test('the page hands the sidebar its own colour', () => {
+  const dash = readSrc('src/pages/Dashboard.jsx')
+  assert.ok(dash.includes('surface={sidebarSurface(page?.background)}'))
+  const shell = readSrc('src/components/AppShell.jsx')
+  assert.ok(shell.includes('surface={surface}'))
+})
+
+test('and the sidebar wears it, on the desktop panel and the drawer alike', () => {
+  // Two elements, and forgetting one leaves a white drawer sliding over a
+  // navy dashboard.
+  const bar = readSrc('src/components/Sidebar.jsx')
+  assert.equal(bar.split('surface ? { background: surface.background } : null').length, 3)
+  assert.equal(bar.split("surface?.light ? 'sidebar-invert' : ''").length, 3)
+})
+
+test('a page with no backdrop keeps the stock panel', () => {
+  // The stock look is what the page has, so it is what the sidebar has.
+  const bar = readSrc('src/components/Sidebar.jsx')
+  assert.ok(bar.includes("surface ? 'sidebar-skin' : 'bg-white/85'"))
+  assert.ok(bar.includes("surface ? 'sidebar-skin' : 'bg-white'"))
+})
+
+test('the frosting goes with the colour', () => {
+  // A frosted panel over a solid colour is a lighter smear of that colour,
+  // not the colour.
+  const css = fs.readFileSync(path.join(ROOT, 'src/index.css'), 'utf8')
+  const flat = css.replace(/\s+/g, ' ')
+  assert.ok(flat.includes('.sidebar-skin { backdrop-filter: none; }'))
+})
+
+test('a dark page brings the sidebar writing with it', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'src/index.css'), 'utf8')
+  assert.ok(css.includes('.sidebar-invert :where(.text-ink, .text-slate-900'))
+  assert.ok(css.includes('.sidebar-invert :where(.text-slate-500'))
+  // The same list the cards use: only the neutral greys, so an error stays
+  // legible instead of vanishing.
+  const rules = css.match(/\.sidebar-invert :where\([^)]*\)/g) || []
+  for (const rule of rules) assert.ok(!/rose|emerald|amber|red|green/.test(rule), rule)
 })

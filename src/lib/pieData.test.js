@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import {
   DEFAULT_PIE_OPTIONS,
@@ -8,7 +10,9 @@ import {
   legendScrollStart,
   legendWindowSize,
   listColumns,
+  listLayout,
   PIE_LABEL_STYLES,
+  PIE_LIST_POSITIONS,
   PIE_LIST_STYLES,
   pieSlices,
   pieWindow,
@@ -326,4 +330,106 @@ test('the option the list defaults to is the first one offered', () => {
   // The default has to be reachable by picking it, or somebody who changes
   // their mind cannot get back to it.
   assert.equal(PIE_LIST_STYLES[0].value, 'name_value_percent')
+})
+
+// ---------------------------------------------------------------------
+// Where the category list sits
+// ---------------------------------------------------------------------
+
+test('beside the circle on the right is what it has always done', () => {
+  // Anything else here would move the list on every existing pie the day
+  // this shipped.
+  const right = listLayout('right')
+  assert.deepEqual(listLayout(undefined), right)
+  assert.deepEqual(listLayout('nonsense'), right)
+  assert.ok(right.wrap.includes('sm:flex-row'))
+  assert.ok(!right.wrap.includes('reverse'))
+})
+
+test('the other side reverses the pair rather than moving the pie', () => {
+  assert.ok(listLayout('left').wrap.includes('sm:flex-row-reverse'))
+})
+
+test('above and below stack, and never turn into a row', () => {
+  // A column of names next to a circle on a phone leaves neither of them
+  // readable, so these two stack at every width.
+  assert.ok(listLayout('bottom').wrap.includes('flex-col'))
+  assert.ok(!listLayout('bottom').wrap.includes('flex-row'))
+  assert.ok(listLayout('top').wrap.includes('flex-col-reverse'))
+  assert.ok(!listLayout('top').wrap.includes('flex-row'))
+})
+
+test('a stacked list takes the width and gives up the height', () => {
+  // ...and a list beside it does the opposite. The pair has to agree, which
+  // is why one function decides both.
+  for (const pos of ['top', 'bottom']) {
+    const out = listLayout(pos)
+    assert.ok(out.list.includes('w-full'), pos)
+    assert.ok(out.list.includes('max-h-'), `${pos} is capped so it cannot crowd out the circle`)
+    assert.ok(!out.list.includes('sm:w-'), pos)
+  }
+  for (const pos of ['left', 'right']) {
+    assert.ok(listLayout(pos).list.includes('sm:w-[42%]'), pos)
+  }
+})
+
+test('a narrow screen stacks whichever side was chosen', () => {
+  for (const pos of ['left', 'right']) {
+    // The row only starts at `sm:`; below that the flex column stands.
+    assert.ok(listLayout(pos).wrap.startsWith('flex-col'), pos)
+  }
+})
+
+test('every position offered is one the layout knows', () => {
+  // The dropdown and the resolver are two lists that have to agree.
+  const right = listLayout('right')
+  for (const { value } of PIE_LIST_POSITIONS) {
+    if (value === 'right') continue
+    assert.notDeepEqual(listLayout(value), right, `${value} lands on the default`)
+  }
+})
+
+// ---------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------
+
+const ROOT = path.resolve(import.meta.dirname, '..', '..')
+const read = (p) =>
+  fs
+    .readFileSync(path.join(ROOT, p), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+    .replace(/\s+/g, ' ')
+
+test('the pie asks where its list should go', () => {
+  const pie = read('src/components/widgets/PiePanel.jsx')
+  assert.ok(pie.includes('const listAt = listLayout(widget.pieListPos)'))
+})
+
+test('and both halves of the answer are used', () => {
+  // One decides which way the pair stacks and the other how much room the
+  // list may take. Using one without the other is a list beside the circle
+  // that still behaves as though it were underneath it.
+  const pie = read('src/components/widgets/PiePanel.jsx')
+  assert.ok(pie.includes('<div className={`flex min-h-0 flex-1 ${listAt.wrap}`}>'))
+  assert.ok(pie.includes('box={listAt.list}'))
+  assert.ok(pie.includes('className={`chart-legend shrink-0 overflow-y-auto pr-1 ${box}`}'))
+})
+
+test('the admin picks it, and it is saved where the pie reads it', () => {
+  // The row-content picker sits directly above this one and takes a value
+  // of the same shape, so a picker wired to the wrong field would look
+  // like it worked and change the wrong thing.
+  const panel = read('src/pages/admin/WidgetsPanel.jsx')
+  assert.ok(panel.includes("value={widget.pieListPos || 'right'}"))
+  assert.ok(panel.includes('onChange={(v) => set({ pieListPos: v })}'))
+  assert.ok(panel.includes('options={PIE_LIST_POSITIONS}'))
+})
+
+test('and it is only offered when there is a list to place', () => {
+  const panel = read('src/pages/admin/WidgetsPanel.jsx')
+  const at = panel.indexOf('{widget.pieLegend !== false && (')
+  assert.ok(at > 0)
+  assert.ok(panel.slice(at, at + 900).includes('pieListPos'))
 })

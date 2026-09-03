@@ -158,6 +158,51 @@ export const PIE_LIST_STYLES = [
 ]
 
 /**
+ * Where the category list sits relative to the circle.
+ *
+ * Beside it is right for a tall card and wrong for a wide, short one, where
+ * a column of names squeezes the pie into a coin. Underneath is right for
+ * exactly the opposite shape -- so it is a decision about the card, and the
+ * admin is the one looking at the card.
+ */
+export const PIE_LIST_POSITIONS = [
+  { value: 'right', label: 'Beside it — right' },
+  { value: 'left', label: 'Beside it — left' },
+  { value: 'bottom', label: 'Underneath it' },
+  { value: 'top', label: 'Above it' },
+]
+
+/**
+ * The classes that put it there.
+ *
+ * Returned as a pair rather than set on one element: which way the pair is
+ * stacked belongs to the container, and how much room the list may take
+ * belongs to the list -- and they have to agree, so they are decided in one
+ * place.
+ *
+ * Beside it only from `sm:` upwards. A column of names next to a circle on
+ * a phone leaves neither of them readable, so a narrow screen always
+ * stacks, whichever side was chosen.
+ */
+export function listLayout(position) {
+  const beside = 'max-h-[220px] sm:max-h-none sm:w-[42%] sm:max-w-[240px]'
+  // Stacked: full width, and capped so the list can never crowd the circle
+  // out of its own card.
+  const stacked = 'w-full max-h-[150px]'
+  switch (position) {
+    case 'left':
+      return { wrap: 'flex-col gap-2 sm:flex-row-reverse', list: beside }
+    case 'top':
+      return { wrap: 'flex-col-reverse gap-2', list: stacked }
+    case 'bottom':
+      return { wrap: 'flex-col gap-2', list: stacked }
+    case 'right':
+    default:
+      return { wrap: 'flex-col gap-2 sm:flex-row', list: beside }
+  }
+}
+
+/**
  * Which of the three columns a list style asks for.
  *
  * Booleans rather than a string, because the list is a ROW of aligned

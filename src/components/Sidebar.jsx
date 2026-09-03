@@ -44,6 +44,10 @@ export default function Sidebar({
   spaces = [],
   spaceId,
   onSpace,
+  // The page's own backdrop colour, so the sidebar sits WITH the dashboard
+  // rather than beside it -- see lib/pageBackground.js. Null means the page
+  // has no backdrop of its own and the stock panel is right.
+  surface = null,
   collapsed,
   onToggleCollapsed,
   mobileOpen,
@@ -368,12 +372,15 @@ export default function Sidebar({
       <aside
         onPointerEnter={onPeekEnter}
         onPointerLeave={onPeekLeave}
-        className={`no-print fixed inset-y-0 left-0 z-30 hidden border-r border-slate-200/70 bg-white/85 backdrop-blur-xl transition-[width] duration-200 lg:block ${
-          peeking ? 'shadow-2xl' : ''
-        }`}
+        className={`no-print fixed inset-y-0 left-0 z-30 hidden border-r border-slate-200/70 backdrop-blur-xl transition-[width] duration-200 lg:block ${
+          surface ? 'sidebar-skin' : 'bg-white/85'
+        } ${surface?.light ? 'sidebar-invert' : ''} ${peeking ? 'shadow-2xl' : ''}`}
         // A peek draws at full width without changing the content offset --
         // it sits OVER the canvas rather than pushing it.
-        style={{ width: collapsed && !peeking ? SIDEBAR_RAIL : SIDEBAR_WIDTH }}
+        style={{
+          width: collapsed && !peeking ? SIDEBAR_RAIL : SIDEBAR_WIDTH,
+          ...(surface ? { background: surface.background } : null),
+        }}
       >
         {renderBody(collapsed && !peeking)}
       </aside>
@@ -387,8 +394,10 @@ export default function Sidebar({
             className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm"
           />
           <aside
-            className="absolute inset-y-0 left-0 border-r border-slate-200/70 bg-white shadow-2xl"
-            style={{ width: SIDEBAR_WIDTH }}
+            className={`absolute inset-y-0 left-0 border-r border-slate-200/70 shadow-2xl ${
+              surface ? 'sidebar-skin' : 'bg-white'
+            } ${surface?.light ? 'sidebar-invert' : ''}`}
+            style={{ width: SIDEBAR_WIDTH, ...(surface ? { background: surface.background } : null) }}
           >
             {renderBody(false)}
           </aside>

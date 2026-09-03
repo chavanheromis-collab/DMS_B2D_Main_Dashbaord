@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Sector } from 'recharts'
-import { DEFAULT_PIE_OPTIONS, PIE_PERCENT_BASES, REST_LABEL, labelledSlices, legendScrollStart, legendWindowSize, listColumns, pieSlices, pieWindow, rollupNote, sliceLabel } from '../../lib/pieData.js'
+import { DEFAULT_PIE_OPTIONS, PIE_PERCENT_BASES, REST_LABEL, labelledSlices, legendScrollStart, legendWindowSize, listColumns, listLayout, pieSlices, pieWindow, rollupNote, sliceLabel } from '../../lib/pieData.js'
 
 /**
  * A part-of-whole chart that survives real data.
@@ -71,6 +71,9 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
   // Which of the three columns the list draws. All three unless somebody
   // has said otherwise -- see lib/pieData.js.
   const listCols = listColumns(widget.pieListStyle)
+  // Where the list sits. Beside the circle is right for a tall card and
+  // wrong for a wide, short one -- see lib/pieData.js.
+  const listAt = listLayout(widget.pieListPos)
   const labelStyle = widget.labelStyle || 'name_percent'
   const isRose = type === 'rose'
   const donut = type === 'donut'
@@ -97,7 +100,7 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col gap-2 sm:flex-row">
+      <div className={`flex min-h-0 flex-1 ${listAt.wrap}`}>
         <div className="relative min-h-[200px] flex-1">
           <ResponsiveContainer width="100%" height={height}>
             <PieChart>
@@ -158,6 +161,7 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
             // that were drawn, which already include Other.
             slices={scrolling ? result.slices : slices}
             columns={listCols}
+            box={listAt.list}
             colorFor={colorFor}
             fmt={fmt}
             hover={hover}
@@ -299,6 +303,7 @@ const ROW_HEIGHT = 24
 function SliceList({
   slices,
   columns,
+  box,
   colorFor,
   fmt,
   hover,
@@ -327,7 +332,7 @@ function SliceList({
       ref={boxRef}
       onScroll={report}
       onPointerEnter={report}
-      className="chart-legend max-h-[220px] shrink-0 overflow-y-auto pr-1 sm:max-h-none sm:w-[42%] sm:max-w-[240px]">
+      className={`chart-legend shrink-0 overflow-y-auto pr-1 ${box}`}>
       <ul className="space-y-px">
         {slices.map((slice, i) => {
           const on = hover === i || activeName === slice.name

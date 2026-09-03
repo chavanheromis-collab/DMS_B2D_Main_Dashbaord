@@ -874,6 +874,128 @@ aside.fixed.right-0 {
   overflow: auto;
 }
 
+/* ------------------------------------------------------------------ */
+/* Sticky notes                                                        */
+/* ------------------------------------------------------------------ */
+/* Drawn as PAPER rather than as a panel. Not decoration: it is what makes
+   a note read as somebody's writing ON the dashboard rather than as
+   another widget in it, which is the whole point of the feature.
+
+   Two shadows, as everything else on this page does -- a tight one for the
+   contact edge and a wide soft one for the height off the wall. One blurry
+   shadow doing both jobs is what makes a thing look like a sticker. */
+.sticky-note {
+  border-radius: 2px 2px 3px 2px;
+  box-shadow:
+    0 1px 1px rgb(15 23 42 / 0.12),
+    0 10px 22px -8px rgb(15 23 42 / 0.28);
+  transition:
+    transform 160ms cubic-bezier(0.2, 0.8, 0.3, 1),
+    box-shadow 160ms ease;
+}
+
+/* Lifted by the pointer before it is even picked up, so it is obvious which
+   note a click is about to land on. */
+.sticky-note:hover {
+  box-shadow:
+    0 1px 1px rgb(15 23 42 / 0.14),
+    0 18px 34px -10px rgb(15 23 42 / 0.34);
+}
+
+/* The strip of tape. Milky rather than white, and blended, so it takes a
+   tint from whatever colour the note is instead of sitting on top as a
+   grey bar. */
+.sticky-tape {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.34));
+  mix-blend-mode: soft-light;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.12);
+}
+
+/* The corner lifting off the wall -- a triangle of shade folded back over
+   the note. A gradient rather than an image, so it costs nothing and takes
+   the note's own colour with it. */
+.sticky-curl {
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, transparent 50%, rgb(15 23 42 / 0.09) 50%, rgb(15 23 42 / 0.16) 100%);
+  border-bottom-right-radius: 3px;
+}
+
+/* Somebody who has asked for less movement gets less movement. The lean
+   stays -- it is a position, not an animation -- but nothing eases into it. */
+@media (prefers-reduced-motion: reduce) {
+  .sticky-note {
+    transition: none;
+  }
+}
+
+/* The sidebar wearing the page's own colour.
+ *
+ * A white panel against a deep navy dashboard reads as two applications
+ * open at once, so the sidebar takes the backdrop's colour -- see
+ * `sidebarSurface` in lib/pageBackground.js. The blur goes with it: a
+ * frosted panel over a solid colour is a lighter smear of that colour, not
+ * the colour. */
+.sidebar-skin {
+  backdrop-filter: none;
+}
+
+/* ...and on a dark one, the writing has to come with it. The same list the
+   cards use, and for the same reason: only the neutral greys, so an error
+   stays legible instead of vanishing. */
+.sidebar-invert :where(.text-ink, .text-slate-900, .text-slate-800, .text-slate-700, .text-slate-600) {
+  color: #e2e8f0;
+}
+.sidebar-invert :where(.text-slate-500, .text-slate-400, .text-slate-300) {
+  color: #94a3b8;
+}
+.sidebar-invert :where(.border-slate-200, .border-slate-100) {
+  border-color: rgb(255 255 255 / 0.14);
+}
+.sidebar-invert :where(.bg-white, .bg-slate-50) {
+  background-color: rgb(255 255 255 / 0.08);
+}
+.sidebar-invert :where(.hover\:bg-slate-100:hover, .hover\:bg-slate-50:hover) {
+  background-color: rgb(255 255 255 / 0.12);
+}
+
+/* A CONTROL that has been given a look of its own.
+ *
+ * A control is not a card -- it is an input, a button, a slider, each with
+ * its own chrome -- so the card properties have to be pointed at that
+ * chrome by hand. Only the surface and the border: a control's size is set
+ * in pixels on the bar, and its radius and padding belong to the shape of
+ * the thing rather than to a theme.
+ *
+ * Scoped to a control that was actually styled, so every unstyled bar on
+ * every existing page is untouched. */
+.control-skin.card-ownbg :where(input, select, textarea, button, .control-face) {
+  background-color: var(--card-bg);
+}
+.control-skin.card-clear :where(input, select, textarea, button, .control-face) {
+  background-color: transparent;
+}
+.control-skin[style*='--card-border-color'] :where(input, select, textarea, button, .control-face) {
+  border-color: var(--card-border-color);
+}
+.control-skin.card-ink :where(input, select, textarea, button, .control-face) {
+  color: var(--card-text);
+}
+
+/* A control's SHAPE. Matched on the property being present rather than on a
+   class, because a radius of 0 -- square corners, deliberately -- is a real
+   answer and a class keyed on truthiness would drop it.
+
+   The padding is halved vertically: a card's 16px all round makes a filter
+   the height of a KPI card, and the two are not the same kind of object
+   even when they carry the same number. */
+.control-skin[style*='--card-radius'] :where(input, select, textarea, button, .control-face) {
+  border-radius: var(--card-radius);
+}
+.control-skin[style*='--card-padding'] :where(input, select, textarea, button, .control-face) {
+  padding: calc(var(--card-padding) / 2) var(--card-padding);
+}
+
 /* A widget holding its place while the page scrolls under it. The shadow
  * is the whole signal: without it a pinned widget and the widgets sliding
  * beneath it are drawn on the same plane, and the page looks broken rather

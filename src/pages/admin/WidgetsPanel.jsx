@@ -22,7 +22,7 @@ import { DEFAULT_PIE_OPTIONS, PIE_LABEL_STYLES, PIE_PERCENT_BASES } from '../../
 import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
 import { hasCustomStyle } from '../../lib/widgetStyle'
 import { COLOR_MODES, DEFAULT_REFERENCE, REFERENCE_KINDS, chartCaps, unsupportedNote } from '../../lib/chartOptions'
-import { PIE_LIST_STYLES } from '../../lib/pieData'
+import { PIE_LIST_POSITIONS, PIE_LIST_STYLES } from '../../lib/pieData'
 import {
   BAND_KINDS,
   CUMULATIVE_MODES,
@@ -1495,13 +1495,25 @@ function ChartEditor({ widget, cols, set }) {
             />
           </div>
           {widget.pieLegend !== false && (
-            <Field label="Each row shows" className="w-44">
-              <Select
-                value={widget.pieListStyle || 'name_value_percent'}
-                onChange={(v) => set({ pieListStyle: v })}
-                options={PIE_LIST_STYLES}
-              />
-            </Field>
+            <>
+              <Field label="Each row shows" className="w-44">
+                <Select
+                  value={widget.pieListStyle || 'name_value_percent'}
+                  onChange={(v) => set({ pieListStyle: v })}
+                  options={PIE_LIST_STYLES}
+                />
+              </Field>
+              {/* Beside the circle is right for a tall card and wrong for a
+                  wide, short one -- so it is a decision about the card, and
+                  the admin is the one looking at the card. */}
+              <Field label="And sits" className="w-44">
+                <Select
+                  value={widget.pieListPos || 'right'}
+                  onChange={(v) => set({ pieListPos: v })}
+                  options={PIE_LIST_POSITIONS}
+                />
+              </Field>
+            </>
           )}
         </div>
 

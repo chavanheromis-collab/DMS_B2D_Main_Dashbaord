@@ -73,10 +73,12 @@ service cloud.firestore {
     // Personal, per-user, per-page settings: userPrefs/{uid}_{pageId}
     //
     // The ONE collection an ordinary user may write to, and deliberately the
-    // most boring one -- widget display order and nothing else. It grants no
-    // access and hides no widget, so the worst a user can do by writing here
-    // is rearrange their own screen. The id prefix check is what keeps them
-    // out of anyone else's.
+    // most boring one -- widget display order and their own sticky notes.
+    // It grants no access and hides no widget, so the worst a user can do
+    // by writing here is rearrange their own screen and leave themselves a
+    // reminder on it. The id prefix check is what keeps them out of anyone
+    // else's, and is why a note is readable only by the person who wrote
+    // it.
     //
     // `get` only, for the same reason as `access` above: a list query would
     // be rejected wholesale rather than narrowed.

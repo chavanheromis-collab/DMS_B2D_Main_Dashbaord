@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bookmark, ChevronDown, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
+import { Bookmark, ChevronDown, Paintbrush, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
 
 import { filterIsActive } from '../lib/filterEngine'
 import { numericBounds, stepFor, stepperTicks } from '../lib/widgetControls'
@@ -15,6 +15,8 @@ import {
   viewIsActive,
 } from '../lib/pageControls'
 import { DaysRange, DualRange, SingleRange, SteppedRange, sliderFormat } from './Sliders.jsx'
+import WidgetPaint from './WidgetPaint.jsx'
+import { styleClass, styleVars } from '../lib/widgetStyle'
 
 /** Multi-choice dropdown with its own search, for columns with many values. */
 function MultiSelect({ control, value, options, onChange, fill = '' }) {
@@ -125,15 +127,21 @@ function Control({ control, value, rows, optionRows, onChange, isOn, onToggleBut
 
   // --- Action ------------------------------------------------------------
   if (isButton(control)) {
-    const color = control.color || '#4F46E5'
+    // The button's OWN colour wins, and the look's accent fills in when it
+    // has none -- so the accent picker means something on a button instead
+    // of being a control that does nothing, and the purpose-built setting
+    // is still the one that decides. Two ways to set one colour would be a
+    // fork; a precedence is not.
+    const own = control.color || ''
+    const onColour = own || 'var(--card-accent, #4F46E5)'
     return (
       <button
         onClick={onToggleButton}
         title={control.hint || undefined}
-        className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition-all ${fill} ${
+        className={`control-face rounded-lg border px-3 py-1.5 text-sm font-semibold transition-all ${fill} ${
           isOn ? 'border-transparent text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
         }`}
-        style={isOn ? { backgroundColor: color } : { borderColor: `${color}66` }}
+        style={isOn ? { backgroundColor: onColour } : own ? { borderColor: `${own}66` } : undefined}
       >
         {control.icon ? `${control.icon} ` : ''}
         {control.label}
@@ -389,7 +397,11 @@ export default function ControlBar({
   const renderControl = (control) => {
     const px = controlWidth(control)
     return (
-      <div key={control.id} className="relative" style={px ? { width: px, flex: '0 0 auto' } : undefined}>
+      <div
+        key={control.id}
+        className={`relative control-skin ${styleClass(control.style)}`}
+        style={{ ...(px ? { width: px, flex: '0 0 auto' } : null), ...(styleVars(control.style) || {}) }}
+      >
         {/* A control is sized and placed on the page exactly the way a
             widget is: in its own place, in pixels, by an admin who is
             looking at it. */}
@@ -517,6 +529,24 @@ export default function ControlBar({
  */
 function ControlPill({ control, measured, onEdit }) {
   const [open, setOpen] = useState(false)
+  const [painting, setPainting] = useState(false)
+
+  // The same panel a widget's brush opens -- see components/WidgetPaint.jsx.
+  // A filter that cannot be restyled beside a widget that can is not a
+  // decision anybody made, and one panel serving both is what stops the two
+  // drifting into different sets of options.
+  if (painting) {
+    return (
+      <div className="absolute -left-1 -top-2 z-40 w-64 rounded-lg border border-indigo-300 bg-white p-2 shadow-xl">
+        <WidgetPaint
+          title={control.label || 'this control'}
+          style={control.style}
+          onStyle={(next) => onEdit({ style: next })}
+          onClose={() => setPainting(false)}
+        />
+      </div>
+    )
+  }
 
   if (!open) {
     return (
@@ -557,6 +587,13 @@ function ControlPill({ control, measured, onEdit }) {
         className="w-14 rounded border border-slate-200 px-1 py-0.5 text-center text-[11px] tabular-nums"
         aria-label="Width in pixels"
       />
+      <button
+        onClick={() => setPainting(true)}
+        className="rounded p-0.5 text-slate-400 hover:text-indigo-600"
+        title={`How ${control.label || 'this control'} looks`}
+      >
+        <Paintbrush size={11} />
+      </button>
       <button
         onClick={() => onEdit({ advanced: !control.advanced })}
         className={`rounded border px-1 py-0.5 text-[9px] ${

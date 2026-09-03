@@ -25,6 +25,9 @@ export default function AppShell({
   spaces,
   spaceId,
   onSpace,
+  // The page's backdrop colour, passed straight through -- the sidebar is
+  // what wears it.
+  surface,
   children,
   title,
   actions,
@@ -94,6 +97,7 @@ export default function AppShell({
         spaces={spaces}
         spaceId={spaceId}
         onSpace={onSpace}
+        surface={surface}
         peeking={peeking && collapsed}
         onPeekEnter={allowed || peeking ? keepOpen : undefined}
         onPeekLeave={allowed || peeking ? closeLater : undefined}

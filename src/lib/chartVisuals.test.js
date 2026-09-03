@@ -467,8 +467,9 @@ test('the widget own brush can change how a chart is drawn', () => {
   // which is where anybody looks first -- the tooltip could not be changed
   // at all, and the setting looked broken.
   const bar = read('components/ArrangeBar.jsx')
-  assert.ok(bar.includes('<ChartVisualFields value={s.chartVisuals} onChange={(v) => set({ chartVisuals: v })} />'))
-  assert.ok(bar.includes("import ChartVisualFields from './ChartVisualFields.jsx'"))
+const paint = read('components/WidgetPaint.jsx')
+  assert.ok(paint.includes('<ChartVisualFields value={s.chartVisuals} onChange={(v) => set({ chartVisuals: v })} />'))
+  assert.ok(paint.includes("import ChartVisualFields from './ChartVisualFields.jsx'"))
   // The same component the admin panel uses, so the two cannot drift.
   const editor = read('pages/admin/StyleEditor.jsx')
   assert.ok(editor.includes('<ChartVisualFields value={style.chartVisuals}'))

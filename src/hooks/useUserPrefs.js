@@ -2,13 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { doc, onSnapshot, setDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { stripUndefined } from '../lib/firestoreSafe'
+import { readNotes } from '../lib/stickyNotes'
 
 /**
  * One user's personal settings for one page, at `userPrefs/{uid}_{pageId}`.
  *
- * Currently that means widget ORDER: each user can type a position number
- * against any widget and see the canvas in the arrangement that suits their
- * job, without changing it for anyone else.
+ * Two things: widget ORDER -- each user can type a position number against
+ * any widget and see the canvas in the arrangement that suits their job --
+ * and their own STICKY NOTES on that page. Both are the same kind of thing:
+ * one person's view of a dashboard everybody shares.
  *
  * Firestore rather than localStorage on purpose -- a rep who arranges their
  * dashboard on a desktop should find the same arrangement on a tablet. The
@@ -64,7 +66,26 @@ export function useUserPrefs(uid, pageId) {
     await setDoc(doc(db, 'userPrefs', id), { widgetOrder: {} }, { merge: true })
   }, [id])
 
-  return { prefs, widgetOrder: prefs?.widgetOrder || {}, setWidgetOrder, clearOrder, loading }
+  const setNotes = useCallback(
+    async (notes) => {
+      if (!id) return
+      await setDoc(doc(db, 'userPrefs', id), stripUndefined({ notes: readNotes(notes) }), { merge: true })
+    },
+    [id]
+  )
+
+  return {
+    prefs,
+    widgetOrder: prefs?.widgetOrder || {},
+    setWidgetOrder,
+    clearOrder,
+    // Repaired on the way IN as well as out: a note written by an older
+    // version, or edited by hand, is somebody's reminder and not something
+    // to throw away over a missing number.
+    notes: readNotes(prefs?.notes),
+    setNotes,
+    loading,
+  }
 }
 
 /**

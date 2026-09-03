@@ -156,6 +156,7 @@ const read = (p) =>
 
 const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
 const bar = read('components/ArrangeBar.jsx')
+const paint = read('components/WidgetPaint.jsx')
 const editor = read('pages/admin/StyleEditor.jsx')
 const designPanel = read('components/PageDesignPanel.jsx')
 const dashboard = read('pages/Dashboard.jsx')
@@ -170,11 +171,11 @@ test('ONLY the neutral greys are remapped', () => {
   // An error stays rose and a KPI keeps its accent. Choosing a text colour
   // is not a request for your errors to become invisible.
   const rules = css.match(/\.card-(ink|muted|weight) :where\([^)]*\)/g) || []
-  // Four: the ink, the muted, the weight, and the chart's axis text, which
-  // takes the widget's colour when the chart has not been given its own.
-  // The count is the canary -- a fifth would mean somebody swept another
-  // set of classes in, and this is where they should have to say so.
-  assert.equal(rules.length, 4)
+  // Five: the ink, the muted, the weight, the chart's axis text, and a
+  // control's chrome -- `.control-skin.card-ink` contains `.card-ink`, so
+  // it is counted here too. The count is the canary: a sixth means somebody
+  // swept another set of classes in, and this is where they say so.
+  assert.equal(rules.length, 5)
   for (const rule of rules) {
     assert.ok(!/rose|emerald|amber|indigo|red|green/.test(rule), rule)
   }
@@ -192,7 +193,7 @@ test('a widget’s own controls are part of the same decision', () => {
 })
 
 test('text can be set on the widget, in the admin panel, and on the page', () => {
-  assert.ok(bar.includes('<TypographyFields value={s} onChange={set} />'))
+  assert.ok(paint.includes('<TypographyFields value={s} onChange={set} />'))
   assert.ok(editor.includes('<TypographyFields value={style} onChange={(patch) => setStyle(patch)} />'))
   assert.ok(designPanel.includes('<TypographyFields value={d} onChange={set} showSize={false}'))
 })
@@ -311,7 +312,7 @@ test('a label drawn INSIDE a bar keeps its own colour', () => {
 test('the app’s own legends are legends too', () => {
   // Not every legend here is drawn by recharts: the pie's scrolls, and the
   // trend chart's toggles series on and off.
-  assert.ok(pie.includes('className="chart-legend'))
+  assert.ok(pie.includes('className={`chart-legend'))
   assert.ok(analytics.includes('chart-legend mt-1 flex flex-wrap'))
   assert.ok(chartWidget.includes('className="chart-legend max-h-full'))
 })
@@ -324,8 +325,8 @@ test('the legend rules are written after the card’s, so they win the tie', () 
 })
 
 test('chart text can be set on the widget, in the admin panel, and on the page', () => {
-  assert.ok(bar.includes('<MarkTextFields label="Chart text"'))
-  assert.ok(bar.includes('<MarkTextFields label="Legend"'))
+  assert.ok(paint.includes('<MarkTextFields label="Chart text"'))
+  assert.ok(paint.includes('<MarkTextFields label="Legend"'))
   assert.ok(editor.includes('value={style.chartText}'))
   assert.ok(editor.includes('value={style.legendText}'))
   assert.ok(designPanel.includes('value={d.chartText}'))
@@ -334,7 +335,7 @@ test('chart text can be set on the widget, in the admin panel, and on the page',
 
 test('the widget’s own panel only offers it where there is a chart', () => {
   assert.ok(bar.includes('chartText={hasChartText(widgetType)}'))
-  assert.ok(bar.includes('{chartText && ('))
+  assert.ok(paint.includes('{chartText && ('))
   assert.ok(dashboard.includes('widgetType={widget.type}'))
   assert.ok(editor.includes('{hasChartText(widget.type) && ('))
 })

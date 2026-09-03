@@ -27,6 +27,7 @@ const dashboard = read('pages/Dashboard.jsx')
 const panel = read('components/PageDesignPanel.jsx')
 const canvas = read('components/WidgetCanvas.jsx')
 const bar = read('components/ArrangeBar.jsx')
+const paint = read('components/WidgetPaint.jsx')
 
 // --- the page's own design ------------------------------------------------
 
@@ -145,10 +146,13 @@ test('free mode leaves a widget own controls working', () => {
 })
 
 test('every widget can be restyled from the widget', () => {
-  assert.ok(bar.includes('function WidgetPaint('))
+  assert.ok(paint.includes('export default function WidgetPaint('))
   assert.ok(bar.includes('title="How this widget looks"'))
+  // The fields live in the panel, which the bar opens. Two files now, and
+  // that is the point: the CONTROLS open the same panel, so a filter and a
+  // widget cannot drift into different sets of options.
   for (const field of ['theme: e.target.value', 'bg: v', 'accent: v', 'borderColor: v', 'radius: v', 'padding: v']) {
-    assert.ok(bar.includes(field), field)
+    assert.ok(paint.includes(field), field)
   }
 })
 
@@ -158,7 +162,7 @@ test('a widget’s look is saved to the page, for everyone', () => {
 })
 
 test('a widget can be put back to the page’s look', () => {
-  assert.ok(bar.includes('onStyle({ ...DEFAULT_WIDGET_STYLE })'))
+  assert.ok(paint.includes('onStyle({ ...DEFAULT_WIDGET_STYLE })'))
 })
 
 // --- the panels float above every widget ---------------------------------
@@ -277,4 +281,79 @@ test('a screen that is not the one this was arranged for says so', () => {
 test('the canvas reports what it actually drew', () => {
   assert.ok(canvas.includes('measure.current(rect.id, rect.w, rect.h, {'))
   assert.ok(canvas.includes('canvasWidth: Math.round(width)'))
+})
+
+// ---------------------------------------------------------------------
+// A control can be restyled, the same way a widget can
+// ---------------------------------------------------------------------
+
+test('the paint panel is one component, not one per thing it paints', () => {
+  // A filter that cannot be restyled beside a widget that can is not a
+  // decision anybody made -- and two panels would drift into two different
+  // sets of options.
+  assert.ok(paint.includes('export default function WidgetPaint('))
+  assert.ok(bar.includes("import WidgetPaint from './WidgetPaint.jsx'"))
+  assert.ok(controlBar.includes("import WidgetPaint from './WidgetPaint.jsx'"))
+})
+
+test('a control opens it from its own pill', () => {
+  assert.ok(controlBar.includes('onClick={() => setPainting(true)}'))
+  assert.ok(controlBar.includes('onStyle={(next) => onEdit({ style: next })}'))
+  assert.ok(controlBar.includes('style={control.style}'))
+})
+
+test('and the look is applied to that control', () => {
+  assert.ok(controlBar.includes('styleClass(control.style)'))
+  assert.ok(controlBar.includes('...(styleVars(control.style) || {})'))
+  // The pixel width still wins its own argument: it is set on the bar and
+  // is not part of a look.
+  assert.ok(controlBar.includes("...(px ? { width: px, flex: '0 0 auto' } : null)"))
+})
+
+test('the page actually saves it', () => {
+  // This saver takes the fields it knows and drops the rest, so a style it
+  // had never heard of would vanish without a word.
+  assert.ok(dashboard.includes("if ('style' in patch) clean.style = patch.style || null"))
+})
+
+test('a control is not a card, so the card properties are pointed at its chrome', () => {
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  assert.ok(css.includes('.control-skin.card-ownbg :where(input, select, textarea, button, .control-face)'))
+  assert.ok(css.includes('.control-skin.card-clear :where(input, select, textarea, button, .control-face)'))
+  // Scoped to a control that was actually styled, so every unstyled bar on
+  // every existing page is untouched.
+  assert.ok(!css.includes('.control-skin :where(input'), 'nothing applies to an unstyled control')
+})
+
+test('a control look reaches its shape as well as its colours', () => {
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  for (const prop of ['border-radius: var(--card-radius)', 'color: var(--card-text)']) {
+    assert.ok(css.includes(prop), prop)
+  }
+  // Matched on the PROPERTY being present, not on a class: a radius of 0 --
+  // square corners, deliberately -- is a real answer, and a class keyed on
+  // truthiness would drop it.
+  assert.ok(css.includes(".control-skin[style*='--card-radius'] :where(input, select, textarea, button"))
+  assert.ok(css.includes(".control-skin[style*='--card-padding'] :where(input, select, textarea, button"))
+})
+
+test('a card padding is halved on a control, which is not a card', () => {
+  // 16px all round makes a filter the height of a KPI card, and the two are
+  // not the same kind of object even carrying the same number.
+  const css = fs.readFileSync(path.join(SRC, 'index.css'), 'utf8')
+  assert.ok(css.includes('padding: calc(var(--card-padding) / 2) var(--card-padding)'))
+})
+
+test('a button own colour wins, and the look accent fills in', () => {
+  // Two ways to set one colour would be a fork. A precedence is not -- and
+  // it stops the accent picker being a control that does nothing.
+  assert.ok(controlBar.includes("const own = control.color || ''"))
+  assert.ok(controlBar.includes("const onColour = own || 'var(--card-accent, #4F46E5)'"))
+  assert.ok(controlBar.includes('style={isOn ? { backgroundColor: onColour } : own ? { borderColor: `${own}66` } : undefined}'))
+})
+
+test('a button is a face the look can reach', () => {
+  // The CSS names the elements it paints; a button that is not one of them
+  // is a button the look does not touch.
+  assert.ok(controlBar.includes('className={`control-face rounded-lg border'))
 })

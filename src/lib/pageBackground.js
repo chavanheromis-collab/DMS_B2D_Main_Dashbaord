@@ -198,6 +198,44 @@ export function luminance(hex) {
  * An IMAGE can't be measured from CSS, so `auto` leaves it alone and the
  * admin picks; guessing wrong on a photo is worse than not guessing.
  */
+/**
+ * The surface the sidebar should take, to sit with the page rather than
+ * beside it.
+ *
+ * A white panel against a deep navy dashboard reads as two applications
+ * open at once. This is what stops that being something an admin has to
+ * notice and fix by hand.
+ *
+ * Returns null -- meaning "leave the sidebar exactly as it is" -- whenever
+ * there is no honest answer:
+ *
+ *   NO BACKDROP SET. The stock look is what the page has, so it is what the
+ *   sidebar should have.
+ *
+ *   AN IMAGE. What colour a photograph "is" cannot be worked out here, and
+ *   guessing wrong is worse than not guessing: the backdrop colour behind
+ *   it is used if there is one, since that is a decision somebody made.
+ *
+ * A gradient is taken at its starting colour rather than repeated. Running
+ * the same gradient down a narrow column beside a wide one shows two
+ * different slices of it and reads as a mismatch rather than a match.
+ */
+export function sidebarSurface(bg) {
+  if (!backgroundIsSet(bg)) return null
+  const cfg = { ...DEFAULT_BACKGROUND, ...(bg || {}) }
+
+  let colour = null
+  if (cfg.mode === 'color') colour = cfg.color
+  else if (cfg.mode === 'gradient') colour = cfg.gradientFrom
+  // The RAW field, not the merged one: `DEFAULT_BACKGROUND` carries a
+  // colour, so the merged object can never say "nobody chose one" -- and
+  // for an image that is the whole question.
+  else if (cfg.mode === 'image') colour = bg?.color || null
+
+  if (!colour) return null
+  return { background: colour, light: usesLightText(cfg) }
+}
+
 export function usesLightText(bg) {
   const cfg = { ...DEFAULT_BACKGROUND, ...(bg || {}) }
   const mode = cfg.textMode || 'auto'
