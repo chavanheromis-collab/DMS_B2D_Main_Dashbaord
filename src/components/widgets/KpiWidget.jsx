@@ -5,6 +5,7 @@ import { aggNeedsColumn } from '../../lib/config'
 import { matchesConditions } from '../../lib/filterEngine'
 import AppImage from '../PageIcon.jsx'
 import { safeImageUrl } from '../../lib/imageUrl'
+import { isRound, ringFraction, ringGeometry, ringIsMeaningful, shapeOf } from '../../lib/kpiShapes'
 
 /**
  * A KPI's mark.
@@ -185,6 +186,10 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
   // The side layout only makes sense when there is actually an image to put
   // there -- with an emoji it would be a large empty tile.
   const sideImage = widget.iconPlacement === 'side' && Boolean(safeImageUrl(widget.iconUrl))
+  // Which shape this card takes. Every shape shows the same number from the
+  // same data -- what changes is what the eye is meant to do with it. See
+  // lib/kpiShapes.js.
+  const shape = shapeOf(widget, sideImage)
   const imageSize = Number(widget.iconSize) || 52
   // The share bar and its "of N unfiltered · TAB" caption.
   //
@@ -266,7 +271,42 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
           number and label to its right -- the shape a KPI takes when the
           image IS the identity of the thing being measured (a brand mark, a
           model photo) rather than a decorative glyph. */}
-      {sideImage ? (
+      {isRound(shape) ? (
+        <RoundKpi
+          widget={widget}
+          shape={shape}
+          animated={animated}
+          value={value}
+          baseline={baseline}
+          color={color}
+          isConversion={isConversion}
+          clickable={clickable}
+          isDrilled={isDrilled}
+        />
+      ) : shape === 'centred' ? (
+        <div className="relative flex flex-1 flex-col items-center justify-center py-1 text-center">
+          <p className="text-4xl font-bold leading-none tabular-nums text-slate-800">
+            {formatNumber(
+              animated,
+              isConversion ? 'percent' : widget.format,
+              isConversion ? 'percent' : widget.aggregation
+            )}
+          </p>
+          <p className="mt-2 truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            {widget.icon ? `${widget.icon} ` : ''}
+            {widget.title}
+          </p>
+          {clickable && (
+            <MousePointerClick
+              size={12}
+              className={`absolute right-0 top-0 transition-opacity ${
+                isDrilled ? 'opacity-70' : 'opacity-0 group-hover:opacity-50'
+              }`}
+              style={{ color }}
+            />
+          )}
+        </div>
+      ) : sideImage ? (
         <div className="relative flex items-center gap-3">
           <span
             className="flex shrink-0 items-center justify-center overflow-hidden rounded-xl ring-1"
@@ -363,6 +403,113 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
         </>
       ) : (
         widget.ignoreFilters && <p className="relative mt-1 truncate text-[10px] text-slate-400">unfiltered</p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A KPI drawn as a circle, with the number inside it.
+ *
+ * Two of them, because they answer different questions. A RING is a
+ * proportion -- how much of a target, or of the unfiltered total, this
+ * figure is -- and the circle itself carries that meaning. A BADGE is not a
+ * proportion at all: it is a count made unmissable, for a row of them read
+ * at a glance.
+ *
+ * Both put the number in the middle, which is the whole point: the eye
+ * lands on the figure rather than reading a label first and finding it.
+ */
+function RoundKpi({ widget, shape, animated, value, baseline, color, isConversion, clickable, isDrilled }) {
+  const size = Math.max(72, Math.min(160, Number(widget.kpiRingSize) || 104))
+  const fraction = ringFraction(value, { target: widget.kpiTarget, baseline })
+  // A ring with nothing to be a share of is always full, which is a
+  // decoration wearing the clothes of a measurement. It says so rather than
+  // drawing a circle that means nothing.
+  const meaningful = ringIsMeaningful({ target: widget.kpiTarget, baseline })
+  const ring = ringGeometry(fraction, size, Math.max(6, Math.round(size / 13)))
+  const text = formatNumber(
+    animated,
+    isConversion ? 'percent' : widget.format,
+    isConversion ? 'percent' : widget.aggregation
+  )
+
+  return (
+    <div className="relative flex flex-1 flex-col items-center justify-center gap-2 py-1">
+      <div className="relative" style={{ width: size, height: size }}>
+        {shape === 'ring' ? (
+          <svg width={size} height={size} className="-rotate-90" aria-hidden>
+            {/* The track first, so the fill draws over it. */}
+            <circle
+              cx={ring.centre}
+              cy={ring.centre}
+              r={ring.r}
+              fill="none"
+              stroke={color}
+              strokeOpacity={0.16}
+              strokeWidth={ring.stroke}
+            />
+            <circle
+              cx={ring.centre}
+              cy={ring.centre}
+              r={ring.r}
+              fill="none"
+              stroke={color}
+              strokeWidth={ring.stroke}
+              strokeLinecap="round"
+              strokeDasharray={ring.circumference}
+              strokeDashoffset={ring.offset}
+              className="transition-[stroke-dashoffset] duration-700 ease-out"
+            />
+          </svg>
+        ) : (
+          <span
+            className="block h-full w-full rounded-full"
+            style={{
+              background: `radial-gradient(120% 120% at 30% 20%, ${color} 0%, ${color}D9 60%, ${color}B3 100%)`,
+              boxShadow: `0 10px 22px -10px ${color}`,
+            }}
+          />
+        )}
+
+        {/* The number, centred over whichever circle was drawn. A badge is
+            a solid disc of the KPI's own colour, so its writing is white --
+            every other shape keeps the card's ink. */}
+        <span className="absolute inset-0 flex flex-col items-center justify-center px-2 text-center">
+          <span
+            className={`font-bold leading-none tabular-nums ${shape === 'badge' ? 'text-white' : 'text-slate-800'}`}
+            style={{ fontSize: Math.max(15, Math.round(size / (text.length > 5 ? 5.2 : 3.6))) }}
+          >
+            {text}
+          </span>
+          {/* Only a ring can be a proportion, so only a ring says what of. */}
+          {shape === 'ring' && meaningful && (
+            <span className="mt-0.5 text-[10px] font-semibold tabular-nums text-slate-400">
+              {Math.round(fraction * 100)}%
+            </span>
+          )}
+        </span>
+      </div>
+
+      <p className="max-w-full truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        {widget.icon ? `${widget.icon} ` : ''}
+        {widget.title}
+      </p>
+
+      {/* Said out loud, because a full circle looks like an achievement and
+          this one is only a shape. */}
+      {shape === 'ring' && !meaningful && (
+        <p className="text-[9px] text-slate-400">set a target to fill this ring</p>
+      )}
+
+      {clickable && (
+        <MousePointerClick
+          size={12}
+          className={`absolute right-0 top-0 transition-opacity ${
+            isDrilled ? 'opacity-70' : 'opacity-0 group-hover:opacity-50'
+          }`}
+          style={{ color }}
+        />
       )}
     </div>
   )

@@ -7,6 +7,7 @@ import {
   numericBounds,
   stepFor,
   stepperTicks,
+  widgetOptionRows,
 } from '../lib/widgetControls'
 import { controlWidth } from '../lib/pageControls'
 // The same slider primitives the page filter bar uses. Scope differs -- a
@@ -44,7 +45,11 @@ export default function WidgetControls({ controls, values, onChange, onReset, ro
             <OneControl
               control={control}
               value={values?.[control.id]}
-              rows={rows}
+              // Narrowed by the widget's OTHER controls, so picking a
+              // category leaves only the models that category has -- see
+              // lib/widgetControls.js. Its own value is left out, or it
+              // would offer only what is already picked.
+              rows={widgetOptionRows(control, { rows, controls, values, dateOrder })}
               dateOrder={dateOrder}
               onChange={(v) => onChange(control.id, v)}
               sized={!!px}

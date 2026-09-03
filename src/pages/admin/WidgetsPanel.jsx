@@ -23,6 +23,7 @@ import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
 import { hasCustomStyle } from '../../lib/widgetStyle'
 import { COLOR_MODES, DEFAULT_REFERENCE, REFERENCE_KINDS, chartCaps, unsupportedNote } from '../../lib/chartOptions'
 import { PIE_LIST_POSITIONS, PIE_LIST_STYLES } from '../../lib/pieData'
+import { KPI_SHAPES } from '../../lib/kpiShapes'
 import {
   BAND_KINDS,
   CUMULATIVE_MODES,
@@ -764,6 +765,50 @@ function KpiEditor({ widget, cols, tabs, tabHeaders, set }) {
 
       {safeImageUrl(widget.iconUrl) && (
         <div className="col-span-2 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2 md:grid-cols-3">
+          {/* Every shape shows the same number from the same data. What
+              changes is what the eye is meant to do with it -- see
+              lib/kpiShapes.js. */}
+          <Field
+            label="Card shape"
+            hint={KPI_SHAPES.find((s) => s.value === (widget.kpiShape || 'classic'))?.hint}
+          >
+            <Select
+              value={widget.kpiShape || 'classic'}
+              onChange={(v) => set({ kpiShape: v })}
+              options={KPI_SHAPES}
+            />
+          </Field>
+
+          {/* Only where it would be drawn. A target on a shape that cannot
+              show one is a control that does nothing. */}
+          {widget.kpiShape === 'ring' && (
+            <Field
+              label="Ring target"
+              hint={
+                Number(widget.kpiTarget) > 0
+                  ? 'The ring fills towards this.'
+                  : 'Blank fills it against the unfiltered total instead.'
+              }
+            >
+              <TextInput
+                type="number"
+                value={widget.kpiTarget ?? ''}
+                onChange={(v) => set({ kpiTarget: v })}
+                placeholder="unfiltered total"
+              />
+            </Field>
+          )}
+
+          {['ring', 'badge'].includes(widget.kpiShape) && (
+            <Field label="Circle size (px)">
+              <TextInput
+                type="number"
+                value={widget.kpiRingSize ?? 104}
+                onChange={(v) => set({ kpiRingSize: Number(v) || 104 })}
+              />
+            </Field>
+          )}
+
           <Field
             label="Image placement"
             hint={

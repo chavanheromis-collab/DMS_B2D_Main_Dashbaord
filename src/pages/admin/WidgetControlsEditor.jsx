@@ -224,6 +224,28 @@ export default function WidgetControlsEditor({ widget, cols, tabHeaders, set }) 
                   />
                 )}
 
+                {/* Whether this control's choices are narrowed by the
+                    widget's other controls -- pick a category and only that
+                    category's models are offered. The page's control bar
+                    has always worked this way; a widget's own controls did
+                    not, so two of them never narrowed each other.
+
+                    On by default, because a list offering values that come
+                    back empty is the thing people report as a bug. Off is
+                    for the control meant to be picked FIRST, and for one
+                    measuring the whole tab rather than the current view. */}
+                {['select', 'multi'].includes(control.kind) && (
+                  <label className="flex items-center gap-1 text-[10px] text-slate-500">
+                    <input
+                      type="checkbox"
+                      checked={!control.independent}
+                      onChange={(e) => setControl({ independent: !e.target.checked })}
+                      className="h-3 w-3 rounded border-slate-300"
+                    />
+                    Narrow by the other controls
+                  </label>
+                )}
+
                 {/* Same pixel convention as the page control bar. */}
                 <span className="flex items-center gap-1">
                   <TextInput

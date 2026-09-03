@@ -7,6 +7,7 @@ import {
   Filter,
   GitBranch,
   ArrowDownWideNarrow,
+  Eye,
   EyeOff,
   ListTree,
   Maximize2,
@@ -144,6 +145,12 @@ export default function FlowWidget({
   )
 
   const [fullscreen, setFullscreen] = useState(false)
+  // Whether the floating controls are faded out. Only ever true in full
+  // screen -- there is nothing to get out of the way of on a card.
+  const [bare, setBare] = useState(false)
+  // The chrome only floats over the DIAGRAM: a table read from the top down
+  // would have its first rows permanently behind the panel.
+  const floating = fullscreen && view === 'diagram'
 
   const forest = useMemo(() => {
     const built = buildFlowTrees({
@@ -337,8 +344,35 @@ export default function FlowWidget({
       ref={rootRef}
       onPointerEnter={() => setEngaged(true)}
       onPointerLeave={() => setEngaged(false)}
-      className={`card ${fullscreen ? 'flex h-full flex-col overflow-hidden' : ''}`}
+      className={`card ${
+        fullscreen ? 'relative flex h-full flex-col overflow-hidden rounded-none border-0 p-0' : ''
+      }`}
     >
+      {/* Full screen means the CANVAS gets the screen. The chrome stops
+          being a band above the diagram and becomes a panel floating over
+          it -- so the picture is the whole window rather than the window
+          minus a header, which is the entire reason anybody presses the
+          button. It is still every control it was, in the same order.
+          
+          Only over the DIAGRAM. A table under a floating panel would have
+          its first rows permanently hidden behind it, and a table is read
+          from the top down. */}
+      <div
+        className={
+          floating
+            ? `pointer-events-none absolute inset-x-0 top-0 z-20 p-2 transition-opacity duration-200 ${
+                bare ? 'opacity-0 hover:opacity-100 focus-within:opacity-100' : ''
+              }`
+            : ''
+        }
+      >
+      <div
+        className={
+          floating
+            ? 'pointer-events-auto rounded-xl border border-slate-200/70 bg-white/85 p-2 shadow-lg backdrop-blur'
+            : ''
+        }
+      >
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="widget-title">🔀 {widget.title}</h2>
@@ -445,6 +479,22 @@ export default function FlowWidget({
               ]}
               count={exportRows().length}
             />
+          )}
+          {/* Out of the way altogether, for reading a wide flow. It comes
+              back on hover or on a keyboard focus, so it is never lost --
+              which is what makes hiding it safe to offer. */}
+          {floating && (
+            <button
+              onClick={() => setBare((b) => !b)}
+              className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium ${
+                bare
+                  ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
+                  : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+              }`}
+              title={bare ? 'Keep these controls on screen' : 'Fade these controls out until you need them'}
+            >
+              {bare ? <Eye size={11} /> : <EyeOff size={11} />}
+            </button>
           )}
           <button
             onClick={() => setFullscreen((f) => !f)}
@@ -580,10 +630,13 @@ export default function FlowWidget({
         />
       ))}
 
+      </div>
+      </div>
+
       {forest.depth === 0 ? (
         <p className="empty-state">No levels configured yet</p>
       ) : view === 'diagram' ? (
-        <div className={fullscreen || fillHeight ? 'min-h-0 flex-1' : ''}>
+        <div className={floating ? 'absolute inset-0' : fullscreen || fillHeight ? 'min-h-0 flex-1' : ''}>
           <FlowDiagram
             roots={roots}
             flow={viewFlow}
@@ -627,11 +680,9 @@ export default function FlowWidget({
 
   if (!fullscreen) return card
 
-  return (
-    <div className="fixed inset-0 z-[60] bg-slate-900/50 p-2 backdrop-blur-sm sm:p-4">
-      <div className="mx-auto h-full max-w-[1800px]">{card}</div>
-    </div>
-  )
+  // No padding and no maximum width: "full screen" that stops 100px short
+  // of the edges on a wide monitor is the one thing it cannot be.
+  return <div className="fixed inset-0 z-[60] bg-white">{card}</div>
 }
 
 /**

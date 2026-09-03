@@ -227,6 +227,30 @@ export function applyWidgetControls(rows, controls, values, dateOrder = 'DMY') {
 }
 
 /**
+ * The rows one of a widget's own controls should build its choices from.
+ *
+ * Every control on a widget was drawing its list from the SAME rows, so two
+ * of them never narrowed each other: pick a category and the model list
+ * still offered every model in the tab, most of which would come back
+ * empty. The page's control bar has narrowed this way for a long time
+ * (`optionRows` in lib/pageControls.js) -- this is the same rule, brought
+ * to the controls that sit on a widget.
+ *
+ * Its OWN value is left out, and that is the whole subtlety: narrowing a
+ * control by itself would leave it offering only what is already picked,
+ * so nobody could ever change their mind.
+ *
+ * `independent` opts out. A control marked so keeps offering everything --
+ * which is what you want for the one that is meant to be picked FIRST, and
+ * for anything measuring the whole tab rather than the current view.
+ */
+export function widgetOptionRows(control, { rows, controls, values, dateOrder = 'DMY' } = {}) {
+  if (!control || control.independent) return rows || []
+  const others = (controls || []).filter((c) => c && c.id !== control.id)
+  return applyWidgetControls(rows, others, values, dateOrder)
+}
+
+/**
  * The value a control starts at. Mostly `undefined` (meaning "not
  * narrowing"), but a control the admin marked as having a default opens with
  * it already applied.

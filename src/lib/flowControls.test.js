@@ -520,3 +520,68 @@ test('the log toggle is on the panel, not a setting only code can reach', () => 
   const panel = read('pages/admin/WidgetsPanel.jsx')
   assert.ok(panel.includes('onChange={(v) => set({ logScale: v })}'))
 })
+
+// ---------------------------------------------------------------------
+// Full screen means the canvas gets the screen
+// ---------------------------------------------------------------------
+
+test('full screen has no margins and no maximum width', () => {
+  // "Full screen" that stops a hundred pixels short of the edges on a wide
+  // monitor is the one thing it cannot be.
+  assert.ok(widget.includes('return <div className="fixed inset-0 z-[60] bg-white">{card}</div>'))
+  assert.ok(!widget.includes('max-w-[1800px]'), 'no cap on the width')
+})
+
+test('and the card gives up its own frame while it is there', () => {
+  // A rounded card with a border, inset inside a full-screen window, is a
+  // card pretending to be a screen.
+  assert.ok(widget.includes("fullscreen ? 'relative flex h-full flex-col overflow-hidden rounded-none border-0 p-0' : ''"))
+})
+
+test('the diagram fills the whole of it', () => {
+  assert.ok(widget.includes("floating ? 'absolute inset-0' : fullscreen || fillHeight ? 'min-h-0 flex-1' : ''"))
+})
+
+test('the controls float over the picture rather than taking a band of it', () => {
+  // Otherwise full screen is the window MINUS a header, which is not the
+  // thing anybody presses the button for.
+  assert.ok(widget.includes('pointer-events-none absolute inset-x-0 top-0 z-20 p-2'))
+  assert.ok(widget.includes('pointer-events-auto rounded-xl border border-slate-200/70 bg-white/85'))
+})
+
+test('...and only over the picture, never over a table', () => {
+  // A table is read from the top down, and its first rows would be behind
+  // the panel for ever.
+  assert.ok(widget.includes("const floating = fullscreen && view === 'diagram'"))
+})
+
+test('the controls can be got out of the way, and always come back', () => {
+  // Hiding something is only safe to offer when finding it again is not a
+  // puzzle -- so it returns on hover and on a keyboard focus.
+  assert.ok(widget.includes('onClick={() => setBare((b) => !b)}'))
+  assert.ok(widget.includes("bare ? 'opacity-0 hover:opacity-100 focus-within:opacity-100' : ''"))
+  assert.ok(widget.includes('{floating && ('), 'and it is only offered where there is something to hide')
+})
+
+test('every control the widget had is still there in full screen', () => {
+  // The point was to move the chrome, not to take features away: the view
+  // switch, the breakdown pickers, the export and the trail are all inside
+  // the panel that floats.
+  const chrome = widget.slice(widget.indexOf('pointer-events-none absolute inset-x-0'), widget.indexOf('forest.depth === 0'))
+  for (const control of ['setFullscreen', 'FocusTrail', 'changeable.map']) {
+    assert.ok(chrome.includes(control), control)
+  }
+  // ...and the panel CLOSES before the canvas opens. Slicing up to the
+  // canvas cannot see this on its own: move the closing tags below it and
+  // the slice is identical, while the trail ends up drawn over the picture.
+  const raw = fs.readFileSync(path.join(SRC, 'components/widgets/FlowWidget.jsx'), 'utf8')
+  const nl = String.fromCharCode(10)
+  const pad = '      '
+  const shut = pad + '</div>' + nl + pad + '</div>'
+  const flat = raw.split(String.fromCharCode(13)).join('')
+  assert.ok(flat.includes(shut), 'the panel closes')
+  assert.ok(
+    flat.includes(shut + nl + nl + pad + '{forest.depth === 0 ? ('),
+    'and it closes BEFORE the canvas opens'
+  )
+})

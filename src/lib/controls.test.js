@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import { controlColumns } from './pageControls.js'
 import {
@@ -9,6 +11,7 @@ import {
   numericBounds,
   stepFor,
   stepperTicks,
+  widgetOptionRows,
 } from './widgetControls.js'
 import { orderWidgets } from './widgetOrder.js'
 import { luminance, usesLightText } from './pageBackground.js'
@@ -236,4 +239,108 @@ test('switching it on with nothing picked joins nothing', () => {
 test('a control with no column at all has no columns', () => {
   assert.deepEqual(controlColumns({}), [])
   assert.deepEqual(controlColumns(null), [])
+})
+
+// ---------------------------------------------------------------------
+// A widget's controls narrowing each other
+// ---------------------------------------------------------------------
+
+const BIKES = [
+  { Category: 'Scooter', Model: 'Pleasure', Colour: 'Red' },
+  { Category: 'Scooter', Model: 'Destini', Colour: 'Blue' },
+  { Category: 'Bike', Model: 'Splendor', Colour: 'Red' },
+  { Category: 'Bike', Model: 'Xtreme', Colour: 'Black' },
+]
+
+const cat = { id: 'c1', kind: 'select', column: 'Category' }
+const model = { id: 'c2', kind: 'select', column: 'Model' }
+const colour = { id: 'c3', kind: 'select', column: 'Colour' }
+
+test('a control offers only what the other controls have left', () => {
+  // Every control on a widget drew from the SAME rows, so picking a
+  // category still offered every model in the tab -- most of which came
+  // back empty. That is what people report as a bug.
+  const rows = widgetOptionRows(model, {
+    rows: BIKES,
+    controls: [cat, model, colour],
+    values: { c1: 'Scooter' },
+  })
+  assert.deepEqual(rows.map((r) => r.Model), ['Pleasure', 'Destini'])
+})
+
+test('and it never narrows itself', () => {
+  // Narrowing a control by its own value leaves it offering only what is
+  // already picked, so nobody could change their mind.
+  const rows = widgetOptionRows(model, {
+    rows: BIKES,
+    controls: [cat, model],
+    values: { c2: 'Splendor' },
+  })
+  assert.equal(rows.length, 4)
+})
+
+test('two controls narrow it together', () => {
+  const rows = widgetOptionRows(model, {
+    rows: BIKES,
+    controls: [cat, model, colour],
+    values: { c1: 'Bike', c3: 'Red' },
+  })
+  assert.deepEqual(rows.map((r) => r.Model), ['Splendor'])
+})
+
+test('a control marked independent keeps offering everything', () => {
+  // For the one meant to be picked FIRST, and for anything measuring the
+  // whole tab rather than the current view.
+  const rows = widgetOptionRows(
+    { ...model, independent: true },
+    { rows: BIKES, controls: [cat, model], values: { c1: 'Scooter' } }
+  )
+  assert.equal(rows.length, 4)
+})
+
+test('the only control on a widget is narrowed by nothing', () => {
+  const rows = widgetOptionRows(model, { rows: BIKES, controls: [model], values: { c2: 'Xtreme' } })
+  assert.equal(rows.length, 4)
+})
+
+test('nothing chosen anywhere narrows nothing', () => {
+  const rows = widgetOptionRows(model, { rows: BIKES, controls: [cat, model, colour], values: {} })
+  assert.equal(rows.length, 4)
+})
+
+test('and it survives being asked about nothing at all', () => {
+  // Narrowing nothing is the safe answer everywhere here: a half-built
+  // control must leave the list alone rather than empty it, or a widget
+  // mid-edit shows a dropdown with nothing in it.
+  assert.deepEqual(widgetOptionRows(null, { rows: BIKES }), BIKES)
+  assert.deepEqual(widgetOptionRows(model, { rows: BIKES }), BIKES, 'no other controls')
+  assert.deepEqual(widgetOptionRows(model, {}), [], 'and no rows is no rows')
+})
+
+// --- wiring ---------------------------------------------------------------
+
+const ROOT = path.resolve(import.meta.dirname, '..', '..')
+const readSrc = (p) =>
+  fs
+    .readFileSync(path.join(ROOT, p), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+    .replace(/\s+/g, ' ')
+
+test('a widget control is drawn from rows the others have narrowed', () => {
+  const ui = readSrc('src/components/WidgetControls.jsx')
+  assert.ok(ui.includes('rows={widgetOptionRows(control, { rows, controls, values, dateOrder })}'))
+  // The WHOLE list of controls, or it narrows by nothing.
+  assert.ok(!ui.includes('controls: [control]'))
+})
+
+test('the admin can turn it off, and the switch reads the right way round', () => {
+  // Stored as `independent` because that is what the engine reads; shown
+  // as its opposite, because "narrow by the others" is the thing somebody
+  // is deciding.
+  const ed = readSrc('src/pages/admin/WidgetControlsEditor.jsx')
+  assert.ok(ed.includes('checked={!control.independent}'))
+  assert.ok(ed.includes('onChange={(e) => setControl({ independent: !e.target.checked })}'))
+  assert.ok(ed.includes('Narrow by the other controls'))
 })
