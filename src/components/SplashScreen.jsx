@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { entranceDuration, liveEntranceItems, logoBox, resolveBrand } from '../lib/branding'
 import { backdropClass, backdropOf, themeOf, themeVars } from '../lib/entranceThemes'
-import { ENTRANCE_WAIT_MS, entranceIsSettled } from '../lib/entranceMemory'
+import { ENTRANCE_WAIT_MS, entranceIsKnown, entranceIsSettled } from '../lib/entranceMemory'
 import { celebrates, celebrationFor } from '../lib/celebrate'
 import Celebration from './Celebration.jsx'
 import { useImageFallback } from '../hooks/useImageFallback'
@@ -90,6 +90,12 @@ export default function SplashScreen({ onDone, entrance }) {
   // re-centred around them.
   const ready = entranceIsSettled(entrance) || waited
 
+  // Whether there is a GROUND to paint, which is a different question from
+  // whether there is a whole entrance to show. The browser's memory answers
+  // the first on the very first frame; only the live read answers the
+  // second, because the announcements are deliberately not remembered.
+  const known = entranceIsKnown(entrance)
+
   const items = liveEntranceItems(entrance)
   const brand = resolveBrand(entrance, BRAND_NAME, BRAND_TAGLINE)
   const duration = entranceDuration(entrance, items.length)
@@ -156,10 +162,11 @@ export default function SplashScreen({ onDone, entrance }) {
       style={{
         ...themeVars(theme),
         background: 'var(--splash-bg)',
-        // Held back rather than painted in the wrong colours. Fading in
-        // rather than appearing, so a first visit reads as the entrance
-        // arriving and not as a flicker.
-        opacity: ready ? 1 : 0,
+        // The GROUND, as soon as there is one to paint -- which on any
+        // visit after the first is the first frame. Held back only where
+        // even that would be a guess, and faded rather than appearing, so a
+        // first visit reads as the entrance arriving and not as a flicker.
+        opacity: known ? 1 : 0,
         transition: 'opacity 220ms ease',
       }}
       aria-hidden={!ready}
@@ -174,6 +181,21 @@ export default function SplashScreen({ onDone, entrance }) {
       {/* Held until the entrance is actually on screen: paper thrown behind
           a hidden splash is paper nobody sees. */}
       {celebration && ready && <Celebration seed={celebration.seed} durationMs={duration} />}
+
+      {/* Everything with an animation on it is MOUNTED when the entrance
+          becomes visible, never before.
+
+          This is the bug that put the announcements out of step: the splash
+          was drawn on the first frame and merely held at zero opacity, so
+          every delay -- the per-letter wordmark, the stagger on the cards --
+          was counted from a moment nobody could see. By the time it faded
+          in, the letters had finished and the cards were arriving into an
+          entrance that was already half over.
+
+          Mounted here, every clock starts when the thing it belongs to
+          starts, and the composition arrives in the order it was written. */}
+      {ready && (
+      <>
 
       {/* The content COLUMN, which takes what is left after the hint has
           had its line -- rather than being centred in the whole screen with
@@ -317,6 +339,8 @@ export default function SplashScreen({ onDone, entrance }) {
       >
         click anywhere to continue
       </p>
+      </>
+      )}
     </div>
   )
 }

@@ -180,10 +180,32 @@ test('the entrance appears whole, not in pieces', () => {
 test('the splash paints nothing until it knows what to paint', () => {
   const splash = read('components/SplashScreen.jsx')
   assert.ok(splash.includes('entranceIsSettled(entrance) || waited'), 'it draws before the read has landed')
-  assert.ok(splash.includes('opacity: ready ? 1 : 0'), 'the wrong theme is painted while it waits')
+  // The GROUND as soon as there is one -- which on any visit after the
+  // first is the first frame, because the browser remembers it.
+  assert.ok(splash.includes('opacity: known ? 1 : 0'), 'a first visit paints a guessed theme')
   // And the clock starts when it is on screen: a splash that spent half its
   // life invisible would be gone before it was read.
   assert.ok(splash.includes('if (!ready) return undefined'), 'the timer runs while it is hidden')
+})
+
+test('nothing animates while nobody can see it', () => {
+  // The bug that put the announcements out of step: the splash was drawn on
+  // the first frame and merely held at zero opacity, so every delay -- the
+  // per-letter wordmark, the stagger on the cards -- was counted from a
+  // moment nobody could see. By the time it faded in the letters had
+  // finished and the cards were arriving into an entrance already half over.
+  const splash = read('components/SplashScreen.jsx')
+  const at = splash.indexOf('{ready && (')
+  assert.ok(at >= 0, 'the content is mounted before it is visible again')
+
+  // Everything with a delay on it is inside that gate.
+  const gated = splash.slice(at)
+  for (const timed of ['splash-letter', 'splash-item', 'itemsDelay', 'splash-hint']) {
+    assert.ok(gated.includes(timed), `${timed} animates while the splash is hidden`)
+  }
+  // ...and the ground is not, or there would be nothing to fade in.
+  const before = splash.slice(splash.indexOf('role="presentation"'), at)
+  assert.ok(before.includes('splash-orb'), 'the ground waits too, and the entrance flashes in whole')
 })
 
 test('the look is kept as it arrives, or the next load flashes too', () => {
