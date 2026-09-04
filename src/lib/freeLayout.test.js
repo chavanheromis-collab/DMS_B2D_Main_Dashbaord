@@ -743,7 +743,13 @@ test('the page saves a rectangle and nothing else', () => {
 test('a page from the old engine is seeded once, not every time it loads', () => {
   const dash = readFile('src/pages/Dashboard.jsx')
   assert.ok(dash.includes('seedFrom('))
-  assert.ok(dash.includes('.every(isPlaced)'), 'and only when something is unplaced')
+  // It used to leave the moment every widget had a rectangle. That guard is
+  // the same question asked the other way round -- and it had to change,
+  // because ADDING one widget made it false again and re-seeded the whole
+  // page from measured pixels. Now the unplaced ones are counted, so the
+  // migration and a new widget can be told apart.
+  assert.ok(dash.includes('const unplaced = (levelWidgets || []).filter((w) => !isPlaced(w))'))
+  assert.ok(dash.includes('if (unplaced.length === 0) return'), 'and only when something is unplaced')
 })
 
 // ---------------------------------------------------------------------
@@ -1034,4 +1040,71 @@ test('the whole pinned group is nudged by one number, not each widget by its own
   assert.ok(canvas.includes('const held = isPinned(item) ? pinShift : 0'))
   // Worked out once, outside the loop that draws the widgets.
   assert.equal(canvas.split('pinnedShift(').length, 2, 'exactly one place computes it')
+})
+
+// --- adding a widget to a page that is already arranged ------------------
+
+test('a widget with a rectangle keeps it, to the pixel', () => {
+  // The bug this is the floor under: adding one widget re-seeded the WHOLE
+  // page from measured pixels, and measured pixels do not survive the round
+  // trip -- divided back by the canvas scale, rounded, clamped. Every
+  // widget shifted a little, and the shift was saved.
+  const arranged = [
+    { id: 'a', boxX: '0', boxY: '0', boxW: '400', boxH: '240' },
+    { id: 'b', boxX: '408', boxY: '0', boxW: '400', boxH: '240' },
+    { id: 'c', boxX: '0', boxY: '252', boxW: '816', boxH: '300' },
+  ]
+  const before = placeAll(arranged)
+  const after = placeAll([...arranged, { id: 'new' }])
+
+  for (const rect of before) {
+    const now = after.find((r) => r.id === rect.id)
+    assert.deepEqual(now, rect, `${rect.id} moved when a widget was added`)
+  }
+})
+
+test('...and the new one is the only thing written back', () => {
+  // Which is what `changedIn` is for: whatever else placeAll returns, only
+  // a rectangle that is actually new or actually different is saved.
+  const arranged = [
+    { id: 'a', boxX: '0', boxY: '0', boxW: '400', boxH: '240' },
+    { id: 'b', boxX: '408', boxY: '0', boxW: '400', boxH: '240' },
+  ]
+  const before = placeAll(arranged)
+  const after = placeAll([...arranged, { id: 'new' }])
+  assert.deepEqual(changedIn(before, after).map((r) => r.id), ['new'])
+})
+
+test('the new one lands somewhere free, not on top of what is there', () => {
+  const arranged = [{ id: 'a', boxX: '0', boxY: '0', boxW: '1280', boxH: '240' }]
+  const [, fresh] = placeAll([...arranged, { id: 'new', estimatedWidth: 400, estimatedHeight: 200 }])
+  assert.ok(fresh.y >= 240, `it landed at ${fresh.y}, over the widget already there`)
+  // And within the canvas, so it is not off the right-hand edge.
+  assert.ok(fresh.x >= 0 && fresh.x + fresh.w <= DESIGN_WIDTH)
+})
+
+test('the size it lands at is the one it was guessed to need', () => {
+  const [rect] = placeAll([{ id: 'k', estimatedWidth: 240, estimatedHeight: 150 }])
+  assert.equal(rect.w, 240)
+  assert.equal(rect.h, 150)
+  // A guess that is missing or absurd still produces something drawable.
+  // Both directions, and both floors: a widget half a centimetre tall is
+  // on the page and cannot be found to be dragged bigger.
+  const [fallback] = placeAll([{ id: 'x' }])
+  assert.ok(fallback.w >= MIN_W && fallback.h >= MIN_H)
+  const [tiny] = placeAll([{ id: 't', estimatedWidth: 2, estimatedHeight: 3 }])
+  assert.equal(tiny.w, MIN_W)
+  assert.equal(tiny.h, MIN_H)
+  const [huge] = placeAll([{ id: 'h', estimatedWidth: 99999, estimatedHeight: 400 }])
+  assert.equal(huge.w, DESIGN_WIDTH, 'a wide guess is not brought back onto the canvas')
+})
+
+test('only a page where NOTHING is placed is seeded from the screen', () => {
+  // Seeding from measured pixels is a migration, and running it on a page
+  // that is already arranged is what moved everything.
+  const dashboard = fs.readFileSync(path.join(ROOT, 'src/pages/Dashboard.jsx'), 'utf8')
+  assert.ok(dashboard.includes('if (unplaced.length < levelWidgets.length) {'), 'the two cases are not told apart')
+  assert.ok(dashboard.includes('placeAll(guessed).filter((rect) => wanted.has(rect.id))'), 'more than the new one is saved')
+  // The migration is still there for the page that needs it.
+  assert.ok(dashboard.includes('seedFrom(Object.fromEntries(measured)'), 'an unarranged page is left unplaced')
 })

@@ -10,8 +10,12 @@ import {
   DEFAULT_JOIN,
   WIDTH_PRESETS,
   controlColumns,
+  canBeDefault,
   controlMode,
   controlWidth,
+  defaultList,
+  takesManyValues,
+  toggleDefault,
   DEFAULT_MENU_WIDTH,
   MAX_MENU_WIDTH,
   MIN_MENU_WIDTH,
@@ -207,23 +211,80 @@ function conditionColumns(control) {
  * by nothing -- an admin choosing a value is describing what the data CAN
  * say, not what it happens to be saying while they choose.
  */
-function ValueBox({ value, onChange, choices }) {
+/**
+ * The value a control starts on, PICKED rather than typed.
+ *
+ * It used to be a text box with a `datalist` behind it, which is a hint no
+ * browser shows until you start typing and several show not at all. So the
+ * column's own values are on screen: one press sets the default, and for a
+ * multi-choice or chips control the presses add up.
+ *
+ * The box stays. The values are what the column held at the last sync, and
+ * a sheet gets new ones every day -- so a default that is not in the list
+ * yet has to remain possible to write.
+ *
+ * `takesMany` decides the shape, not the look: a many-valued default is
+ * stored as one comma-separated string, which is how the engine has always
+ * read it. See lib/pageControls.js, including the one value that shape
+ * cannot carry.
+ */
+function ValueBox({ value, onChange, choices, control }) {
   const listId = useId()
   const list = Array.isArray(choices) && choices.length > 0 ? choices : null
+  const takesMany = takesManyValues(control)
+  const chosen = takesMany ? defaultList(control) : [String(value ?? '').trim()].filter(Boolean)
+
   return (
     <>
       <TextInput
         value={value}
         onChange={onChange}
-        placeholder={list ? `pick or type (${list.length})` : '—'}
+        placeholder={list ? `pick below, or type` : '—'}
         list={list ? listId : undefined}
       />
       {list && (
-        <datalist id={listId}>
-          {list.map((v) => (
-            <option key={v} value={v} />
-          ))}
-        </datalist>
+        <>
+          <datalist id={listId}>
+            {list.map((v) => (
+              <option key={v} value={v} />
+            ))}
+          </datalist>
+          <div className="mt-1 flex max-h-24 flex-wrap gap-1 overflow-y-auto">
+            {list.map((v) => {
+              const on = chosen.includes(v)
+              // A comma-separated default cannot carry a value with a comma
+              // in it, and "SPLENDOR PLUS, BLACK" is a real cell in a real
+              // sheet. Offered and refused with the reason, rather than
+              // saved as two values that match nothing.
+              const usable = !takesMany || canBeDefault(v)
+              return (
+                <button
+                  key={v}
+                  disabled={!usable}
+                  onClick={() => onChange(takesMany ? toggleDefault(control, v) : on ? '' : v)}
+                  title={
+                    usable
+                      ? on
+                        ? 'Remove from the default'
+                        : 'Use as the default'
+                      : 'This value has a comma in it, and several defaults are stored separated by commas'
+                  }
+                  className={`max-w-[12rem] truncate rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                    on
+                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                      : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                >
+                  {v}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-0.5 text-[10px] text-slate-400">
+            {list.length} value{list.length === 1 ? '' : 's'} at the last sync
+            {takesMany ? ' · press several' : ' · press again to clear'}
+          </p>
+        </>
       )}
     </>
   )
@@ -961,6 +1022,7 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         hint={mode === 'fixed' ? 'What the page always shows.' : 'Blank opens unfiltered.'}
                       >
                         <ValueBox
+                          control={control}
                           value={control.defaultValue ?? ''}
                           onChange={(v) => set({ defaultValue: v })}
                           choices={valuesFor(control.tab, control.column)}

@@ -388,7 +388,7 @@ export function TrendWidget({
         </p>
       ) : (
         <>
-          <div className="min-h-[200px] flex-1">
+          <div className="widget-body flex-1">
             <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 240}>
               <ComposedChart
                 data={data}

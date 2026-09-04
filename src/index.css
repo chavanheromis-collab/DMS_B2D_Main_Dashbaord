@@ -1056,15 +1056,42 @@ aside.fixed.right-0 {
    missing the strip simply stays as it was, which is today's behaviour. */
 .widget-sized.chrome-no-title.chrome-no-caption
   > .card
-  > *:has(> .widget-title):not(:has(button, input, select, a)),
+  > :is(.widget-title, *:has(.widget-title)):not(:has(button, input, select, a)),
 .widget-sized.chrome-no-title
   > .card
-  > *:has(> .widget-title):not(:has(.widget-caption)):not(:has(button, input, select, a)) {
+  > :is(.widget-title, *:has(.widget-title)):not(:has(.widget-caption)):not(:has(button, input, select, a)) {
   position: static;
   margin: 0;
   padding: 0;
   background-color: transparent;
   backdrop-filter: none;
+}
+
+/* A widget given a height sizes its BODY to that height, rather than
+   scrolling it.
+ *
+ * Every chart box carries a floor -- `min-h-[240px]` and friends -- so that
+ * a chart in an auto-height card is never a smear two lines tall. On the
+ * canvas that floor is wrong: the reader has just dragged the card to a
+ * size, and a chart that refuses to go under 240px pushes past the bottom,
+ * the card scrolls, and the picture slides under a scrollbar instead of
+ * fitting. Which is not resizing at all -- it is the same chart, cropped.
+ *
+ * So on a widget with a definite height the floor comes off and the body
+ * takes what the card has. `.recharts-responsive-container` is measured by
+ * the chart itself, so it follows without anything being re-rendered.
+ *
+ * A TABLE still scrolls, and must: its rows cannot shrink, and hiding them
+ * is not fitting them either. This only reaches boxes that are already
+ * flexible -- a chart, a diagram, a picture -- which is exactly the set
+ * that can. */
+.widget-body {
+  /* The floor, and it is the right floor where the card's height comes
+     from its contents: a chart two lines tall is a smear, not a chart. */
+  min-height: 220px;
+}
+.widget-sized > .card .widget-body {
+  min-height: 0;
 }
 
 /* ------------------------------------------------------------------ */

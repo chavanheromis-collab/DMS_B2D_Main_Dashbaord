@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTypingBuffer } from '../hooks/useTypingBuffer'
 import { X } from 'lucide-react'
 import {
   colourOf,
@@ -34,6 +35,37 @@ const DRAG_THRESHOLD = 3
  * `onNotes` is handed the whole list, because every gesture here changes
  * one note and the document holds them together.
  */
+/**
+ * The writing on one note.
+ *
+ * Its own component with its own buffer, and that is the whole point: the
+ * notes live in PAGE state, so a controlled textarea handed every keystroke
+ * upward re-rendered every widget on the canvas -- twenty charts over
+ * thousands of rows -- before the letter appeared. Typing quickly then drops
+ * characters, because the next keystroke lands while the browser is still
+ * drawing the last one.
+ *
+ * Now the note owns what is being typed and the page hears about it when
+ * the typing pauses, or when the writer looks away. See
+ * hooks/useTypingBuffer.js.
+ */
+function NoteText({ note, onText, onDone }) {
+  const [text, onType, flush] = useTypingBuffer(note.text, onText)
+  return (
+    <textarea
+      value={text}
+      onChange={(e) => onType(e.target.value)}
+      onBlur={() => {
+        flush()
+        onDone()
+      }}
+      placeholder="Write a note…"
+      className="min-h-0 flex-1 resize-none bg-transparent px-3 pb-3 pt-1 text-[12.5px] leading-[1.45] tracking-[0.01em] outline-none placeholder:text-black/25"
+      style={{ color: STICKY_INK }}
+    />
+  )
+}
+
 export default function StickyNotes({ notes, onNotes, canvasWidth = 0, hidden = false }) {
   // The drag lives in a ref and is mirrored into state: the pointer
   // handlers fire between renders and must see the move that just
@@ -161,15 +193,15 @@ export default function StickyNotes({ notes, onNotes, canvasWidth = 0, hidden = 
               </button>
             </div>
 
-            <textarea
-              value={note.text}
-              onChange={(e) => onNotes(updateNote(notes, note.id, { text: e.target.value }))}
+            <NoteText
+              note={note}
+              // Through the refs the drag handlers already use, so a
+              // note committed after a pause is merged into the list as it
+              // is NOW -- not the one captured when this note was drawn.
+              onText={(text) => commit.current(updateNote(latest.current.notes, note.id, { text }))}
               // A note nobody wrote on disappears when they look away,
               // rather than sitting there as a blank square.
-              onBlur={() => onNotes(keepWritten(notes))}
-              placeholder="Write a note…"
-              className="min-h-0 flex-1 resize-none bg-transparent px-3 pb-3 pt-1 text-[12.5px] leading-[1.45] tracking-[0.01em] outline-none placeholder:text-black/25"
-              style={{ color: STICKY_INK }}
+              onDone={() => commit.current(keepWritten(latest.current.notes))}
             />
 
             {/* The corner lifting off the wall. Drawn with a gradient

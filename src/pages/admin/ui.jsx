@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { TYPING_PAUSE, useTypingBuffer } from '../../hooks/useTypingBuffer'
 import { activeSection, sectionMark, visibleSections } from '../../lib/sectionTabs.js'
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 
@@ -121,41 +122,11 @@ export function Select({ value, onChange, options, placeholder, disabled, classN
  *   people finish.
  */
 export function TextInput({ value, onChange, placeholder, type = 'text', className = '', disabled, list }) {
-  const incoming = value ?? ''
-  const [text, setText] = useState(incoming)
-  const timer = useRef(null)
-  // The latest of each, so the flush on the way out never fires a stale
-  // handler or an already-delivered value.
-  const latest = useRef({ text: incoming, onChange, sent: incoming })
-  latest.current.onChange = onChange
-
-  // Someone else changed it: a different widget, an undo, a reset. What is
-  // on screen is theirs, not the half-typed thing this field remembers.
-  useEffect(() => {
-    if (incoming === latest.current.sent) return
-    latest.current.sent = incoming
-    latest.current.text = incoming
-    setText(incoming)
-  }, [incoming])
-
-  const send = (next) => {
-    clearTimeout(timer.current)
-    if (next === latest.current.sent) return
-    latest.current.sent = next
-    latest.current.onChange?.(next)
-  }
-
-  useEffect(
-    () => () => {
-      clearTimeout(timer.current)
-      // Closing the panel is how people finish, so it has to count.
-      if (latest.current.text !== latest.current.sent) {
-        latest.current.sent = latest.current.text
-        latest.current.onChange?.(latest.current.text)
-      }
-    },
-    []
-  )
+  // The buffer is shared with the sticky notes and the table's cell editor,
+  // because it is the same problem in three places: a controlled input hands
+  // every keystroke to an owner far too big to re-render per letter. See
+  // hooks/useTypingBuffer.js.
+  const [text, onType, flush] = useTypingBuffer(value, onChange)
 
   return (
     <input
@@ -164,26 +135,17 @@ export function TextInput({ value, onChange, placeholder, type = 'text', classNa
       disabled={disabled}
       placeholder={placeholder}
       list={list}
-      onChange={(e) => {
-        const next = e.target.value
-        setText(next)
-        latest.current.text = next
-        clearTimeout(timer.current)
-        timer.current = setTimeout(() => send(next), TYPING_PAUSE)
-      }}
-      onBlur={() => send(latest.current.text)}
+      onChange={(e) => onType(e.target.value)}
+      onBlur={flush}
       className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs disabled:bg-slate-50 ${className}`}
     />
   )
 }
 
-/**
- * How long after the last keystroke the rest of the app hears about it.
- *
- * Long enough that a word is one update rather than five; short enough that
- * a live preview still reads as live.
- */
-export const TYPING_PAUSE = 140
+// Re-exported: this is where every form in the admin panel already looks
+// for it, and two constants named the same thing is how they come to
+// disagree.
+export { TYPING_PAUSE }
 
 export function Toggle({ checked, onChange, label, ariaLabel }) {
   return (

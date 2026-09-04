@@ -155,7 +155,7 @@ export function StackedWidget({
       {data.length === 0 ? (
         <p className="empty-state">No data to chart</p>
       ) : (
-        <div className="min-h-[240px] flex-1 overflow-x-auto overflow-y-hidden">
+        <div className="widget-body flex-1 overflow-x-auto overflow-y-hidden">
           <div
             className={fillHeight ? 'h-full' : ''}
             style={{ minWidth: chartExtent({ count: data.length, size: widget.categorySize, enabled: widget.scrollChart !== false }).minWidth }}
@@ -298,7 +298,7 @@ export function ComboWidget({
       {data.length === 0 ? (
         <p className="empty-state">No data to chart</p>
       ) : (
-        <div className="min-h-[240px] flex-1 overflow-x-auto overflow-y-hidden">
+        <div className="widget-body flex-1 overflow-x-auto overflow-y-hidden">
           <div
             className={fillHeight ? 'h-full' : ''}
             style={{ minWidth: chartExtent({ count: data.length, size: widget.categorySize, enabled: widget.scrollChart !== false }).minWidth }}
@@ -409,7 +409,7 @@ export function ScatterWidget({ widget, rows, unfilteredRows, tabError, fillHeig
             : 'Pick an X and a Y column in the admin panel'}
         </p>
       ) : (
-        <div className="min-h-[240px] flex-1">
+        <div className="widget-body flex-1">
           <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 280}>
             <ScatterChart margin={{ top: 8, right: 12, bottom: 5, left: -8 }}>
               {!gridProps(chartVisuals)?.hidden && (

@@ -1,12 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
+import fs from 'node:fs'
+import path from 'node:path'
+
 import {
   activeCount,
+  canBeDefault,
   captureView,
   controlActive,
   controlWidth,
+  defaultList,
   initialValues,
+  takesManyValues,
+  toggleDefault,
   isButton,
   kindNeedsColumn,
   normalizeControls,
@@ -14,6 +21,8 @@ import {
   splitControls,
   viewIsActive,
 } from './pageControls.js'
+
+const ROOT = path.resolve(import.meta.dirname, '..', '..')
 
 // --- reading a page -----------------------------------------------------
 
@@ -216,4 +225,65 @@ test('a view with a range value matches on structure, not identity', () => {
   const view = { values: { f2: { from: '1', to: '9' } }, buttons: [] }
   assert.equal(viewIsActive(view, { f2: { from: '1', to: '9' } }, []), true)
   assert.equal(viewIsActive(view, { f2: { from: '1', to: '8' } }, []), false)
+})
+
+// --- picking the value a control starts on -------------------------------
+
+test('a many-valued default is a list, and one-valued is not', () => {
+  assert.equal(takesManyValues({ kind: 'multi' }), true)
+  assert.equal(takesManyValues({ kind: 'chips' }), true)
+  for (const kind of ['select', 'text', 'number', 'date', 'button']) {
+    assert.equal(takesManyValues({ kind }), false, kind)
+  }
+  assert.equal(takesManyValues(null), false)
+})
+
+test('the stored shape is the one the engine already reads', () => {
+  // Comma-separated, split on the way in. Changing that shape would need
+  // every saved control to be migrated, for no gain.
+  assert.deepEqual(defaultList({ defaultValue: 'A, B , C' }), ['A', 'B', 'C'])
+  assert.deepEqual(defaultList({ defaultValue: '' }), [])
+  assert.deepEqual(defaultList({}), [])
+  assert.deepEqual(defaultList(null), [])
+  // And what it splits to is what `initialValues` hands the page.
+  const control = { id: 'c1', kind: 'chips', column: 'Model', defaultValue: 'A, B' }
+  assert.deepEqual(initialValues([control]).values.c1, ['A', 'B'])
+})
+
+test('pressing a value adds it, pressing it again takes it away', () => {
+  const control = { kind: 'chips', defaultValue: 'A, B' }
+  assert.equal(toggleDefault(control, 'C'), 'A, B, C')
+  assert.equal(toggleDefault(control, 'A'), 'B')
+  assert.equal(toggleDefault({ kind: 'chips', defaultValue: 'A' }, 'A'), '')
+  // The order they were picked, not the column's: a default is a small
+  // hand-made set, and the admin's own order is the one they recognise.
+  assert.equal(toggleDefault({ kind: 'chips', defaultValue: 'Z' }, 'A'), 'Z, A')
+})
+
+test('a value with a comma in it is refused, not saved as two', () => {
+  // "SPLENDOR PLUS, BLACK" is a real cell in a real sheet. Saved into a
+  // comma-separated default it becomes two values that match nothing, and
+  // the page opens empty with nothing on it explaining why.
+  assert.equal(canBeDefault('SPLENDOR'), true)
+  assert.equal(canBeDefault('SPLENDOR PLUS, BLACK'), false)
+  assert.equal(canBeDefault(''), true)
+  assert.equal(canBeDefault(null), true)
+
+  const control = { kind: 'chips', defaultValue: 'A' }
+  assert.equal(toggleDefault(control, 'X, Y'), 'A', 'a comma value was saved anyway')
+  // And blank is not a value either.
+  assert.equal(toggleDefault(control, '   '), 'A')
+})
+
+test('the picker offers the column’s values, and says where they came from', () => {
+  const panel = fs.readFileSync(path.join(ROOT, 'src/pages/admin/ControlsPanel.jsx'), 'utf8')
+  // A `datalist` is a hint no browser shows until you type and several
+  // never show at all, which is why the values are now on screen.
+  assert.match(panel, /onChange\(takesMany \? toggleDefault\(control, v\) :/, 'nothing is pickable')
+  assert.ok(panel.includes('value{list.length === 1'), 'nothing says how many there are')
+  // The box stays: a sheet gets new values every day, and a default that is
+  // not in the list yet has to remain possible to write.
+  const box = panel.slice(panel.indexOf('function ValueBox('), panel.indexOf('export default function ControlsPanel'))
+  assert.ok(box.includes('<TextInput'), 'a value not yet in the sheet cannot be typed')
+  assert.ok(box.includes('disabled={!usable}'), 'a comma value is offered as though it would work')
 })

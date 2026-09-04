@@ -496,38 +496,84 @@ test('the panel header wraps rather than squeezing', () => {
 // --- typing at the speed of the keyboard --------------------------------
 
 const ui = read('pages/admin/ui.jsx')
+const buffer = read('hooks/useTypingBuffer.js')
 
 test('a text field owns what is in it', () => {
   // It used to hand every keystroke straight up to whoever owned the value.
   // Fine while that was a form; not fine now the owner is a page that
   // redraws a canvas of charts, because every character waited for it.
-  assert.ok(ui.includes('const [text, setText] = useState(incoming)'))
+  //
+  // The mechanism moved into a hook when two more places turned out to need
+  // it -- a sticky note, whose owner is the page itself, and a cell being
+  // edited, whose owner redraws four hundred rows.
+  assert.ok(buffer.includes('const [text, setText] = useState(incoming)'))
+  assert.ok(ui.includes('useTypingBuffer(value, onChange)'))
   assert.ok(ui.includes('value={text}'))
   // Scoped to TextInput's own body: a <select> fires once per choice, so
   // straight through is right there and always was.
-  const field = ui.slice(ui.indexOf('export function TextInput('), ui.indexOf('export const TYPING_PAUSE'))
+  const field = ui.slice(ui.indexOf('export function TextInput('), ui.indexOf('export { TYPING_PAUSE }'))
   assert.ok(!field.includes('onChange={(e) => onChange(e.target.value)}'), 'no longer straight through')
 })
 
 test('the page hears about it a beat later, not never', () => {
-  assert.ok(ui.includes('timer.current = setTimeout(() => send(next), TYPING_PAUSE)'))
-  const pause = Number((ui.match(/export const TYPING_PAUSE = (\d+)/) || [])[1])
+  assert.ok(buffer.includes('timer.current = setTimeout(() => send(next), pause)'))
+  const pause = Number((buffer.match(/export const TYPING_PAUSE = (\d+)/) || [])[1])
   assert.ok(pause >= 80 && pause <= 250, 'a word is one update, and it still reads as live')
+  // One constant, not two. The admin forms import it from where they always
+  // did, and it is the hook's.
+  assert.ok(ui.includes('export { TYPING_PAUSE }'))
+  assert.ok(!/const TYPING_PAUSE = \d/.test(ui), 'a second copy of the pause')
 })
 
 test('a value changed from OUTSIDE still wins', () => {
   // Switching to another widget must not leave the last one's title sitting
   // in the box.
-  assert.ok(ui.includes('if (incoming === latest.current.sent) return'))
-  assert.ok(ui.includes('setText(incoming)'))
+  assert.ok(buffer.includes('if (incoming === latest.current.sent) return'))
+  assert.ok(buffer.includes('setText(incoming)'))
 })
 
 test('leaving the field, and closing the panel, both flush', () => {
   // Nobody expects to lose the last thing they typed because they clicked
   // Save within the timeout, and closing the panel is how people finish.
-  assert.ok(ui.includes('onBlur={() => send(latest.current.text)}'))
-  const teardown = ui.slice(ui.indexOf('() => () => {'))
+  assert.ok(ui.includes('onBlur={flush}'))
+  const teardown = buffer.slice(buffer.indexOf('() => () => {'))
   assert.ok(teardown.slice(0, 400).includes('latest.current.onChange?.(latest.current.text)'))
+})
+
+test('a note is typed on the note, not on the page', () => {
+  // The notes live in PAGE state, so a controlled textarea handed every
+  // keystroke upward re-rendered every widget on the canvas -- twenty
+  // charts over thousands of rows -- before the letter appeared.
+  const notes = read('components/StickyNotes.jsx')
+  assert.ok(notes.includes('function NoteText('), 'the writing has no component of its own')
+  assert.ok(notes.includes('useTypingBuffer(note.text, onText)'), 'every keystroke still reaches the page')
+  assert.ok(
+    !notes.includes('onChange={(e) => onNotes(updateNote(notes, note.id, { text: e.target.value }))}'),
+    'the textarea is straight through again'
+  )
+  // Committed through the refs the drag handlers already use, so a pause
+  // merges into the list as it is now rather than as it was when the note
+  // was drawn.
+  assert.ok(notes.includes('commit.current(updateNote(latest.current.notes, note.id, { text }))'))
+})
+
+test('a cell is typed in the cell, not in the table', () => {
+  // The draft lived on the table, so every keystroke re-drew every visible
+  // row -- each with its badges, its filters and its remark markers.
+  const table = read('components/widgets/TableWidget.jsx')
+  assert.ok(table.includes('function CellEditor('), 'the editor has no component of its own')
+  assert.ok(table.includes('<CellEditor'), 'and nothing renders it')
+  assert.ok(!table.includes('onChange={(e) => setDraft(e.target.value)}'), 'the table still holds the draft')
+  // Nothing is debounced there: an edit is committed by Enter or by looking
+  // away, so there is nothing to send while the typing goes on.
+  const editor = table.slice(table.indexOf('function CellEditor('), table.indexOf('export default function TableWidget'))
+  assert.ok(editor.includes('onKeyDown'), 'Enter and Escape are gone')
+  assert.ok(editor.includes('onBlur={() => onCommit(text)}'))
+  // Its OWN state, which is the whole point: a component that renders its
+  // prop and calls the table on every keystroke is the bug with extra
+  // indirection, and it looks exactly like the fix.
+  assert.ok(editor.includes("useState(initial ?? '')"), 'the editor holds no state of its own')
+  assert.ok(editor.includes('onChange={(e) => setText(e.target.value)}'), 'the letters still leave the cell')
 })
 
 test('a widget being typed into does not re-filter every tab', () => {

@@ -107,6 +107,26 @@ test('an emptied heading loses its band, not just its words', () => {
   }
 })
 
+test('the band comes off the element the band is ON', () => {
+  // The fix that did not work: the rule asked for `> .widget-title`, a
+  // DIRECT child. Most widgets nest the heading one deeper -- a row, then a
+  // column, then the h2 -- so the element carrying the band was never
+  // matched and the strip stayed on every one of them. The rule it undoes
+  // uses a descendant `:has`, so this one has to as well.
+  const css = read('index.css')
+  const at = css.indexOf('.widget-sized.chrome-no-title.chrome-no-caption')
+  const selector = css.slice(at, css.indexOf('{', at))
+  assert.ok(!selector.includes(':has(> .widget-title)'), 'only a heading one level deep loses its band')
+  assert.equal(
+    (selector.match(/:is\(\.widget-title, \*:has\(\.widget-title\)\)/g) || []).length,
+    2,
+    'the band rule and its undoing describe different elements'
+  )
+
+  // The same shape as the rule being undone, which is the point.
+  assert.ok(css.includes('.widget-sized > .card > :is(.widget-title, *:has(.widget-title)) {'))
+})
+
 test('...but a heading holding a button keeps it, and so does the button', () => {
   // A heading row very often holds the export button, a live count or a
   // search box. A card that swallowed its own download button would be a
@@ -114,7 +134,14 @@ test('...but a heading holding a button keeps it, and so does the button', () =>
   const css = read('index.css')
   const at = css.indexOf('.widget-sized.chrome-no-title.chrome-no-caption')
   const selector = css.slice(at, css.indexOf('{', at))
-  assert.match(selector, /:not\(:has\(button, input, select, a\)\)/, 'a heading with a button loses its band')
+  // BOTH selectors in the block, counted. They are comma-separated in one
+  // rule, so finding the guard once proves only that one of the two paths
+  // still has it -- and the other is the one that swallows the button.
+  assert.equal(
+    (selector.match(/:not\(:has\(button, input, select, a\)\)/g) || []).length,
+    2,
+    'a heading with a button loses its band'
+  )
 
   // And a heading with a caption still showing is not empty either.
   assert.match(selector, /:not\(:has\(\.widget-caption\)\)/, 'a card with only its title hidden loses the band')
@@ -189,4 +216,50 @@ test('a hand-edited box cannot make the preview a strip or a mile', () => {
   assert.equal(previewHeight({ kind: 'widget', id: 'w' }, [{ id: 'w', boxH: 4 }]), 160)
   assert.equal(previewHeight({ kind: 'widget', id: 'w' }, [{ id: 'w', boxH: 99999 }]), 1200)
   assert.equal(previewHeight({ kind: 'widget', id: 'w' }, [{ id: 'w', boxH: 'tall' }]), 420)
+})
+
+// --- a widget sizes its body to itself -----------------------------------
+
+test('a widget given a height shrinks its body rather than scrolling it', () => {
+  // Every chart box carries a floor so that a chart in an auto-height card
+  // is never a smear two lines tall. On the canvas that floor is wrong: the
+  // reader has just dragged the card to a size, and a chart that refuses to
+  // go under 240px pushes past the bottom, the card scrolls, and the
+  // picture slides under a scrollbar instead of fitting -- which is not
+  // resizing, it is the same chart cropped.
+  const css = read('index.css')
+  assert.match(css, /\.widget-body \{\s*[^}]*min-height: 220px/, 'the floor is gone entirely')
+  assert.match(css, /\.widget-sized > \.card \.widget-body \{\s*min-height: 0/, 'a sized widget still scrolls')
+})
+
+test('...and the boxes it applies to say so by name', () => {
+  // Not by matching the spelling of a utility class: `[class*='min-h-']`
+  // works until Tailwind changes how it writes them, and then fails
+  // silently on every chart at once.
+  // A RULE, not a count: five of six still passes a count, and the sixth is
+  // the chart somebody is looking at. Any box tall enough to be a widget's
+  // body must be named as one -- a small floor on a bar or a row is
+  // something else and is left alone.
+  const floors = []
+  for (const file of widgetFiles) {
+    for (const m of read(`components/widgets/${file}`).matchAll(/min-h-\[(\d+)px\]/g)) {
+      if (Number(m[1]) >= 100) floors.push(`${file}: ${m[0]}`)
+    }
+  }
+  assert.deepEqual(floors, [], 'a body-sized floor that no rule can lift')
+
+  const bodies = widgetFiles.reduce(
+    (n, file) => n + (read(`components/widgets/${file}`).match(/widget-body/g) || []).length,
+    0
+  )
+  assert.ok(bodies >= 5, `only ${bodies} widget bodies are named`)
+  assert.ok(!read('index.css').includes("[class*='min-h-']"), 'the rule matches a spelling again')
+})
+
+test('a table still scrolls, because its rows cannot shrink', () => {
+  // The card is the scroll container and stays one. Only boxes that are
+  // already flexible give up their floor -- a chart, a diagram, a picture --
+  // which is exactly the set that can fit itself into less room.
+  const css = read('index.css')
+  assert.match(css, /\.widget-sized > \.card \{[^}]*overflow: auto/s, 'the card stopped scrolling at all')
 })

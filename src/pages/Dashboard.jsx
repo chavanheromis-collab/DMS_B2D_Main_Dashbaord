@@ -1197,15 +1197,47 @@ export default function Dashboard() {
   }
 
   /**
-   * A page that was arranged by the engine this replaced.
+   * A widget that has no rectangle yet is given one. Nothing else moves.
    *
-   * Seeded once, from what the old packer was actually drawing, so nobody's
-   * dashboard rearranges itself overnight. After that every widget has a
-   * rectangle of its own and this never runs again.
+   * Two ways a widget arrives without one, and they need different answers:
+   *
+   *   A PAGE FROM THE ENGINE THIS REPLACED. Nothing on it has a rectangle,
+   *   so all of them are seeded at once from what the old packer was
+   *   actually drawing -- which is what stops every dashboard in the
+   *   workspace rearranging itself overnight.
+   *
+   *   A WIDGET JUST ADDED to a page that is already arranged. Only it needs
+   *   a rectangle, and the others must be left exactly as they are.
+   *
+   * The second case used to go through the first, and that is the bug this
+   * is written the way it is to prevent: adding one widget re-seeded the
+   * WHOLE page from measured pixels, and measured pixels do not survive the
+   * round trip -- they are divided back by the canvas scale, rounded, and
+   * clamped. Every widget shifted a little, and the shift was saved. Adding
+   * a chart rearranged the page.
    */
   useEffect(() => {
     if (!isAdmin || !page?.id || !(levelWidgets || []).length) return
-    if ((levelWidgets || []).every(isPlaced)) return
+    const unplaced = (levelWidgets || []).filter((w) => !isPlaced(w))
+    if (unplaced.length === 0) return
+
+    if (unplaced.length < levelWidgets.length) {
+      // `placeAll` keeps every rectangle it is given and invents one only
+      // where there is none -- and only those are written back, so a widget
+      // that already had one is not even part of the save.
+      const wanted = new Set(unplaced.map((w) => w.id))
+      // With the same first guess at a size the canvas itself uses, so a
+      // new KPI lands KPI-shaped rather than at a generic default and has
+      // to be dragged into shape before it can be read.
+      const guessed = levelWidgets.map((w) => ({
+        ...w,
+        estimatedWidth: widgetUsesPx(w) ? widgetWidthPx(w) : null,
+        estimatedHeight: Number(w.heightPx) > 0 ? Number(w.heightPx) : estimateWidgetHeight(w.type),
+      }))
+      saveLayout(placeAll(guessed).filter((rect) => wanted.has(rect.id)))
+      return
+    }
+
     const measured = (levelWidgets || [])
       .map((w) => [w.id, sizes[w.id]])
       .filter(([, box]) => box && Number.isFinite(box.left) && Number.isFinite(box.top))

@@ -72,6 +72,38 @@ function NoteButton({ row, scope, keyColumn, notes, open, onOpen }) {
  * Column order and sort live in component state, so each user can rearrange
  * their own view without changing what anyone else sees.
  */
+/**
+ * One cell being edited, and the typing that goes with it.
+ *
+ * Its own component with its own state, and that is the point rather than
+ * tidiness. The draft used to live on the TABLE, so every keystroke re-drew
+ * every visible row -- four hundred of them on a full page, each with its
+ * badges, its column filters and its remark markers. Typing quickly then
+ * drops characters, because the next keystroke arrives while the browser is
+ * still drawing the last one.
+ *
+ * Nothing is debounced here: an edit is committed deliberately, by Enter or
+ * by looking away, so there is nothing to send while the typing is going
+ * on. What was needed was simply for the letters to stop costing a table.
+ */
+function CellEditor({ initial, onCommit, onCancel }) {
+  const [text, setText] = useState(initial ?? '')
+  return (
+    <input
+      autoFocus
+      value={text}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => onCommit(text)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onCommit(text)
+        if (e.key === 'Escape') onCancel()
+      }}
+      className="w-36 rounded border border-indigo-300 px-1.5 py-0.5 text-sm"
+    />
+  )
+}
+
 export default function TableWidget({
   widget,
   rows,
@@ -640,17 +672,10 @@ export default function TableWidget({
                               ))}
                             </select>
                           ) : isEditing ? (
-                            <input
-                              autoFocus
-                              value={draft}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => setDraft(e.target.value)}
-                              onBlur={() => commitEdit(row, col)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') commitEdit(row, col)
-                                if (e.key === 'Escape') setEditing(null)
-                              }}
-                              className="w-36 rounded border border-indigo-300 px-1.5 py-0.5 text-sm"
+                            <CellEditor
+                              initial={draft}
+                              onCommit={(text) => commitEdit(row, col, text)}
+                              onCancel={() => setEditing(null)}
                             />
                           ) : asBadge ? (
                             <span

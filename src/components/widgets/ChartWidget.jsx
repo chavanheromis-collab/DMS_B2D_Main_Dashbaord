@@ -1151,7 +1151,7 @@ export default function ChartWidget({
         />
       ) : (
         <div
-          className={`min-h-[240px] flex-1 ${
+          className={`widget-body flex-1 ${
             extent.axis === 'y' ? 'overflow-y-auto overflow-x-hidden' : 'overflow-x-auto overflow-y-hidden'
           }`}
           style={extent.axis === 'y' ? { maxHeight: height } : undefined}

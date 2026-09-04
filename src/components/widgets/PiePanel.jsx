@@ -101,7 +101,7 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className={`flex min-h-0 flex-1 ${listAt.wrap}`}>
-        <div className="relative min-h-[200px] flex-1">
+        <div className="relative widget-body flex-1">
           <ResponsiveContainer width="100%" height={height}>
             <PieChart>
               <Pie

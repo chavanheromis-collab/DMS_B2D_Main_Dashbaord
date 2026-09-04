@@ -470,6 +470,53 @@ export function viewIsActive(view, values, activeButtonIds, controls) {
  * in it: "reset" means back to the page as the admin designed it, and the
  * page as designed includes its rules.
  */
+/**
+ * Which kinds hold SEVERAL values rather than one.
+ *
+ * Stored as one comma-separated string, which is how they have always been
+ * stored and what `startingValues` below splits. See `canBeDefault` for the
+ * one value that shape cannot carry.
+ */
+export function takesManyValues(control) {
+  return control?.kind === 'multi' || control?.kind === 'chips'
+}
+
+/**
+ * A value a comma-separated default cannot carry: one with a comma in it.
+ *
+ * "SPLENDOR PLUS, BLACK" is a real cell in a real sheet, and picking it
+ * would be saved as two values that match nothing. The picker says so and
+ * refuses rather than saving something that quietly filters to nothing --
+ * which is the worst failure a default can have, because the page opens
+ * empty and nothing on it explains why.
+ */
+export function canBeDefault(value) {
+  return !String(value ?? '').includes(',')
+}
+
+/** The default of a many-valued control, as the list it will become. */
+export function defaultList(control) {
+  return String(control?.defaultValue ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/**
+ * That list with one value added or taken away, back in the stored shape.
+ *
+ * Order is the order they were picked, not the order of the column: a
+ * default is a small hand-made set and the admin's own order is the one
+ * they will recognise when they come back to it.
+ */
+export function toggleDefault(control, value) {
+  const wanted = String(value ?? '').trim()
+  if (!wanted || !canBeDefault(wanted)) return control?.defaultValue ?? ''
+  const list = defaultList(control)
+  const next = list.includes(wanted) ? list.filter((v) => v !== wanted) : [...list, wanted]
+  return next.join(', ')
+}
+
 export function initialValues(controls, { includeFixed = true } = {}) {
   const values = {}
   const buttons = []
