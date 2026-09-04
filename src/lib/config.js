@@ -84,6 +84,28 @@ export const WIDGET_TYPES = [
   { value: 'profile', label: 'Column Profile', icon: '🔍', hint: 'Fill rate, distinct values and the top values of every column' },
 
   // -------------------------------------------------------------------
+  // Infographic -- the shapes a printed report is laid out with
+  // -------------------------------------------------------------------
+  {
+    value: 'rings',
+    label: 'Percentage Rings',
+    icon: '◎',
+    hint: 'A filled circle per category, the figure in the middle — share, or against a target',
+  },
+  {
+    value: 'process',
+    label: 'Process Steps',
+    icon: '➜',
+    hint: 'Numbered chevrons, arrows or discs — from a column, or steps you type',
+  },
+  {
+    value: 'pyramid',
+    label: 'Pyramid / Funnel',
+    icon: '🔺',
+    hint: 'Stacked layers, widest at the base — or a funnel whose taper is the drop-off',
+  },
+
+  // -------------------------------------------------------------------
   // Canvas furniture -- things that carry no data of their own
   // -------------------------------------------------------------------
   { value: 'note', label: 'Note / Heading', icon: '📝', hint: 'A heading, a caption or a callout — text you write, on the canvas' },

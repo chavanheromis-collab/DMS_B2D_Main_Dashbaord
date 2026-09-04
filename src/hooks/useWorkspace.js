@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { rememberLook, rememberedLook } from '../lib/entranceMemory'
 import { collection, doc, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { sortPages } from '../lib/workspace'
@@ -87,18 +88,32 @@ export function useWorkspace(spaceId = DEFAULT_SPACE) {
  * degrades to "no announcements" rather than to a blank screen.
  */
 export function useEntrance(spaceId = DEFAULT_SPACE) {
-  const [entrance, setEntrance] = useState(null)
+  // Three states, and the third one is why this is not just `null`:
+  //
+  //   undefined  still reading, and this browser has never seen it. Nothing
+  //              may be drawn -- see lib/entranceMemory.js.
+  //   null       there is no entrance document; the defaults are correct.
+  //   an object  the look this browser remembers, then the live document.
+  const [entrance, setEntrance] = useState(() => rememberedLook(spaceId) ?? undefined)
 
   useEffect(() => {
     // Each dashboard has its own entrance, and the first one keeps the
-    // document that is already there -- see `entranceDocId`. Reset on the
-    // way in, or switching dashboards would show the old one's brand until
-    // the new read lands.
-    setEntrance(null)
+    // document that is already there -- see `entranceDocId`. Reset to what
+    // THIS dashboard looked like, or switching dashboards would show the
+    // old one's brand until the new read lands.
+    setEntrance(rememberedLook(spaceId) ?? undefined)
     return onSnapshot(
       doc(db, 'settings', entranceDocId(spaceId)),
-      (snap) => setEntrance(snap.exists() ? snap.data() : null),
-      () => setEntrance(null)
+      (snap) => {
+        const data = snap.exists() ? snap.data() : null
+        setEntrance(data)
+        // So the next load opens on the right ground rather than on the
+        // default one for as long as Firestore takes to answer.
+        if (data) rememberLook(spaceId, data)
+      },
+      // A failed read is an answer too: draw the defaults rather than
+      // holding an empty screen for ever.
+      () => setEntrance((current) => current ?? null)
     )
   }, [spaceId])
 

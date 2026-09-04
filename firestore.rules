@@ -149,13 +149,32 @@ service cloud.firestore {
         request.resource.data.dismissedBy.size() == 0 &&
         request.resource.data.replies.size() == 0;
 
+      // A reply may only be APPENDED, and only as yourself.
+      //
+      // Checking that the list did not shrink is not enough and was the
+      // hole this closes: a two-reply list replaced by two different
+      // replies passes a size check while rewriting what somebody else
+      // said, on a thread other people have already read. So the actual
+      // elements are compared -- nothing may leave, at most one may
+      // arrive, and the one that arrives must be signed with the writer's
+      // own uid.
+      function repliesAdded() {
+        return request.resource.data.get('replies', [])
+          .removeAll(resource.data.get('replies', []));
+      }
+      function repliesGone() {
+        return resource.data.get('replies', [])
+          .removeAll(request.resource.data.get('replies', []));
+      }
+
       allow update: if forMe() &&
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['readBy', 'dismissedBy', 'replies']) &&
         onlyAddsSelf('readBy') &&
         onlyAddsSelf('dismissedBy') &&
-        // A reply may only be appended, and only as yourself.
-        request.resource.data.replies.size() >= resource.data.replies.size();
+        repliesGone().size() == 0 &&
+        repliesAdded().size() <= 1 &&
+        (repliesAdded().size() == 0 || repliesAdded()[0].from == request.auth.uid);
 
       // Unsending is the sender's business, and an admin's.
       allow delete: if isAdmin() || (isSignedIn() && resource.data.from == request.auth.uid);

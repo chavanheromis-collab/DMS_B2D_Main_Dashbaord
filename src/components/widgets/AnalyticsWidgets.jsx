@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import ExportButton from '../ExportButton.jsx'
 import {
   asPercent,
+  modeStacks,
+  stackOffsetFor,
   cumulative,
   isCyclical,
   movingAverage,
@@ -224,7 +226,11 @@ export function TrendWidget({
   }, [built.data, single])
 
   const percentMode = mode === 'percent'
-  const stackId = mode === 'area' || mode === 'bar' || percentMode ? 'stack' : undefined
+  const stackId = modeStacks(mode) ? 'stack' : undefined
+  // A stream is a stack balanced about a centre line rather than sitting on
+  // an axis. That is the ribbon shape -- and it is also why it has no axis
+  // worth reading: see `stackOffsetFor` in lib/seriesData.js.
+  const streaming = mode === 'stream'
 
   function renderSeries() {
     const keys = single ? [singleKey] : shown
@@ -288,14 +294,18 @@ export function TrendWidget({
         <Area
           key={name}
           {...common}
-          type="monotone"
-          stroke={color}
+          // `basis` for a stream: it is the curve that makes bands flow
+          // past each other rather than meeting at corners, which is the
+          // whole look. Everywhere else `monotone` stays, because it never
+          // overshoots a real data point and `basis` does.
+          type={streaming ? 'basis' : 'monotone'}
+          stroke={streaming ? 'none' : color}
           strokeOpacity={fade(name)}
           strokeWidth={2}
-          fill={single ? `url(#tg_${widget.id})` : color}
-          fillOpacity={single ? 1 : 0.55 * fade(name)}
-          dot={single ? { r: 2, cursor: onCrossFilter ? 'pointer' : 'default' } : false}
-          activeDot={{ r: 5 }}
+          fill={single && !streaming ? `url(#tg_${widget.id})` : color}
+          fillOpacity={streaming ? 0.9 * fade(name) : single ? 1 : 0.55 * fade(name)}
+          dot={single && !streaming ? { r: 2, cursor: onCrossFilter ? 'pointer' : 'default' } : false}
+          activeDot={streaming ? false : { r: 5 }}
         />
       )
     })
@@ -380,7 +390,13 @@ export function TrendWidget({
         <>
           <div className="min-h-[200px] flex-1">
             <ResponsiveContainer width="100%" height={fillHeight ? '100%' : widget.height || 240}>
-              <ComposedChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: -14 }} onClick={onClick} {...cursor}>
+              <ComposedChart
+                data={data}
+                margin={{ top: 5, right: 10, bottom: 5, left: streaming ? 4 : -14 }}
+                stackOffset={stackOffsetFor(mode)}
+                onClick={onClick}
+                {...cursor}
+              >
                 <defs>
                   <linearGradient id={`tg_${widget.id}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={widget.color || '#4F46E5'} stopOpacity={0.35} />
@@ -396,11 +412,17 @@ export function TrendWidget({
                   />
                 )}
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis
-                  tick={{ fontSize: 10 }}
-                  domain={percentMode ? [0, 100] : undefined}
-                  tickFormatter={percentMode ? (v) => `${v}%` : undefined}
-                />
+                {/* A stream has no vertical axis to read: the bands are
+                    balanced about a moving centre, so a number beside them
+                    would be a number about nothing. Drawing one anyway is
+                    the commonest way a streamgraph misleads. */}
+                {!streaming && (
+                  <YAxis
+                    tick={{ fontSize: 10 }}
+                    domain={percentMode ? [0, 100] : undefined}
+                    tickFormatter={percentMode ? (v) => `${v}%` : undefined}
+                  />
+                )}
                 <Tooltip
                   content={
                     <TrendTooltip

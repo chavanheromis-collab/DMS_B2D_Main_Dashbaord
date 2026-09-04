@@ -26,6 +26,19 @@ export function kindMeta(kind) {
   return ITEM_KINDS.find((k) => k.value === kind) || ITEM_KINDS[0]
 }
 
+/**
+ * How big the logo may be drawn.
+ *
+ * The floor is not politeness: below about forty pixels a wordmark is a
+ * smudge, and an admin who has dragged the slider to nothing has made a
+ * mistake rather than a choice. The ceiling is the entrance itself -- a
+ * logo taller than 320px starts pushing the brand name and the
+ * announcements off a laptop screen.
+ */
+export const LOGO_MIN = 40
+export const LOGO_MAX = 320
+export const LOGO_DEFAULT = 96
+
 export const DEFAULT_ENTRANCE = {
   enabled: true,
   brandName: '',
@@ -38,8 +51,39 @@ export const DEFAULT_ENTRANCE = {
   // beats one whose look depends on which entry happens to be first.
   theme: 'midnight',
   logoBackdrop: 'glow',
+  // How tall the logo is drawn, in pixels. 96 is what it always was, so a
+  // workspace that never touches this looks exactly as it did.
+  logoSize: LOGO_DEFAULT,
   durationMs: 2600,
   items: [],
+}
+
+/**
+ * The box the logo is drawn in, and the width to ask the image host for.
+ *
+ * Three numbers rather than one, because they are not the same number and
+ * getting that wrong is what makes a logo either blurry or wrong-shaped:
+ *
+ *   `height`  what the admin chose.
+ *   `maxWidth`  proportional to it. A wide wordmark and a square mark are
+ *               both logos; capping the width at a fixed 260px would let a
+ *               short one grow and squash a long one.
+ *   `request`  what to fetch. Twice the drawn width, because the entrance is
+ *              the one place in this app where a soft image is not
+ *              acceptable and every screen worth impressing is a retina one.
+ */
+export function logoBox(entrance) {
+  // `null` and `''` are "not set", not zero. `Number(null)` is 0, which is
+  // perfectly finite and would clamp every logo on a workspace that had
+  // once cleared the field down to the smallest it can be.
+  const raw = entrance?.logoSize
+  const asked = raw === null || raw === undefined || raw === '' ? NaN : Number(raw)
+  const height = Math.round(
+    Number.isFinite(asked) ? Math.max(LOGO_MIN, Math.min(LOGO_MAX, asked)) : LOGO_DEFAULT
+  )
+  // 2.7:1, which is the proportion the fixed 96px/260px box always had.
+  const maxWidth = Math.round(height * 2.7)
+  return { height, maxWidth, request: Math.min(1600, maxWidth * 2) }
 }
 
 export function emptyEntranceItem(kind = 'campaign') {

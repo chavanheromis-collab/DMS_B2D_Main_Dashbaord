@@ -5,10 +5,14 @@ import { db } from '../../firebase'
 import {
   DEFAULT_ENTRANCE,
   ITEM_KINDS,
+  LOGO_DEFAULT,
+  LOGO_MAX,
+  LOGO_MIN,
   emptyEntranceItem,
   itemIsLive,
   kindMeta,
   liveEntranceItems,
+  logoBox,
 } from '../../lib/branding'
 import { BRAND_NAME, BRAND_TAGLINE } from '../../components/SplashScreen.jsx'
 import { stripUndefined } from '../../lib/firestoreSafe'
@@ -128,6 +132,12 @@ export default function EntrancePanel() {
                 backdrop -- a logo that looks fine on white can vanish on
                 dark, and a preview on a colour the entrance does not use
                 answers the wrong question. */}
+            {/* Scaled to the swatch, not drawn at the real size: this
+                preview exists to show the COLOUR behind the logo, and a
+                320px logo inside a panel that can be 340px wide would push
+                it out. So the size here is RELATIVE -- it grows and shrinks
+                as the slider moves, which is what makes the setting legible
+                -- and the pixel figure beside the slider is the real one. */}
             <span
               className="flex h-14 w-24 shrink-0 items-center justify-center rounded-lg p-1.5"
               style={{ background: themeOf(draft).bg }}
@@ -138,7 +148,11 @@ export default function EntrancePanel() {
                     src={safeImageUrl(draft.logoUrl, { width: 96 })}
                     alt=""
                     referrerPolicy="no-referrer"
-                    className="max-h-full max-w-full object-contain"
+                    className="w-auto object-contain"
+                    style={{
+                      maxHeight: `${Math.min(100, (logoBox(draft).height / 200) * 100)}%`,
+                      maxWidth: '100%',
+                    }}
                   />
                 </span>
               ) : (
@@ -224,6 +238,37 @@ export default function EntrancePanel() {
             is whatever your designer chose: a dark logo disappears on a dark background and a
             white one disappears on a light one. A glow rescues the first, a plate rescues
             either.
+          </p>
+        </div>
+
+        <div className="mt-3">
+          <div className="flex items-baseline justify-between">
+            <p className="text-[11px] font-medium text-slate-500">How big</p>
+            <span className="text-[11px] tabular-nums text-slate-400">{logoBox(draft).height}px tall</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={LOGO_MIN}
+              max={LOGO_MAX}
+              step={4}
+              value={logoBox(draft).height}
+              onChange={(e) => set({ logoSize: Number(e.target.value) })}
+              className="h-1.5 w-full min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-slate-200 accent-indigo-600"
+              aria-label="Logo size"
+            />
+            <button
+              onClick={() => set({ logoSize: LOGO_DEFAULT })}
+              disabled={logoBox(draft).height === LOGO_DEFAULT}
+              className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+              title="Back to the size it has always been"
+            >
+              Reset
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-slate-400">
+            The height. The width follows it, so a wide wordmark and a square mark both keep their own shape — and
+            the image is fetched at twice this size, so it stays sharp on a good screen.
           </p>
         </div>
 

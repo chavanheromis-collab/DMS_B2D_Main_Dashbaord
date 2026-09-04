@@ -4,12 +4,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import {
+  BACKGROUND_MODES,
+  BACKGROUND_PRESETS,
   backgroundIsSet,
   backgroundLayers,
   safeImageUrl,
   sidebarSurface,
+  usesLightText,
 } from './pageBackground.js'
 import {
+  DEFAULT_ENTRANCE,
+  LOGO_DEFAULT,
+  LOGO_MAX,
+  LOGO_MIN,
+  logoBox,
   entranceDuration,
   itemIsLive,
   liveEntranceItems,
@@ -258,4 +266,137 @@ test('a dark page brings the sidebar writing with it', () => {
   // legible instead of vanishing.
   const rules = css.match(/\.sidebar-invert :where\([^)]*\)/g) || []
   for (const rule of rules) assert.ok(!/rose|emerald|amber|red|green/.test(rule), rule)
+})
+
+// --- the ready-made looks -----------------------------------------------
+
+test('every preset paints something, and paints it the way its mode says', () => {
+  // A preset is one click, so a half-filled one is a page somebody has to
+  // repair by hand -- a gradient missing its second colour renders
+  // `linear-gradient(160deg, #fff, undefined)`, which paints nothing at all.
+  const modes = new Set(BACKGROUND_MODES.map((m) => m.value))
+  assert.ok(BACKGROUND_PRESETS.length >= 5)
+
+  for (const preset of BACKGROUND_PRESETS) {
+    const where = preset.label
+    assert.ok(where, 'a preset with no label')
+    assert.ok(modes.has(preset.mode), `${where}: ${preset.mode} is not a mode`)
+
+    if (preset.mode === 'color') {
+      assert.match(preset.color, /^#[0-9A-Fa-f]{6}$/, `${where}: no colour`)
+    } else if (preset.mode === 'gradient') {
+      assert.match(preset.gradientFrom, /^#[0-9A-Fa-f]{6}$/, `${where}: no start colour`)
+      assert.match(preset.gradientTo, /^#[0-9A-Fa-f]{6}$/, `${where}: no end colour`)
+      assert.ok(preset.angle >= 0 && preset.angle <= 360, `${where}: angle ${preset.angle}`)
+    } else {
+      assert.fail(`${where}: an image preset cannot carry its own image`)
+    }
+
+    // And the real reading: fed to the same function the page uses, it
+    // produces a layer with a background on it.
+    const layers = backgroundLayers(preset)
+    assert.ok(layers?.base?.background, `${where} renders nothing`)
+    assert.ok(!/undefined|NaN/.test(layers.base.background), `${where}: ${layers.base.background}`)
+  }
+})
+
+test('every preset is measurable, so the text and the sidebar can follow it', () => {
+  // Hex only, deliberately. `rgb()` or a named colour renders perfectly and
+  // then defeats the luminance reading -- so a dark preset would keep dark
+  // text on it and a navy page would keep a white sidebar beside it.
+  for (const preset of BACKGROUND_PRESETS) {
+    const surface = sidebarSurface(preset)
+    assert.ok(surface?.background, `${preset.label}: the sidebar cannot follow it`)
+    assert.equal(typeof surface.light, 'boolean')
+    assert.equal(typeof usesLightText(preset), 'boolean')
+  }
+})
+
+test('the dark presets ask for light writing and the pale ones do not', () => {
+  // The one that would be caught late: a deep indigo panel with slate text
+  // on it is unreadable, and it is unreadable only for the people who
+  // picked that preset.
+  const light = (label) => usesLightText(BACKGROUND_PRESETS.find((p) => p.label === label))
+  for (const label of ['Indigo panel', 'Indigo deep', 'Midnight', 'Carbon']) {
+    assert.equal(light(label), true, `${label} should carry light text`)
+  }
+  for (const label of ['Coral field', 'Sky field', 'Citrus field', 'Paper']) {
+    assert.equal(light(label), false, `${label} should keep dark text`)
+  }
+})
+
+test('no two presets are the same look under two names', () => {
+  const seen = new Map()
+  for (const preset of BACKGROUND_PRESETS) {
+    const key = backgroundLayers(preset).base.background
+    assert.ok(!seen.has(key), `${preset.label} is ${seen.get(key)} again`)
+    seen.set(key, preset.label)
+    assert.ok(!seen.has(preset.label) || seen.get(preset.label) === key, `${preset.label} twice`)
+  }
+  assert.equal(new Set(BACKGROUND_PRESETS.map((p) => p.label)).size, BACKGROUND_PRESETS.length)
+})
+
+// --- how big the logo is drawn ------------------------------------------
+
+test('an entrance nobody has resized looks exactly as it did', () => {
+  // 96px tall, 260 wide: the fixed box this replaced.
+  assert.equal(logoBox(undefined).height, LOGO_DEFAULT)
+  assert.equal(logoBox({}).height, LOGO_DEFAULT)
+  assert.equal(logoBox({ logoSize: LOGO_DEFAULT }).maxWidth, 259)
+  assert.equal(DEFAULT_ENTRANCE.logoSize, LOGO_DEFAULT, 'the defaults disagree with the box')
+})
+
+test('the width follows the height, so a wordmark keeps its shape', () => {
+  // A fixed width cap would let a square mark grow and squash a long one.
+  const small = logoBox({ logoSize: 60 })
+  const large = logoBox({ logoSize: 240 })
+  assert.equal(Math.round((small.maxWidth / small.height) * 10), Math.round((large.maxWidth / large.height) * 10))
+  assert.ok(large.maxWidth > small.maxWidth)
+})
+
+test('the image is fetched bigger than it is drawn', () => {
+  // The entrance is the one place in this app where a soft logo is not
+  // acceptable, and every screen worth impressing is a retina one.
+  for (const size of [LOGO_MIN, LOGO_DEFAULT, 200, LOGO_MAX]) {
+    const box = logoBox({ logoSize: size })
+    assert.ok(box.request >= box.maxWidth * 2 || box.request === 1600, `${size}: asked for ${box.request}`)
+  }
+  // ...but never for a poster: a 4000px fetch is slower than the entrance.
+  assert.equal(logoBox({ logoSize: LOGO_MAX }).request, 1600)
+})
+
+test('a size nobody could have meant is brought back to one they could', () => {
+  // Below about forty pixels a wordmark is a smudge; above 320 it pushes
+  // the brand name and the announcements off a laptop screen.
+  assert.equal(logoBox({ logoSize: 0 }).height, LOGO_MIN)
+  assert.equal(logoBox({ logoSize: -50 }).height, LOGO_MIN)
+  assert.equal(logoBox({ logoSize: 5000 }).height, LOGO_MAX)
+  // And nonsense is the default rather than NaN, which draws nothing at all.
+  assert.equal(logoBox({ logoSize: 'large' }).height, LOGO_DEFAULT)
+  // `null` is "not set", not zero -- `Number(null)` is 0, which is finite,
+  // and would quietly shrink every logo on a workspace that once cleared
+  // the field.
+  assert.equal(logoBox({ logoSize: null }).height, LOGO_DEFAULT)
+  assert.equal(logoBox({ logoSize: '' }).height, LOGO_DEFAULT)
+})
+
+test('the entrance draws the size it was given, at the size it asked for', () => {
+  const splash = fs.readFileSync(path.join(ROOT, 'src/components/SplashScreen.jsx'), 'utf8')
+  assert.ok(splash.includes('const box = logoBox(entrance)'), 'the setting never reaches the entrance')
+  assert.ok(splash.includes('useImageFallback(entrance?.logoUrl, box.request)'), 'a big logo is fetched small')
+  assert.ok(splash.includes('style={{ maxHeight: box.height, maxWidth: box.maxWidth }}'), 'the box is not applied')
+  assert.ok(!splash.includes('max-h-24'), 'the old fixed height is still there')
+  // The built-in mark follows it too, or an admin who sized the entrance
+  // for their own logo would find the stock one ignoring them.
+  assert.ok(splash.includes('Math.round(box.height * 0.67)'))
+})
+
+test('the admin can move it, see it, and put it back', () => {
+  const panel = fs.readFileSync(path.join(ROOT, 'src/pages/admin/EntrancePanel.jsx'), 'utf8')
+  assert.ok(panel.includes('set({ logoSize: Number(e.target.value) })'), 'there is no way to change it')
+  assert.ok(panel.includes('set({ logoSize: LOGO_DEFAULT })'), 'there is no way back to the stock size')
+  assert.ok(panel.includes('{logoBox(draft).height}px tall'), 'the real figure is never shown')
+  // The slider is bounded by the same numbers the model clamps to, or the
+  // control offers sizes the entrance will silently refuse.
+  assert.ok(panel.includes('min={LOGO_MIN}') && panel.includes('max={LOGO_MAX}'))
 })

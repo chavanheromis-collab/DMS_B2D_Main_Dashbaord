@@ -14,6 +14,41 @@
 
 const NEEDS_QUOTES = /[",\r\n]|^\s|\s$/
 
+// The characters a spreadsheet reads as "this is a formula" when it opens a
+// CSV. Tab and carriage return are on the list because Excel skips leading
+// whitespace before deciding, so a tab in front of an `=` hides it from a
+// naive check and not from Excel.
+const FORMULA_START = /^[=+\-@\t\r]/
+
+/** Does this read as a plain number, thousands separators and all? */
+const looksNumeric = (text) => {
+  const bare = text.replace(/,/g, '').trim()
+  return bare !== '' && Number.isFinite(Number(bare))
+}
+
+/**
+ * A cell that cannot turn into a formula in whoever opens it.
+ *
+ * The hazard is real and old: a cell whose text begins `=`, `+`, `-` or `@`
+ * is evaluated on open by Excel, LibreOffice and Sheets alike, so a value
+ * typed into the source spreadsheet becomes code running on the machine of
+ * whoever exported the page. It reaches us as text rather than as a
+ * formula -- Google hands back computed values, so a real formula arrives
+ * already evaluated -- which is exactly why nothing upstream catches it.
+ *
+ * Prefixed with an apostrophe rather than stripped, because the value is
+ * somebody's data and an export that quietly loses characters is worse than
+ * one that shows an extra one.
+ *
+ * A NUMBER is never touched. Half the columns in a dealership sheet are
+ * negative amounts, and `'-1200` in every one of them would make the file
+ * useless for the arithmetic it is downloaded to do.
+ */
+export function csvSafe(text) {
+  if (!FORMULA_START.test(text) || looksNumeric(text)) return text
+  return `'${text}`
+}
+
 /**
  * One CSV field.
  *
@@ -24,7 +59,7 @@ const NEEDS_QUOTES = /[",\r\n]|^\s|\s$/
  */
 export function csvField(value, delimiter = ',') {
   if (value === null || value === undefined) return ''
-  const text = typeof value === 'string' ? value : String(value)
+  const text = csvSafe(typeof value === 'string' ? value : String(value))
   if (text === '') return ''
   if (text.includes(delimiter) || NEEDS_QUOTES.test(text)) return `"${text.replace(/"/g, '""')}"`
   return text

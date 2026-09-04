@@ -447,6 +447,67 @@ const SKETCHES = {
       ))}
     </Frame>
   ),
+  rings: () => (
+    <Frame className="items-center justify-center">
+      <div className="flex items-center gap-2">
+        {[
+          [0.72, '#6366f1'],
+          [0.45, '#38bdf8'],
+          [0.9, '#34d399'],
+        ].map(([fill, color], i) => (
+          <div key={i} className="flex flex-col items-center gap-1">
+            <svg width="26" height="26" viewBox="0 0 26 26" style={{ transform: 'rotate(-90deg)' }}>
+              <circle cx="13" cy="13" r="10" fill="none" stroke="#e2e8f0" strokeWidth="4" />
+              <circle
+                cx="13"
+                cy="13"
+                r="10"
+                fill="none"
+                stroke={color}
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 10}
+                strokeDashoffset={2 * Math.PI * 10 * (1 - fill)}
+              />
+            </svg>
+            <div className={`h-1 w-5 ${FAINT}`} />
+          </div>
+        ))}
+      </div>
+    </Frame>
+  ),
+  process: () => (
+    <Frame className="justify-center">
+      <div className="flex items-stretch gap-[2px]">
+        {['#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe'].map((color, i) => (
+          <div
+            key={i}
+            className="h-6 flex-1"
+            style={{
+              backgroundColor: color,
+              clipPath:
+                i === 0
+                  ? 'polygon(0 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 0 100%)'
+                  : 'polygon(0 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 0 100%, 5px 50%)',
+            }}
+          />
+        ))}
+      </div>
+      <div className={`mx-auto h-1 w-16 ${FAINT}`} />
+    </Frame>
+  ),
+  pyramid: () => (
+    <Frame className="items-center justify-center gap-[3px]">
+      {[
+        [40, '#c7d2fe'],
+        [60, '#a5b4fc'],
+        [80, '#818cf8'],
+        [100, '#6366f1'],
+      ].map(([w, color], i) => (
+        <div key={i} className="h-3 rounded-[2px]" style={{ width: `${w}%`, backgroundColor: color }} />
+      ))}
+    </Frame>
+  ),
   note: () => (
     <Frame className="justify-center">
       <div className="flex items-center gap-1">

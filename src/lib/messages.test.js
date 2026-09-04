@@ -408,7 +408,26 @@ test('and only on their own behalf', () => {
 })
 
 test('a reply can be added but the ones already there cannot be removed', () => {
-  assert.ok(messageRule.includes('request.resource.data.replies.size() >= resource.data.replies.size()'))
+  // This test used to assert the SIZE of the list had not shrunk, which is
+  // what the rule used to say -- and neither of them was the thing the name
+  // claims. Two replies replaced by two different replies keeps the size
+  // and rewrites what somebody else said, on a thread other people have
+  // already read and acted on.
+  //
+  // So the elements are compared, not counted: nothing may leave.
+  assert.ok(messageRule.includes('repliesGone().size() == 0'))
+  assert.ok(!messageRule.includes('replies.size() >= resource.data.replies.size()'), 'the size-only check is back')
+})
+
+test('...and a reply arrives signed by the person sending it', () => {
+  // Otherwise a recipient can append a reply attributed to somebody else,
+  // which on a thread colleagues make decisions from is the whole game.
+  assert.ok(messageRule.includes('repliesAdded().size() <= 1'))
+  assert.ok(messageRule.includes('repliesAdded()[0].from == request.auth.uid'))
+  // Signed with `from`. The remark rules next door use `by`, and one letter
+  // between two collections is the kind of thing that reads fine and
+  // permits everything.
+  assert.match(String(replyDoc('hello', { uid: 'u1', name: 'A' }).from), /^u1$/)
 })
 
 test('unsending is the sender’s business', () => {

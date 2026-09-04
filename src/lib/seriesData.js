@@ -135,7 +135,37 @@ export const SERIES_MODES = [
   { value: 'percent', label: '100% stacked', hint: 'Mix only — every period fills the height.' },
   { value: 'bar', label: 'Stacked bars', hint: 'Discrete periods rather than a continuous line.' },
   { value: 'group', label: 'Grouped bars', hint: 'Side by side — best for a handful of series.' },
+  {
+    value: 'stream',
+    label: 'Stream',
+    hint: 'Bands flowing round a centre line. The shape of the mix, not its totals.',
+  },
 ]
+
+/**
+ * How a mode stacks, in the word Recharts wants.
+ *
+ * A STREAM is a stack balanced about a centre line rather than sitting on
+ * an axis -- which is what gives it the ribbon shape, and also what makes
+ * it the wrong chart for reading a value off. Nobody can, and that is the
+ * trade: it shows the shape of a mix over time better than anything else
+ * and its individual numbers not at all, which is why it is offered beside
+ * the stack rather than instead of it.
+ *
+ * `wiggle` is the offset that minimises how much the bands wobble, which is
+ * the one that reads as a flowing ribbon rather than as a stack somebody
+ * has bent.
+ */
+export function stackOffsetFor(mode) {
+  if (mode === 'stream') return 'wiggle'
+  if (mode === 'percent') return 'expand'
+  return 'none'
+}
+
+/** Which modes pile their series up rather than drawing them side by side. */
+export function modeStacks(mode) {
+  return mode === 'area' || mode === 'bar' || mode === 'percent' || mode === 'stream'
+}
 
 export { SERIES_PALETTES, paletteFor }
 

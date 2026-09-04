@@ -2,7 +2,18 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { isRound, KPI_SHAPES, ringFraction, ringGeometry, ringIsMeaningful, shapeOf } from './kpiShapes.js'
+import {
+  boxRatio,
+  isDial,
+  isRound,
+  KPI_SHAPES,
+  ringFraction,
+  ringGeometry,
+  ringIsMeaningful,
+  shapeOf,
+  STARTS,
+  SWEEPS,
+} from './kpiShapes.js'
 
 // ---------------------------------------------------------------------
 // Which shape a card is
@@ -131,6 +142,85 @@ test('a fraction outside nought to one is brought back into it', () => {
 })
 
 // ---------------------------------------------------------------------
+// The dials: a ring, a gauge and an arc
+// ---------------------------------------------------------------------
+
+test('each dial draws its own amount of the circle', () => {
+  assert.equal(SWEEPS.ring, 1)
+  assert.equal(SWEEPS.gauge, 0.75, 'a quarter open at the bottom')
+  assert.equal(SWEEPS.arc, 0.5, 'the top half only')
+})
+
+test('and each starts where it should, not at three o’clock', () => {
+  // An SVG circle begins at three o'clock, which is nobody's idea of the
+  // top of anything.
+  assert.equal(STARTS.ring, -90, 'twelve')
+  assert.equal(STARTS.gauge, 135, 'half past seven, so the gap is centred below')
+  assert.equal(STARTS.arc, 180, 'nine, sweeping over the top')
+})
+
+test('a gauge only ever draws three quarters, however full it is', () => {
+  const g = ringGeometry(1, 96, 8, 'gauge')
+  assert.equal(Math.round(g.track), Math.round(g.circumference * 0.75))
+  assert.equal(Math.round(g.offset), 0, 'and full means the whole of that')
+})
+
+test('a half-full gauge fills half of ITS track, not half the circle', () => {
+  // The trap: measuring against the circumference would make a gauge read
+  // two thirds full when it is half full.
+  const g = ringGeometry(0.5, 96, 8, 'gauge')
+  assert.equal(Math.round(g.offset), Math.round(g.track / 2))
+})
+
+test('an arc is the top half and starts at nine', () => {
+  const a = ringGeometry(1, 96, 8, 'arc')
+  assert.equal(Math.round(a.track), Math.round(a.circumference / 2))
+  assert.equal(a.rotation, 180)
+})
+
+test('the missing part is not drawn at all, rather than drawn faintly', () => {
+  // A gauge with a ghost of its missing quarter is a ring with a smudge.
+  // The gap has to be longer than the circle, or the dash wraps round and
+  // starts drawing a second time.
+  const g = ringGeometry(0.5, 96, 8, 'gauge')
+  const [run, gap] = g.dashArray.split(' ').map(Number)
+  assert.equal(Math.round(run), Math.round(g.track))
+  assert.ok(gap >= g.circumference)
+})
+
+test('a ring is unchanged by any of this', () => {
+  // Every card already drawn as a ring has to stay exactly as it was.
+  const ring = ringGeometry(0.25, 96, 8, 'ring')
+  assert.equal(Math.round(ring.track), Math.round(ring.circumference))
+  assert.equal(ring.rotation, -90)
+  assert.equal(Math.round(ring.offset), Math.round(ring.circumference * 0.75))
+  assert.deepEqual(ringGeometry(0.25, 96, 8), ring, 'and it is still the default')
+})
+
+test('a shape nobody has heard of is drawn as a ring, not as nothing', () => {
+  const odd = ringGeometry(0.5, 96, 8, 'hexagon')
+  assert.equal(odd.sweep, 1)
+  assert.equal(odd.rotation, -90)
+})
+
+test('an arc gets a shorter box, or it leaves a hole under the number', () => {
+  assert.ok(boxRatio('arc') < 1)
+  assert.equal(boxRatio('ring'), 1)
+  assert.equal(boxRatio('gauge'), 1)
+  assert.equal(boxRatio('badge'), 1)
+})
+
+test('the dials are the ones with a track that fills', () => {
+  // A badge is round but is not a proportion of anything.
+  assert.deepEqual(['ring', 'gauge', 'arc'].map(isDial), [true, true, true])
+  assert.equal(isDial('badge'), false)
+  assert.equal(isDial('classic'), false)
+  for (const shape of ['ring', 'gauge', 'arc', 'badge']) {
+    assert.equal(isRound(shape), true, shape)
+  }
+})
+
+// ---------------------------------------------------------------------
 // Whether a ring is worth drawing
 // ---------------------------------------------------------------------
 
@@ -186,7 +276,9 @@ test('a target is only asked for where it would be drawn', () => {
   // Offering "target" on a shape that cannot show one is a control that
   // does nothing.
   const panel = read('src/pages/admin/WidgetsPanel.jsx')
-  assert.ok(panel.includes("{widget.kpiShape === 'ring' && ("))
+  // Every dial, not just the ring: a gauge and an arc measure against a
+  // target in exactly the same way.
+  assert.ok(panel.includes("{['ring', 'gauge', 'arc'].includes(widget.kpiShape) && ("))
   assert.ok(panel.includes('onChange={(v) => set({ kpiTarget: v })}'))
 })
 
@@ -199,4 +291,26 @@ test('a ring with nothing to measure against says so', () => {
   assert.ok(kpi.includes('set a target to fill this ring'))
   // ...and the percentage is only shown where it means something.
   assert.ok(kpi.includes("{shape === 'ring' && meaningful && ("))
+})
+
+test('a gauge and an arc are drawn as dials, turned to start in the right place', () => {
+  const kpi = read('src/components/widgets/KpiWidget.jsx')
+  assert.ok(kpi.includes('ringGeometry(fraction, size, Math.max(6, Math.round(size / 13)), shape)'))
+  assert.ok(kpi.includes('isDial(shape) ? ('))
+  assert.ok(kpi.includes('transform: `rotate(${ring.rotation}deg)`'))
+})
+
+test('the track is only as long as the shape draws', () => {
+  // On BOTH circles. A faint full ring behind a three-quarter gauge is a
+  // ring with a smudge in it.
+  const kpi = read('src/components/widgets/KpiWidget.jsx')
+  assert.equal(kpi.split('strokeDasharray={ring.dashArray}').length, 3)
+  assert.ok(!kpi.includes('strokeDasharray={ring.circumference}'))
+})
+
+test('an arc gets a shorter box, and its number stays over the drawn part', () => {
+  const kpi = read('src/components/widgets/KpiWidget.jsx')
+  assert.ok(kpi.includes('const boxH = Math.round(size * boxRatio(shape))'))
+  assert.ok(kpi.includes('style={{ width: size, height: boxH }}'))
+  assert.ok(kpi.includes('style={{ height: boxH }}'))
 })

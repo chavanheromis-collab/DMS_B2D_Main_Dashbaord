@@ -57,6 +57,17 @@ export const BACKGROUND_PRESETS = [
   { label: 'Ember', mode: 'gradient', gradientFrom: '#1C1917', gradientTo: '#7C2D12', angle: 150 },
   { label: 'Carbon', mode: 'color', color: '#111318' },
   { label: 'Slate night', mode: 'color', color: '#0F172A' },
+  // --- the infographic set --------------------------------------------
+  // The deep indigo panel and the soft pastel fields a printed data-viz
+  // template is built on. Kept together and named as a set, because they
+  // are meant to be used with each other -- a coral field under an indigo
+  // header is the look; a coral field on its own is just pink.
+  { label: 'Indigo panel', mode: 'gradient', gradientFrom: '#1E2A5A', gradientTo: '#2D3E7E', angle: 165 },
+  { label: 'Indigo deep', mode: 'color', color: '#1B2559' },
+  { label: 'Coral field', mode: 'gradient', gradientFrom: '#FFF1F2', gradientTo: '#FFE4E6', angle: 150 },
+  { label: 'Sky field', mode: 'gradient', gradientFrom: '#EFF6FF', gradientTo: '#E0F2FE', angle: 150 },
+  { label: 'Citrus field', mode: 'gradient', gradientFrom: '#FFFBEB', gradientTo: '#FEF3C7', angle: 150 },
+  { label: 'Violet field', mode: 'gradient', gradientFrom: '#F5F3FF', gradientTo: '#FAE8FF', angle: 150 },
 ]
 
 export const DEFAULT_BACKGROUND = {

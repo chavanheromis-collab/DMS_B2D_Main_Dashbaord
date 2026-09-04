@@ -85,6 +85,7 @@ export const CHART_VISUAL_KEYS = [
   'fillLabelWeight',
   'separatorColor',
   'separatorWidth',
+  'markDepth',
   'tooltipBg',
   'tooltipText',
   'tooltipBorder',
@@ -116,6 +117,13 @@ export const DEFAULT_CHART_VISUALS = {
   // --- what separates one mark from the next -----------------------
   separatorColor: null,
   separatorWidth: null,
+  // --- how far the marks stand off the card -------------------------
+  // A shadow under a bar or a slice. Not a 3D renderer and not pretending
+  // to be one: a raised edge and a shadow is what a "3D" chart in a design
+  // template is doing at dashboard size anyway, and it costs no library and
+  // no perspective distortion -- which is the thing that makes a real 3D
+  // pie harder to read than a flat one rather than easier.
+  markDepth: null,
   // --- the tooltip --------------------------------------------------
   tooltipBg: null,
   tooltipText: null,
@@ -149,6 +157,25 @@ export const CHART_VISUAL_PRESETS = [
       axisColor: '#E2E8F0',
       tickMarks: false,
       tooltipRadius: 10,
+    },
+  },
+  {
+    value: 'raised',
+    label: 'Raised',
+    hint: 'Rounded marks standing off the card on a soft shadow. The "3D" look, drawn flat.',
+    preset: {
+      fillOpacity: 100,
+      strokeWidth: 0,
+      barRadius: 10,
+      barGap: 34,
+      pointSize: 5,
+      markDepth: 55,
+      gridLines: 'horizontal',
+      gridStyle: 'dotted',
+      gridColor: '#E2E8F0',
+      axisLines: false,
+      tickMarks: false,
+      tooltipRadius: 14,
     },
   },
   {
@@ -285,6 +312,7 @@ export const LIMITS = {
   barGap: [0, 60],
   pointSize: [0, 10],
   separatorWidth: [0, 6],
+  markDepth: [0, 100],
   tooltipRadius: [0, 24],
   tooltipSize: [8, 20],
   fillLabelSize: [6, 28],
@@ -409,6 +437,20 @@ export function chartVisualVars(visuals) {
 
   // --- separators ---------------------------------------------------
   put('--chartv-separator-color', v.separatorColor)
+  const depth = clamp(v.markDepth, 'markDepth')
+  // Zero is the one number here that emits nothing rather than emitting a
+  // zero. Everywhere else a 0 is a decision worth stating -- but a fully
+  // transparent drop-shadow is invisible AND still costs a raster pass per
+  // mark per frame, so "flat" and "no opinion" have to draw the same. It
+  // still overrides an inherited depth, because the merge happens first.
+  if (depth) {
+    // Two shadows again, as everything else here has: a tight one for the
+    // contact edge and a wide soft one for the height off the card.
+    const near = Math.round(depth / 24)
+    const far = Math.round(depth / 6)
+    put('--chartv-mark-depth', `drop-shadow(0 ${near}px ${Math.max(1, near)}px rgb(15 23 42 / ${(depth / 400).toFixed(3)})) drop-shadow(0 ${far}px ${far}px rgb(15 23 42 / ${(depth / 260).toFixed(3)}))`)
+  }
+
   const sep = clamp(v.separatorWidth, 'separatorWidth')
   if (sep !== null) put('--chartv-separator-width', `${sep}px`)
 
@@ -466,6 +508,7 @@ export function chartVisualClass(visuals) {
   }
   if (clamp(v.tooltipSize, 'tooltipSize') !== null) out.push('cv-tooltip-size')
   if (v.cursorColor) out.push('cv-cursor')
+  if (clamp(v.markDepth, 'markDepth')) out.push('cv-depth')
 
   return out.join(' ')
 }

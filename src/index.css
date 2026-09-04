@@ -805,6 +805,19 @@ aside.fixed.right-0 {
   stroke-width: var(--chartv-separator-width);
 }
 
+/* --- depth --- */
+/* Bars, slices and points standing off the card. A filter rather than a
+   box-shadow, because these are SVG shapes and a box shadow would follow
+   their bounding box -- a rectangle round a pie slice.
+
+   Deliberately NOT a 3D renderer. A raised edge and a shadow is what a
+   "3D" chart in a design template is doing at dashboard size, and it costs
+   no library and no perspective distortion -- which is the thing that makes
+   a real 3D pie harder to read accurately than a flat one, not easier. */
+.cv-depth :where(.recharts-bar-rectangle, .recharts-rectangle:not(.recharts-tooltip-cursor), .recharts-pie-sector, .recharts-sector, .recharts-area-area, .recharts-dot) {
+  filter: var(--chartv-mark-depth);
+}
+
 /* --- the tooltip --- */
 /* HTML rather than SVG, so this is ordinary styling. Recharts writes the
    surface as an inline style on the same element, which is why the
@@ -872,6 +885,160 @@ aside.fixed.right-0 {
   height: auto;
   min-height: 0;
   overflow: auto;
+}
+
+/* ------------------------------------------------------------------ */
+/* The entrance celebrating                                            */
+/* ------------------------------------------------------------------ */
+/* A birthday, not a firework display: cannons at the bottom corners the
+   moment it opens, then paper drifting down for as long as the entrance
+   holds. The angles and the stagger are in lib/celebrate.js.
+
+   Two elements per piece, and the split is load-bearing: the outer one
+   TRAVELS and the inner one TUMBLES. Both on one element is two `transform`
+   animations on one property, and the last one declared silently wins --
+   the paper would spin on the spot, or fly without turning.
+
+   `will-change` on the outer only. A hundred and ten elements each promoted
+   to their own compositor layer is how a three-second flourish drops frames
+   on the laptop it is meant to impress. */
+.celebrate {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* Above the drifting orbs and the grid, below the wordmark: the paper is
+     the celebration, the words are the message, and a name read through
+     falling confetti is a name nobody reads.
+
+     Zero, not one. The wordmark's own wrapper is `position: relative` with
+     no z-index of its own, so anything above 0 here would paint over it. */
+  z-index: 0;
+}
+.celebrate-piece {
+  position: absolute;
+  will-change: transform, opacity;
+}
+.celebrate-piece > i {
+  display: block;
+  width: var(--size, 9px);
+  height: var(--size, 9px);
+  background: var(--colour, #f59e0b);
+  border-radius: 1px;
+  animation: confetti-spin var(--fly, 2000ms) linear var(--delay, 0ms) both;
+}
+.celebrate-piece > i.confetti-circle {
+  border-radius: 50%;
+}
+.celebrate-piece > i.confetti-ribbon {
+  height: calc(var(--size, 9px) * 0.36);
+  width: calc(var(--size, 9px) * 1.9);
+  border-radius: 1px;
+}
+
+.celebrate-shot {
+  animation: confetti-shot var(--fly, 1800ms) cubic-bezier(0.12, 0.62, 0.3, 1) var(--delay, 0ms) both;
+}
+.celebrate-fall {
+  animation: confetti-fall var(--fly, 4000ms) linear var(--delay, 0ms) both;
+}
+
+/* Out of the corner, up across the screen, then gravity. The apex is at
+   55%: a shot that rises for as long as it falls looks like a balloon. */
+@keyframes confetti-shot {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.5);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  55% {
+    transform: translate3d(var(--dx, 40vw), var(--dy, -60vh), 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(calc(var(--dx, 40vw) * 1.35), calc(var(--dy, -60vh) + var(--drop, 90vh)), 0) scale(0.95);
+    opacity: 0;
+  }
+}
+
+/* Down the screen, swaying. Paper does not fall in a straight line, and a
+   hundred pieces that do read as rain. */
+@keyframes confetti-fall {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  25% {
+    transform: translate3d(calc(var(--sway, 5vw) * -1), 32vh, 0);
+  }
+  50% {
+    transform: translate3d(var(--sway, 5vw), 64vh, 0);
+  }
+  75% {
+    transform: translate3d(calc(var(--sway, 5vw) * -0.6), 96vh, 0);
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--dx, 0), var(--dy, 130vh), 0);
+    opacity: 0;
+  }
+}
+
+@keyframes confetti-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(var(--spin, 360deg)); }
+}
+
+/* The card itself gets a shove as it lands, so the celebration reads as
+   being ABOUT that announcement and not merely at the same time as it. */
+.splash-item-win {
+  animation: splash-pop 620ms cubic-bezier(0.2, 1.4, 0.4, 1) var(--pop-delay, 0ms) both;
+}
+@keyframes splash-pop {
+  0%   { transform: scale(0.9); }
+  45%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .celebrate { display: none; }
+  .splash-item-win { animation: none; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Tools that live on a row                                            */
+/* ------------------------------------------------------------------ */
+/* Zoom, filter, look-inside: they belong to one row out of forty, and a
+   tree with three icons on every line is a tree nobody can read. So they
+   wait until the pointer arrives.
+
+   Except where there is no pointer. `group-hover` never fires on a touch
+   screen -- there is no hover to have -- so on a tablet these buttons were
+   invisible AND unreachable: tapping the row opens the branch, and nothing
+   anywhere reveals them. `@media (hover: hover)` is the question actually
+   being asked, and it is the only one a phone answers honestly.
+
+   Keyboard users are covered on both: focus reveals it, which is what
+   makes tabbing through a row possible at all. */
+.row-tool {
+  opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .row-tool {
+    opacity: 0;
+  }
+  .group:hover .row-tool,
+  .row-tool:focus,
+  .row-tool:focus-visible {
+    opacity: 1;
+  }
 }
 
 /* ------------------------------------------------------------------ */

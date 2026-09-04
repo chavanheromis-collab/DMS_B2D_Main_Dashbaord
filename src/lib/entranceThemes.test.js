@@ -190,7 +190,9 @@ const panel = read('src/pages/admin/EntrancePanel.jsx')
 test('the entrance logo keeps trying, instead of hiding itself', () => {
   // It took the single best Drive URL and hid the image on failure, so a
   // file whose CDN copy had not been generated yet simply never appeared.
-  assert.ok(splash.includes('const logo = useImageFallback(entrance?.logoUrl, 260)'))
+  // The width it is asked for follows the size the admin chose, so a logo
+  // enlarged to 320px is not fetched at the old fixed 260 and blown up.
+  assert.ok(splash.includes('useImageFallback(entrance?.logoUrl, box.request)'))
   assert.ok(splash.includes('onError={logo.onError}'))
   assert.ok(!splash.includes("e.currentTarget.style.display = 'none'"))
 })
@@ -229,7 +231,8 @@ test('a fresh source starts again from the best endpoint', () => {
 // ---------------------------------------------------------------------
 
 test('the entrance is painted by the theme, not by a fixed class', () => {
-  assert.ok(splash.includes("style={{ ...themeVars(theme), background: 'var(--splash-bg)' }}"))
+  assert.ok(splash.includes('...themeVars(theme)'))
+  assert.ok(splash.includes("background: 'var(--splash-bg)'"))
   assert.ok(!splash.includes('bg-slate-950'))
 })
 

@@ -255,7 +255,7 @@ async function handleGet(req, res, uid) {
     if (Object.keys(tabHeaders).length) {
       adminDb.doc(`sheetConfigs/${pageId}`).set({ tabHeaders }, { merge: true }).catch(() => {})
     }
-    res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30')
+    res.setHeader('Cache-Control', 'private, max-age=10')
     return res.status(200).json({ tabs: data, legacy: true })
   }
 
@@ -276,17 +276,29 @@ async function handleGet(req, res, uid) {
   const data = await fetchRefs(refsToRead, sources)
   syncHeaders(data)
 
-  res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30')
+  // PRIVATE, not `s-maxage`. This response is spreadsheet data chosen by
+  // who is asking -- the access check above is per user -- and every caller
+  // hits the same URL for the same page. A shared cache keyed on that URL
+  // would hand one person's rows to somebody with no grant at all. The
+  // browser may still keep its own copy for a few seconds, and the warm
+  // lambda's own 15-second cache already collapses a burst of loads across
+  // users into one Google call, which is where the saving actually came
+  // from.
+  res.setHeader('Cache-Control', 'private, max-age=10')
   return res.status(200).json({ tabs: data })
 }
 
 async function handlePost(req, res, uid) {
   const body = req.body || {}
   const pageId = body.page || body.sheet
-  const { ref, tab, row, column, value, headers } = body
+  const { ref, tab, row, column, value } = body
 
-  if (!pageId || !row || !column || !Array.isArray(headers)) {
-    return res.status(400).json({ error: 'Missing page, row, column or headers in request body' })
+  // `headers` is still accepted in the body and deliberately ignored: the
+  // column is located in the sheet's own header row (see updateCell), so a
+  // request cannot choose which column its permission applies to. Older
+  // browsers still send it; there is nothing to break.
+  if (!pageId || !row || !column) {
+    return res.status(400).json({ error: 'Missing page, row or column in request body' })
   }
 
   const access = await getAccess(uid, pageId)
@@ -304,7 +316,7 @@ async function handlePost(req, res, uid) {
     if (!allowedLegacy) {
       return res.status(403).json({ error: `You are not allowed to edit "${column}" on the ${tab} tab` })
     }
-    return res.status(200).json(await updateCell(legacy.sheetId, tab, row, headers, column, value))
+    return res.status(200).json(await updateCell(legacy.sheetId, tab, row, column, value))
   }
 
   const targetRef = ref || (tab && page.sourceIds?.length ? makeRef(page.sourceIds[0], tab) : '')
@@ -329,7 +341,7 @@ async function handlePost(req, res, uid) {
   const source = sources[sourceId]
   if (!source?.sheetId) return res.status(400).json({ error: 'That spreadsheet is no longer connected' })
 
-  return res.status(200).json(await updateCell(source.sheetId, tabName, row, headers, column, value))
+  return res.status(200).json(await updateCell(source.sheetId, tabName, row, column, value))
 }
 
 function splitList(value) {

@@ -305,6 +305,7 @@ test('every class the module emits has a rule that reads it', () => {
     { fillLabelSize: 12 }, { fillLabelWeight: 700 },
     { separatorColor: '#fff' }, { separatorWidth: 2 },
     { tooltipBg: '#fff' }, { tooltipSize: 12 }, { cursorColor: '#fff' },
+    { markDepth: 55 },
   ]
   for (const p of probes) chartVisualClass(p).split(' ').filter(Boolean).forEach((c) => emitted.add(c))
 
@@ -323,7 +324,7 @@ test('every property a rule reads is one the module can emit', () => {
   const emitted = new Set()
   for (const p of [
     { fillOpacity: 50, strokeWidth: 3, pointSize: 4, gridColor: '#fff', gridStyle: 'dotted' },
-    { axisColor: '#fff', separatorColor: '#fff', separatorWidth: 2 },
+    { axisColor: '#fff', separatorColor: '#fff', separatorWidth: 2, markDepth: 55 },
     { fillLabelMode: 'fixed', fillLabelColor: '#fff', fillLabelSize: 12, fillLabelWeight: 700 },
     { tooltipBg: '#a', tooltipText: '#b', tooltipBorder: '#c', tooltipRadius: 4, tooltipSize: 12, cursorColor: '#d' },
   ]) {
@@ -348,7 +349,7 @@ test('the hover band is excluded from the mark rules', () => {
   // Recharts builds the tooltip cursor from the same Rectangle the bars
   // are, so it carries `recharts-rectangle` too -- and without the
   // exclusion, turning a chart's fill down faded the highlight with it.
-  for (const cls of ['cv-fill', 'cv-sep-color', 'cv-sep-width']) {
+  for (const cls of ['cv-fill', 'cv-sep-color', 'cv-sep-width', 'cv-depth']) {
     // Read to the opening brace rather than pattern-matching the selector:
     // the very thing being checked for is a nested paren, which is exactly
     // what makes a regex for this fiddly enough to get wrong.
@@ -360,6 +361,63 @@ test('the hover band is excluded from the mark rules', () => {
       `${cls} would repaint the hover band`
     )
   }
+})
+
+// --- depth ---------------------------------------------------------------
+
+test('depth is a shadow under the marks, not a border round the card', () => {
+  // A box shadow follows an element's bounding box, which round a pie slice
+  // is a rectangle. These are SVG shapes, so it has to be a filter.
+  const vars = chartVisualVars({ markDepth: 60 })
+  assert.ok(vars['--chartv-mark-depth'].startsWith('drop-shadow('))
+
+  const at = css.indexOf('.cv-depth :where(')
+  assert.ok(at >= 0, 'the depth rule is missing')
+  const body = css.slice(css.indexOf('{', at), css.indexOf('}', at))
+  assert.match(body, /filter:\s*var\(--chartv-mark-depth\)/)
+})
+
+test('the depth setting is offered as a number, and stands the marks further off as it rises', () => {
+  // The reading that matters: turning the dial up has to lift the mark. A
+  // shadow that ignores its own setting is a slider that does nothing.
+  const offset = (n) => {
+    const v = chartVisualVars({ markDepth: n })['--chartv-mark-depth']
+    return v.match(/drop-shadow\(0 (\d+)px/g).map((m) => Number(m.match(/(\d+)px/)[1]))
+  }
+  const low = offset(20)
+  const high = offset(90)
+  assert.ok(high[0] >= low[0] && high[1] > low[1], `${high} is no further off than ${low}`)
+  // Two shadows: a tight contact edge and a wide soft one for the height.
+  assert.equal(low.length, 2)
+  assert.ok(low[1] > low[0], 'the far shadow should be further out than the contact one')
+})
+
+test('no depth means no filter at all, rather than a shadow of nothing', () => {
+  // A fully transparent `drop-shadow` still costs a raster pass per mark on
+  // every frame, so a chart turned flat has to emit nothing -- the one place
+  // in this module where 0 and unset are allowed to draw the same.
+  assert.equal(chartVisualVars({ markDepth: null }), undefined)
+  assert.equal(chartVisualVars({ markDepth: 0 }), undefined)
+  assert.ok(!chartVisualClass({ markDepth: 0 }).includes('cv-depth'))
+})
+
+test('...but turning depth off still beats a depth inherited from the page', () => {
+  // Which is only true because the widget's 0 wins the MERGE, before any of
+  // it becomes CSS. If it were dropped as "unset" there, a raised page would
+  // be impossible to opt one chart out of.
+  const merged = mergeVisuals({ markDepth: 60 }, { markDepth: 0 })
+  assert.equal(merged.markDepth, 0)
+  assert.ok(!chartVisualClass(merged).includes('cv-depth'))
+})
+
+test('the raised preset is the “3D” look, drawn flat', () => {
+  const raised = CHART_VISUAL_PRESETS.find((p) => p.value === 'raised')
+  assert.ok(raised, 'the raised preset is missing')
+  // Depth alone reads as a smudge. What sells it is rounded ends and room
+  // between the bars for the shadow to fall into.
+  assert.ok(raised.preset.markDepth > 0)
+  assert.ok(raised.preset.barRadius > 0)
+  assert.ok(raised.preset.barGap > 0)
 })
 
 test('a pie’s labels are reachable at all', () => {
@@ -377,6 +435,19 @@ test('the labels drawn on a mark say so, so they can be coloured', () => {
   // Every text that sits on a fill: nested circles, both treemap lines,
   // the radial bar and the funnel.
   assert.ok(chart.match(/label-on-fill/g).length >= 5, 'some on-mark text is still unreachable')
+})
+
+test('every field the model carries has a control that sets it', () => {
+  // The other half of the same guard: a key that clamps, merges, emits a
+  // property and has a rule reading it -- and no way to reach from the
+  // panel. Every one of those passes the tests above and still does nothing.
+  const fields = read('components/ChartVisualFields.jsx')
+  for (const key of CHART_VISUAL_KEYS) {
+    assert.ok(
+      fields.includes(`${key}:`) || fields.includes(`v.${key}`),
+      `${key} is in the model but nothing in the panel sets it`
+    )
+  }
 })
 
 test('the drawing settings are offered wherever the text settings are', () => {

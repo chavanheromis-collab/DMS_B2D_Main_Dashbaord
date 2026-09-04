@@ -26,9 +26,23 @@ export function AuthProvider({ children }) {
       return
     }
     const ref = doc(db, 'users', user.uid)
-    const unsub = onSnapshot(ref, (snap) => {
-      setUserDoc(snap.exists() ? snap.data() : null)
-    })
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        setUserDoc(snap.exists() ? snap.data() : null)
+      },
+      // A listener that fails silently here is the worst failure in the
+      // app: `undefined` means "still checking", and ProtectedRoute waits
+      // on it -- so every route sits on "Checking access..." for ever, with
+      // nothing on screen to say why and no way out but a reload.
+      //
+      // An error therefore has to RESOLVE the question rather than leave it
+      // open. Only when it was never answered, though: a profile already in
+      // hand is kept, because a moment of trouble is not grounds for
+      // throwing somebody out of a dashboard they are signed in to and
+      // already reading.
+      () => setUserDoc((current) => (current === undefined ? null : current))
+    )
     return unsub
   }, [user])
 

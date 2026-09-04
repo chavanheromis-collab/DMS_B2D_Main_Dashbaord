@@ -114,7 +114,7 @@ test('zoom is applied as a transform, so the layout is never recomputed', () => 
 // --- full screen ----------------------------------------------------------
 
 test('the widget has a full screen button that toggles full screen', () => {
-  assert.ok(wiredNear(widget, "title={fullscreen ? 'Leave full screen (Esc)' : 'Full screen'}", 'setFullscreen((f) => !f)'))
+  assert.ok(wiredNear(widget, "title={fullscreen ? 'Leave full screen (Esc)' : 'Full screen'}", 'onClick={toggleFullscreen}'))
 })
 
 test('the canvas has its own full screen button, wired to the widget’s', () => {
@@ -123,7 +123,10 @@ test('the canvas has its own full screen button, wired to the widget’s', () =>
   // without its breadcrumb and breakdown pickers cannot be steered.
   assert.ok(diagram.includes('onToggleFullscreen'))
   assert.ok(wiredNear(diagram, "'Full screen (F)'", 'onClick={onToggleFullscreen}'))
-  assert.ok(widget.includes('onToggleFullscreen={() => setFullscreen((f) => !f)}'))
+  assert.ok(widget.includes('onToggleFullscreen={toggleFullscreen}'))
+  // One toggle, not two: the second one also has to capture where the
+  // overlay gets mounted, and a copy of it would not.
+  assert.ok(widget.includes('const toggleFullscreen = useCallback('))
 })
 
 test('Escape leaves full screen, and the page behind cannot scroll under it', () => {
@@ -527,8 +530,10 @@ test('the log toggle is on the panel, not a setting only code can reach', () => 
 
 test('full screen has no margins and no maximum width', () => {
   // "Full screen" that stops a hundred pixels short of the edges on a wide
-  // monitor is the one thing it cannot be.
-  assert.ok(widget.includes('return <div className="fixed inset-0 z-[60] bg-white">{card}</div>'))
+  // monitor is the one thing it cannot be. See lib/deviceFullscreen.js for
+  // why the overlay is portalled and why the device screen is asked for on
+  // top of it.
+  assert.ok(widget.includes('className="fixed inset-0 z-[60] flex flex-col bg-white"'))
   assert.ok(!widget.includes('max-w-[1800px]'), 'no cap on the width')
 })
 
@@ -568,7 +573,7 @@ test('every control the widget had is still there in full screen', () => {
   // switch, the breakdown pickers, the export and the trail are all inside
   // the panel that floats.
   const chrome = widget.slice(widget.indexOf('pointer-events-none absolute inset-x-0'), widget.indexOf('forest.depth === 0'))
-  for (const control of ['setFullscreen', 'FocusTrail', 'changeable.map']) {
+  for (const control of ['toggleFullscreen', 'FocusTrail', 'changeable.map']) {
     assert.ok(chrome.includes(control), control)
   }
   // ...and the panel CLOSES before the canvas opens. Slicing up to the
@@ -584,4 +589,55 @@ test('every control the widget had is still there in full screen', () => {
     flat.includes(shut + nl + nl + pad + '{forest.depth === 0 ? ('),
     'and it closes BEFORE the canvas opens'
   )
+})
+
+// --- the reader's own notes, in full screen ------------------------------
+
+test('full screen draws the notes, because the page layer is behind it', () => {
+  // The notes are one layer over the whole canvas. A widget that fills the
+  // screen covers it, and full screen is exactly when somebody is reading
+  // closely enough to want them.
+  assert.ok(widget.includes('useNotesLayer()'), 'the widget cannot reach the notes')
+  const at = widget.indexOf('return createPortal(')
+  assert.ok(at >= 0, 'the overlay is gone')
+  const overlay = widget.slice(at, widget.indexOf('host || document.body', at))
+  assert.ok(overlay.includes('<StickyNotes'), 'full screen hides the notes again')
+  assert.ok(overlay.includes('notes={notesLayer.notes}'), 'it draws a copy rather than the notes')
+  assert.ok(overlay.includes('onNotes={notesLayer.onNotes}'), 'a note moved here would not be saved')
+})
+
+test('...the same notes, not a second set', () => {
+  // One list, one document. A copy would be a second set of notes that
+  // disagreed with the page the moment either was moved.
+  const provider = fs.readFileSync(path.join(SRC, 'context/NotesLayer.jsx'), 'utf8')
+  assert.ok(provider.includes('export function NotesLayerProvider'))
+  // With the parentheses: `useNotesLayerX` contains the name, and a prefix
+  // match would call a renamed export present.
+  assert.ok(provider.includes('export function useNotesLayer()'))
+
+  const dashboard = fs.readFileSync(path.join(SRC, 'pages/Dashboard.jsx'), 'utf8')
+  const at = dashboard.indexOf('<NotesLayerProvider')
+  assert.ok(at >= 0, 'nothing offers the notes to the widgets')
+  // Inside the provider's own tag: the page's `<StickyNotes>` below it has
+  // the same prop, and finding that one proves nothing about this one.
+  const tag = dashboard.slice(at, dashboard.indexOf('>', at))
+  assert.ok(tag.includes('onNotes={setNotes}'), 'the provider is handed a copy nothing can write back to')
+  assert.ok(tag.includes('onHidden={setNotesHidden}'), 'the switch cannot reach the page')
+  // The page still draws its own layer: full screen is the exception, not
+  // the replacement.
+  assert.ok(dashboard.includes('<StickyNotes'), 'the page lost its own notes')
+})
+
+test('there is a way to put them away, and it is only offered where it means anything', () => {
+  // On a card the page's own layer is already on top, and a second switch
+  // for the same thing is a second answer to one question.
+  assert.ok(widget.includes('{fullscreen && notesLayer?.onHidden && ('), 'the switch is offered on a card too')
+  assert.ok(widget.includes('notesLayer.onHidden(!notesLayer.hidden)'), 'the switch does nothing')
+})
+
+test('a widget outside a dashboard has no notes and does not mind', () => {
+  // The admin preview renders widgets with no provider above them, so every
+  // read of the layer has to survive it being null.
+  assert.ok(widget.includes('notesLayer?.onNotes &&'), 'a preview would throw on the notes layer')
+  assert.ok(widget.includes('notesLayer?.onHidden &&'), 'a preview would throw on the switch')
 })

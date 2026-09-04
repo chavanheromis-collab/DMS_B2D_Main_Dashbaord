@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useSpace } from '../context/SpaceContext.jsx'
 import { activeSpace, spaceForPage, spacesForUser, stampSpace } from '../lib/spaces'
 import StickyNotes from '../components/StickyNotes.jsx'
+import { NotesLayerProvider } from '../context/NotesLayer.jsx'
 import { newNote } from '../lib/stickyNotes'
 import { usePageData, useLocalState } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
@@ -114,6 +115,10 @@ import BoxPlotWidget, {
 } from '../components/widgets/DistributionWidgets.jsx'
 import NoteWidget, { CountdownWidget, MediaWidget } from '../components/widgets/CanvasWidgets.jsx'
 import Spin360Widget from '../components/widgets/Spin360Widget.jsx'
+import RingStatsWidget, {
+  ProcessWidget,
+  PyramidWidget,
+} from '../components/widgets/InfographicWidgets.jsx'
 
 // A rough, type-based height guess, used only to decide which MASONRY
 // COLUMN a widget belongs to on first layout (see MasonryGrid.jsx) --
@@ -131,6 +136,11 @@ function estimateWidgetHeight(type) {
   if (type === 'countdown') return 150
   if (type === 'media') return 220
   if (type === 'stat' || type === 'bullet') return 210
+  // A row of rings and a band of chevrons are both short and wide; a
+  // pyramid needs room for its layers to be worth tapering.
+  if (type === 'rings') return 220
+  if (type === 'process') return 170
+  if (type === 'pyramid') return 300
   if (type === 'waffle') return 300
   if (type === 'calendar') return 200
   if (type === 'cohort' || type === 'movers') return 300
@@ -1238,7 +1248,7 @@ export default function Dashboard() {
     setEditError(null)
     try {
       const idToken = await getIdToken()
-      await updateCell(idToken, page.id, ref, row._row, dataByRef[ref]?.headers || [], column, value)
+      await updateCell(idToken, page.id, ref, row._row, column, value)
       await reload()
     } catch (e) {
       setEditError(e.message)
@@ -1906,6 +1916,11 @@ export default function Dashboard() {
                         )}
                         {widget.type === 'waffle' && <WaffleWidget {...common} onCrossFilter={drill} />}
 
+                        {/* --- infographic -------------------------------- */}
+                        {widget.type === 'rings' && <RingStatsWidget {...common} onCrossFilter={drill} />}
+                        {widget.type === 'process' && <ProcessWidget {...common} onCrossFilter={drill} />}
+                        {widget.type === 'pyramid' && <PyramidWidget {...common} onCrossFilter={drill} />}
+
                         {/* --- time -------------------------------------- */}
                         {widget.type === 'calendar' && (
                           <CalendarHeatWidget {...common} dateOrder={dateOrder} onCrossFilter={drill} />
@@ -2098,6 +2113,17 @@ export default function Dashboard() {
       >
       {/* Sits above the backdrop layers. The sidebar is z-30 and stays above
           both. */}
+      {/* The notes, offered to whatever is inside as well as drawn here.
+          A widget that fills the screen hides this layer, and full screen is
+          exactly when somebody is reading closely enough to want it -- so it
+          draws the same list itself. See context/NotesLayer.jsx. */}
+      <NotesLayerProvider
+        notes={notes}
+        onNotes={setNotes}
+        canvasWidth={design.maxWidth || 0}
+        hidden={notesHidden}
+        onHidden={setNotesHidden}
+      >
       <div
         className={`page-canvas relative z-[1] min-h-screen space-y-3 p-3 md:p-4 ${
           lightText ? 'page-invert' : ''
@@ -2468,6 +2494,7 @@ export default function Dashboard() {
           </>
         )}
       </div>
+      </NotesLayerProvider>
 
       {/* --- The header, from wherever you have scrolled to -------------
           A dashboard is long and the controls that decide what it says are

@@ -35,6 +35,7 @@ import { DEFAULT_WORDCLOUD } from './wordCloud.js'
 import { DEFAULT_PROFILE } from './columnProfile.js'
 import { DEFAULT_COUNTDOWN } from './countdown.js'
 import { DEFAULT_SPIN } from './spin360.js'
+import { DEFAULT_PROCESS, DEFAULT_PYRAMID, DEFAULT_RINGS } from './infographics.js'
 
 // ---------------------------------------------------------------------
 // A new widget, ready to look at
@@ -435,6 +436,27 @@ export function makeWidget({ type = 'table', tab, name, cols = [], kpiCount = 0 
       ...DEFAULT_WAFFLE,
       title: `${name} share`,
       width: 'third',
+      groupBy: cols[0] || '',
+    })
+  } else if (type === 'rings') {
+    Object.assign(base, {
+      ...DEFAULT_RINGS,
+      title: `${name} by share`,
+      width: 'half',
+      groupBy: cols[0] || '',
+    })
+  } else if (type === 'process') {
+    Object.assign(base, {
+      ...DEFAULT_PROCESS,
+      title: `${name} steps`,
+      width: 'full',
+      groupBy: cols[0] || '',
+    })
+  } else if (type === 'pyramid') {
+    Object.assign(base, {
+      ...DEFAULT_PYRAMID,
+      title: `${name} pyramid`,
+      width: 'half',
       groupBy: cols[0] || '',
     })
   } else if (type === 'calendar') {

@@ -5,7 +5,15 @@ import { aggNeedsColumn } from '../../lib/config'
 import { matchesConditions } from '../../lib/filterEngine'
 import AppImage from '../PageIcon.jsx'
 import { safeImageUrl } from '../../lib/imageUrl'
-import { isRound, ringFraction, ringGeometry, ringIsMeaningful, shapeOf } from '../../lib/kpiShapes'
+import {
+  boxRatio,
+  isDial,
+  isRound,
+  ringFraction,
+  ringGeometry,
+  ringIsMeaningful,
+  shapeOf,
+} from '../../lib/kpiShapes'
 
 /**
  * A KPI's mark.
@@ -427,7 +435,10 @@ function RoundKpi({ widget, shape, animated, value, baseline, color, isConversio
   // decoration wearing the clothes of a measurement. It says so rather than
   // drawing a circle that means nothing.
   const meaningful = ringIsMeaningful({ target: widget.kpiTarget, baseline })
-  const ring = ringGeometry(fraction, size, Math.max(6, Math.round(size / 13)))
+  const ring = ringGeometry(fraction, size, Math.max(6, Math.round(size / 13)), shape)
+  // An arc uses the top half, so a square box would leave a hole under the
+  // number the size of the number.
+  const boxH = Math.round(size * boxRatio(shape))
   const text = formatNumber(
     animated,
     isConversion ? 'percent' : widget.format,
@@ -436,9 +447,17 @@ function RoundKpi({ widget, shape, animated, value, baseline, color, isConversio
 
   return (
     <div className="relative flex flex-1 flex-col items-center justify-center gap-2 py-1">
-      <div className="relative" style={{ width: size, height: size }}>
-        {shape === 'ring' ? (
-          <svg width={size} height={size} className="-rotate-90" aria-hidden>
+      <div className="relative" style={{ width: size, height: boxH }}>
+        {isDial(shape) ? (
+          <svg
+            width={size}
+            height={size}
+            aria-hidden
+            // Turned so the track STARTS where the eye expects it to --
+            // twelve for a ring, half past seven for a gauge, nine for an
+            // arc. An SVG circle begins at three o'clock.
+            style={{ transform: `rotate(${ring.rotation}deg)`, display: 'block' }}
+          >
             {/* The track first, so the fill draws over it. */}
             <circle
               cx={ring.centre}
@@ -448,6 +467,11 @@ function RoundKpi({ widget, shape, animated, value, baseline, color, isConversio
               stroke={color}
               strokeOpacity={0.16}
               strokeWidth={ring.stroke}
+              strokeLinecap="round"
+              // The track is only as long as this shape draws. A gauge with
+              // a faint ghost of its missing quarter is a ring with a
+              // smudge in it.
+              strokeDasharray={ring.dashArray}
             />
             <circle
               cx={ring.centre}
@@ -457,7 +481,7 @@ function RoundKpi({ widget, shape, animated, value, baseline, color, isConversio
               stroke={color}
               strokeWidth={ring.stroke}
               strokeLinecap="round"
-              strokeDasharray={ring.circumference}
+              strokeDasharray={ring.dashArray}
               strokeDashoffset={ring.offset}
               className="transition-[stroke-dashoffset] duration-700 ease-out"
             />
@@ -475,7 +499,12 @@ function RoundKpi({ widget, shape, animated, value, baseline, color, isConversio
         {/* The number, centred over whichever circle was drawn. A badge is
             a solid disc of the KPI's own colour, so its writing is white --
             every other shape keeps the card's ink. */}
-        <span className="absolute inset-0 flex flex-col items-center justify-center px-2 text-center">
+        <span
+          className="absolute inset-x-0 top-0 flex flex-col items-center justify-center px-2 text-center"
+          // Centred on the DRAWN part: an arc's circle is taller than its
+          // box, so centring on the box would sit the number low.
+          style={{ height: boxH }}
+        >
           <span
             className={`font-bold leading-none tabular-nums ${shape === 'badge' ? 'text-white' : 'text-slate-800'}`}
             style={{ fontSize: Math.max(15, Math.round(size / (text.length > 5 ? 5.2 : 3.6))) }}

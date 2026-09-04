@@ -1,4 +1,5 @@
 import { aggregate, bucketConditions, groupKey, isBlank, normalizeKey } from './dataUtils.js'
+import { DEFAULT_DETAILS } from './flowDetails.js'
 import { matchesConditions } from './filterEngine.js'
 import { DEFAULT_BLEND, blendIsReady, blendRows, blendedHeaders } from './blend.js'
 
@@ -155,6 +156,9 @@ export const DEFAULT_FLOW = {
   // -- five levels of eight children is 32,768 nodes -- so "expand all" on a
   // deep flow has to stop somewhere rather than lock the tab.
   maxNodes: 400,
+  // Which rows sit behind a branch, and which of their columns are worth
+  // showing. Off until an admin says otherwise -- see lib/flowDetails.js.
+  ...DEFAULT_DETAILS,
 }
 
 export const DEFAULT_FLOW_LEVEL = {

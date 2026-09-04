@@ -41,6 +41,16 @@ export const KPI_SHAPES = [
     hint: 'A solid disc of the KPI’s colour, the number inside it. For a row of counts read at a glance.',
   },
   {
+    value: 'gauge',
+    label: 'Gauge',
+    hint: 'Three quarters of a circle, open at the bottom. The dial shape.',
+  },
+  {
+    value: 'arc',
+    label: 'Arc',
+    hint: 'A half circle over the number. Shorter than a ring, so it fits a low card.',
+  },
+  {
     value: 'side',
     label: 'Beside its mark',
     hint: 'The image on the left, the number and title to its right.',
@@ -63,8 +73,33 @@ export function shapeOf(widget, hasSideImage = false) {
 
 /** Do the numbers get their own line, or sit inside a shape? */
 export function isRound(shape) {
-  return shape === 'ring' || shape === 'badge'
+  return shape === 'ring' || shape === 'badge' || shape === 'gauge' || shape === 'arc'
 }
+
+/** Which of the round ones are drawn as a track that fills. */
+export function isDial(shape) {
+  return shape === 'ring' || shape === 'gauge' || shape === 'arc'
+}
+
+/**
+ * How much of the circle each shape actually draws.
+ *
+ * A full ring is the whole way round; a gauge leaves a quarter open at the
+ * bottom, which is what makes it read as a dial rather than as a ring
+ * somebody forgot to finish; an arc is the top half only, for a card too
+ * short for a circle.
+ */
+export const SWEEPS = { ring: 1, gauge: 0.75, arc: 0.5 }
+
+/**
+ * Where each one STARTS, in degrees clockwise from three o'clock.
+ *
+ * An SVG circle begins at three o'clock, which is nobody's idea of the top.
+ * A ring is turned back a quarter so it starts at twelve; a gauge starts at
+ * half past seven so its opening is centred at the bottom; an arc starts at
+ * nine so it sweeps over the top to three.
+ */
+export const STARTS = { ring: -90, gauge: 135, arc: 180 }
 
 const num = (value) => {
   const n = Number(value)
@@ -104,20 +139,42 @@ export function ringFraction(value, { target, baseline } = {}) {
  * Kept here rather than in the component because it is arithmetic, and
  * arithmetic in a render is arithmetic nobody can test.
  */
-export function ringGeometry(fraction, size = 96, stroke = 8) {
+export function ringGeometry(fraction, size = 96, stroke = 8, shape = 'ring') {
   const s = Math.max(2, stroke)
   const r = Math.max(1, (Math.max(8, size) - s) / 2)
   const circumference = 2 * Math.PI * r
   const filled = Math.max(0, Math.min(1, Number(fraction) || 0))
+  const sweep = SWEEPS[shape] ?? 1
+  // How much of the circle this shape shows at all. The rest is not drawn
+  // faintly, it is not drawn: a gauge with a ghost of its missing quarter
+  // is a ring with a smudge in it.
+  const track = circumference * sweep
   return {
     r,
     stroke: s,
     centre: Math.max(8, size) / 2,
     circumference,
-    // What is LEFT undrawn. An SVG dash offset counts backwards, which is
-    // the one thing about this that is easy to get the wrong way round.
-    offset: circumference * (1 - filled),
+    track,
+    sweep,
+    rotation: STARTS[shape] ?? -90,
+    // One visible run followed by a gap longer than the circle, so nothing
+    // wraps round to start drawing a second time.
+    dashArray: `${track} ${circumference}`,
+    // What is LEFT undrawn of the TRACK. An SVG dash offset counts
+    // backwards, which is the one thing about this that is easy to get the
+    // wrong way round.
+    offset: track * (1 - filled),
   }
+}
+
+/**
+ * How tall a shape needs its box to be, as a fraction of its width.
+ *
+ * An arc uses the top half and a sliver below it for the stroke; giving it
+ * a square box would leave a hole under the number the size of the number.
+ */
+export function boxRatio(shape) {
+  return shape === 'arc' ? 0.62 : 1
 }
 
 /**

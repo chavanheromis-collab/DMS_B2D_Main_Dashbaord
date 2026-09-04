@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { columnsOfRows, csvField, csvFileName, toCsv } from './csv.js'
+import { columnsOfRows, csvField, csvFileName, csvSafe, toCsv } from './csv.js'
 
 // --- one field at a time -------------------------------------------------
 
@@ -124,4 +124,45 @@ test('a very long title is cut, not carried', () => {
 
 test('the month and day are padded, so files sort by name', () => {
   assert.equal(csvFileName('a', new Date(2026, 0, 5)), 'a_2026-01-05.csv')
+})
+
+// --- a cell that cannot become code -------------------------------------
+
+test('a cell that would run as a formula is disarmed', () => {
+  // Excel, LibreOffice and Sheets all evaluate a field beginning `=`, `+`,
+  // `-` or `@` when they open a CSV. The value gets there as ordinary text
+  // -- Google hands back computed values, so a real formula in the source
+  // arrives already evaluated -- which is why nothing upstream catches it.
+  for (const risky of ['=1+1', '=cmd|__DDE__!A1', '@SUM(A1)', '+91 98765 43210']) {
+    assert.equal(csvSafe(risky), `'${risky}`, risky)
+  }
+  // Leading whitespace is skipped before the decision is made, so it hides
+  // the marker from a naive check and not from Excel.
+  assert.equal(csvSafe('	=1+1'), "'	=1+1")
+})
+
+test('...but a number is left exactly alone', () => {
+  // Half the columns in a dealership sheet are negative amounts. An
+  // apostrophe in front of every one would make the file useless for the
+  // arithmetic it is downloaded to do.
+  for (const number of ['-5', '-1200.5', '-1,200', '+5', '1200', '0', '1.5e3']) {
+    assert.equal(csvSafe(number), number, number)
+  }
+})
+
+test('nothing else is touched, and the value is never shortened', () => {
+  for (const plain of ['SPLENDOR', 'a-b', 'x@y.com', '', '12-05-2024']) {
+    assert.equal(csvSafe(plain), plain, plain)
+  }
+  // Prefixed, never stripped: an export that quietly loses characters is
+  // worse than one that shows an extra one.
+  assert.ok(csvSafe('=x').endsWith('=x'))
+})
+
+test('the escaping happens on the way into the file, not somewhere optional', () => {
+  // The guard that matters: it has to be inside `csvField`, or every caller
+  // has to remember, and one of them will not.
+  assert.equal(csvField('=1+1'), "'=1+1")
+  const csv = toCsv([{ Note: '=1+1', Amount: '-500' }], ['Note', 'Amount'])
+  assert.equal(csv.split(String.fromCharCode(13, 10))[1], "'=1+1,-500")
 })

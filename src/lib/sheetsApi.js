@@ -103,13 +103,19 @@ export async function syncSource(idToken, sourceId) {
 }
 
 /**
- * Writes a single cell back to the spreadsheet, addressed by ref + header
- * name. The server re-checks that this user may edit this column on this
+ * Writes a single cell back to the spreadsheet, addressed by ref + column
+ * NAME. The server re-checks that this user may edit this column on this
  * ref before touching Google.
+ *
+ * The column's position is deliberately not sent. The server finds the name
+ * in the sheet's own header row, which is both the only way the permission
+ * check can mean anything -- a request that chose the position could put an
+ * allowed name over a forbidden column -- and the only way an edit stays
+ * correct when somebody inserts a column in Google while this page is open.
  */
-export async function updateCell(idToken, pageId, ref, rowNumber, headers, columnName, value) {
+export async function updateCell(idToken, pageId, ref, rowNumber, columnName, value) {
   return apiFetch(idToken, '/api/sheets', {
     method: 'POST',
-    body: JSON.stringify({ page: pageId, ref, row: rowNumber, column: columnName, value, headers }),
+    body: JSON.stringify({ page: pageId, ref, row: rowNumber, column: columnName, value }),
   })
 }

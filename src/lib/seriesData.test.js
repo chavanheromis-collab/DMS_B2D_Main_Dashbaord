@@ -12,8 +12,17 @@ import {
   pickSeries,
   seriesColor,
   seriesRollupNote,
+  SERIES_MODES,
+  modeStacks,
+  stackOffsetFor,
   timeSeriesBy,
 } from './seriesData.js'
+
+import fs from 'node:fs'
+import path from 'node:path'
+
+const SRC = path.resolve(import.meta.dirname, '..')
+const read = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf8')
 
 const SALES = [
   { Date: '05/01/2026', Model: 'A', Amount: '100' },
@@ -353,4 +362,53 @@ test('cyclical grains are recognised as such', () => {
   assert.equal(isCyclical('monthOfYear'), true)
   assert.equal(isCyclical('month'), false)
   assert.equal(isCyclical(undefined), false)
+})
+
+// --- how a mode stacks ----------------------------------------------------
+
+test('every mode offered has an offset, and only one of them wiggles', () => {
+  // The bug this shape of test exists for: a mode added to the picker and
+  // nowhere else draws as whatever the default happens to be, which for a
+  // stream is a plain stack.
+  const wiggling = SERIES_MODES.filter((m) => stackOffsetFor(m.value) === 'wiggle')
+  assert.deepEqual(wiggling.map((m) => m.value), ['stream'])
+  assert.equal(stackOffsetFor('percent'), 'expand')
+  for (const m of SERIES_MODES) {
+    assert.ok(['none', 'expand', 'wiggle'].includes(stackOffsetFor(m.value)), `${m.value} has no offset`)
+  }
+})
+
+test('a mode nobody has heard of stacks on the axis rather than nowhere', () => {
+  assert.equal(stackOffsetFor(undefined), 'none')
+  assert.equal(stackOffsetFor('sideways'), 'none')
+})
+
+test('a stream stacks, or its bands are drawn one on top of another', () => {
+  // `wiggle` only means anything to a stack. Without a shared stackId every
+  // band is measured from the same centre line and they overlap.
+  assert.equal(modeStacks('stream'), true)
+  for (const mode of ['area', 'bar', 'percent']) assert.equal(modeStacks(mode), true)
+  // And the two that must NOT: lines have nothing to stack, and grouped bars
+  // stand side by side by definition.
+  assert.equal(modeStacks('line'), false)
+  assert.equal(modeStacks('group'), false)
+})
+
+// --- and the chart actually draws it that way ---------------------------
+
+test('the stream is drawn by the chart, not just offered by the picker', () => {
+  const chart = read('components/widgets/AnalyticsWidgets.jsx')
+  assert.ok(chart.includes('stackOffset={stackOffsetFor(mode)}'), 'the offset never reaches the chart')
+  assert.ok(chart.includes("modeStacks(mode) ? 'stack' : undefined"), 'the bands are not stacked together')
+})
+
+test('a stream drops the axis it cannot be read against, and the edges that make it a stack', () => {
+  const chart = read('components/widgets/AnalyticsWidgets.jsx').replace(/\s+/g, ' ')
+  // A Y axis under a wiggled stack numbers a baseline that moves -- every
+  // tick on it is a lie. The whole point of the shape is that it has none.
+  assert.ok(chart.includes('{!streaming && ('), 'the value axis is still drawn')
+  // `basis` is what makes the bands flow; `monotone` through a moving
+  // baseline reads as a stack with kinks in it.
+  assert.ok(chart.includes("type={streaming ? 'basis' : 'monotone'}"))
+  assert.ok(chart.includes("stroke={streaming ? 'none' : color}"), 'the bands keep their outline')
 })

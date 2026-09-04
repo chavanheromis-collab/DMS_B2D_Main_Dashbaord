@@ -28,7 +28,13 @@ export function usePageData(getIdToken, pageId, refs, canView) {
 
   const load = useCallback(async () => {
     if (!pageId || !canView || !key) {
+      // Counted as a request, and one nothing can answer. Without the bump,
+      // a read already in flight for the PREVIOUS page still matches the
+      // request id when it lands, and paints that page's rows -- which is
+      // the case where `canView` has just gone false.
+      requestRef.current += 1
       setTabs({})
+      setLoading(false)
       return
     }
     const requestId = ++requestRef.current

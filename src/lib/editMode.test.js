@@ -419,6 +419,19 @@ test('the sketch is a sketch, and does not pretend to be your data', () => {
   assert.ok(preview.includes('export default function WidgetTypePreview({ type })'))
 })
 
+test('every type on the list can be drawn and can be edited', () => {
+  // The three ways a new widget type half-lands: on the palette with
+  // nothing to render it, rendering with no form to configure it, or added
+  // to the canvas and the panel and never to the list. Each one looks
+  // exactly like a working feature until somebody picks it.
+  const dashboard = fs.readFileSync(path.join(SRC, 'pages/Dashboard.jsx'), 'utf8')
+  const panel = fs.readFileSync(path.join(SRC, 'pages/admin/WidgetsPanel.jsx'), 'utf8')
+  for (const t of WIDGET_TYPES) {
+    assert.ok(dashboard.includes(`widget.type === '${t.value}'`), `${t.value} has nothing to draw it`)
+    assert.ok(panel.includes(`widget.type === '${t.value}'`), `${t.value} has no form`)
+  }
+})
+
 test('there is ONE list of what a widget can be', () => {
   // The icons and the one-line descriptions have always lived in config.
   const factory = fs.readFileSync(path.join(SRC, 'lib/newWidget.js'), 'utf8')

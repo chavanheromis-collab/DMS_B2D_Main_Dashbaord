@@ -227,6 +227,71 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
         </div>
       </div>
 
+      {/* --- looking at the rows behind a branch --------------------------- */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2">
+        <div className="flex flex-wrap items-end gap-3">
+          <Toggle
+            checked={Boolean(flow.showDetails)}
+            onChange={(v) => setFlow({ showDetails: v })}
+            label="A details button on each row"
+          />
+          <Field label="Rows per window" className="w-32" hint="The rest are counted.">
+            <TextInput
+              type="number"
+              value={flow.detailRows ?? 8}
+              onChange={(v) => setFlow({ detailRows: Number(v) || 8 })}
+            />
+          </Field>
+        </div>
+
+        {flow.showDetails && (
+          <>
+            <p className="mb-1 mt-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+              Columns to show, in this order
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {rootCols.map((column) => {
+                const chosen = (flow.detailColumns || []).includes(column)
+                return (
+                  <button
+                    key={column}
+                    onClick={() =>
+                      setFlow({
+                        detailColumns: chosen
+                          ? (flow.detailColumns || []).filter((c) => c !== column)
+                          : [...(flow.detailColumns || []), column],
+                      })
+                    }
+                    className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                      chosen
+                        ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                    }`}
+                    title={chosen ? 'Remove from the window' : 'Add to the window'}
+                  >
+                    {chosen ? `${(flow.detailColumns || []).indexOf(column) + 1}. ` : ''}
+                    {column}
+                  </button>
+                )
+              })}
+              {rootCols.length === 0 && (
+                <span className="text-[11px] text-slate-400">Pick a tab first — its columns appear here.</span>
+              )}
+            </div>
+            {(flow.detailColumns || []).length === 0 && (
+              <p className="mt-1.5 text-[11px] text-amber-700">
+                No columns chosen, so no button will appear. The whole point of the window is that it shows the few
+                columns that identify a record, not the whole row.
+              </p>
+            )}
+            <p className="mt-1.5 text-[10px] leading-relaxed text-slate-400">
+              These are the starting tab's columns. After a hop the flow is reading a different tab, and the window
+              there shows whichever of these it has — or says it has none, rather than a panel of blanks.
+            </p>
+          </>
+        )}
+      </div>
+
       <p className="text-[10px] text-slate-400">
         On the dashboard: clicking a branch opens it, the funnel icon filters the whole page to that branch, and the
         zoom icon (or a double-click) makes it the temporary top of the tree. Full screen, fit, ⌘/ctrl + scroll to

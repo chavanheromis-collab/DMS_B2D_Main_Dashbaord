@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ChevronDown,
   ChevronRight,
@@ -11,6 +12,8 @@ import {
   EyeOff,
   ListTree,
   Maximize2,
+  ScanEye,
+  StickyNote,
   Percent,
   Redo2,
   RotateCcw,
@@ -24,9 +27,20 @@ import {
   X,
 } from 'lucide-react'
 import { formatNumber } from '../../lib/dataUtils.js'
+import { canShowDetails } from '../../lib/flowDetails.js'
+import {
+  FULLSCREEN_EVENTS,
+  exitFullscreen,
+  fullscreenHost,
+  requestFullscreen,
+  stillFullscreen,
+} from '../../lib/deviceFullscreen.js'
 import { STAGE_PALETTE } from '../../lib/config.js'
 import ExportButton from '../ExportButton.jsx'
 import FlowDiagram from './FlowDiagram.jsx'
+import FlowRowDetails from './FlowRowDetails.jsx'
+import StickyNotes from '../StickyNotes.jsx'
+import { useNotesLayer } from '../../context/NotesLayer.jsx'
 import {
   DEFAULT_FLOW,
   buildFlowTrees,
@@ -145,6 +159,19 @@ export default function FlowWidget({
   )
 
   const [fullscreen, setFullscreen] = useState(false)
+  // Which branch is being looked into, and the button it was opened from --
+  // the window places itself against that rectangle.
+  const [details, setDetails] = useState(null)
+  // The reader's own notes, so full screen does not hide them. Null
+  // everywhere but a dashboard -- the admin preview has no notes layer.
+  const notesLayer = useNotesLayer()
+  // The overlay element itself, so the browser can be asked to make THAT
+  // the thing filling the screen.
+  const screenRef = useRef(null)
+  // Where it gets mounted. Worked out when the button is pressed, while the
+  // card is still in its normal place in the page and can be asked what it
+  // is inside -- a moment later it has moved and the answer is gone.
+  const [host, setHost] = useState(null)
   // Whether the floating controls are faded out. Only ever true in full
   // screen -- there is nothing to get out of the way of on a card.
   const [bare, setBare] = useState(false)
@@ -278,6 +305,49 @@ export default function FlowWidget({
       document.body.style.overflow = previous
     }
   }, [fullscreen])
+
+  // The DEVICE screen, not the browser window.
+  //
+  // The overlay alone is only ever as big as the viewport -- which is the
+  // window minus its tab strip, address bar and bookmarks, and on a phone
+  // minus rather more than that. Asking the browser for real fullscreen is
+  // what turns "as big as the page" into "as big as the screen".
+  //
+  // A refusal is fine and needs no branch: the overlay is drawn either way,
+  // and this only decides how large the window it sits in is allowed to be.
+  useEffect(() => {
+    if (!fullscreen) {
+      // Only if we are the ones holding it -- see lib/deviceFullscreen.js.
+      exitFullscreen(document, screenRef.current)
+      return undefined
+    }
+
+    const element = screenRef.current
+    requestFullscreen(element)
+
+    // Esc and F11 are the browser's own, and leaving that way tells us
+    // nothing except through this event. Without it the widget stays in its
+    // fullscreen layout inside a normal window, with the way out gone.
+    const onChange = () => {
+      if (!stillFullscreen(document, element)) setFullscreen(false)
+    }
+    // Fired once by our own request as well; harmless, because it only ever
+    // turns fullscreen OFF and by then we are the fullscreen element.
+    for (const name of FULLSCREEN_EVENTS) document.addEventListener(name, onChange)
+    return () => {
+      for (const name of FULLSCREEN_EVENTS) document.removeEventListener(name, onChange)
+    }
+  }, [fullscreen])
+
+  const openDetails = useCallback((node, anchor) => setDetails({ node, anchor }), [])
+  const closeDetails = useCallback(() => setDetails(null), [])
+
+  const toggleFullscreen = useCallback(() => {
+    setFullscreen((on) => {
+      if (!on) setHost(fullscreenHost(rootRef.current))
+      return !on
+    })
+  }, [])
 
   const openCount = forest.trees.reduce((sum, one) => sum + flattenFlow(one.root).filter((n) => n.open).length, 0)
 
@@ -496,8 +566,26 @@ export default function FlowWidget({
               {bare ? <Eye size={11} /> : <EyeOff size={11} />}
             </button>
           )}
+          {/* Only in full screen, where this layer is ours to draw. On a
+              card the page's own notes are already on top of it, and a
+              second switch for them here would be a second answer to one
+              question. */}
+          {fullscreen && notesLayer?.onHidden && (
+            <button
+              onClick={() => notesLayer.onHidden(!notesLayer.hidden)}
+              className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium ${
+                notesLayer.hidden
+                  ? 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                  : 'border-amber-300 bg-amber-50 text-amber-600'
+              }`}
+              title={notesLayer.hidden ? 'Show my notes' : 'Hide my notes'}
+            >
+              <StickyNote size={11} />
+              {notesLayer.notes.length > 0 && <span className="tabular-nums">{notesLayer.notes.length}</span>}
+            </button>
+          )}
           <button
-            onClick={() => setFullscreen((f) => !f)}
+            onClick={toggleFullscreen}
             className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium ${
               fullscreen
                 ? 'border-indigo-300 bg-indigo-50 text-indigo-600'
@@ -643,7 +731,7 @@ export default function FlowWidget({
             orientation={orientation}
             height={fullscreen || fillHeight ? '100%' : Number(flow.diagramHeight) || 420}
             fullscreen={fullscreen}
-            onToggleFullscreen={() => setFullscreen((f) => !f)}
+            onToggleFullscreen={toggleFullscreen}
             isDrilled={isDrilled}
             onToggle={toggle}
             onDrill={drill}
@@ -664,9 +752,17 @@ export default function FlowWidget({
               onToggle={toggle}
               onDrill={drill}
               onFocus={focusNode}
+              onDetails={openDetails}
             />
           ))}
         </div>
+      )}
+
+      {/* The rows behind one branch. Rendered here rather than inside the
+          row, so only one is ever open and closing it is one piece of
+          state rather than one per row. */}
+      {details && (
+        <FlowRowDetails node={details.node} flow={viewFlow} anchor={details.anchor} onClose={closeDetails} />
       )}
 
       {forest.truncated && (
@@ -682,7 +778,33 @@ export default function FlowWidget({
 
   // No padding and no maximum width: "full screen" that stops 100px short
   // of the edges on a wide monitor is the one thing it cannot be.
-  return <div className="fixed inset-0 z-[60] bg-white">{card}</div>
+  //
+  // Portalled to the body, and that is not tidiness. `position: fixed` is
+  // relative to the viewport only while NO ancestor has a transform, a
+  // filter or a backdrop-filter -- and the widget sits inside a `.card`,
+  // which has `backdrop-filter: blur(10px)`, and inside a canvas that
+  // translates a pinned widget as the page scrolls. Any one of those makes
+  // itself the containing block, and `inset-0` then means "as big as the
+  // card", which is exactly the bug this fixes. Out of the subtree, there
+  // is nothing left to be contained by.
+  return createPortal(
+    <div ref={screenRef} className="fixed inset-0 z-[60] flex flex-col bg-white" style={{ height: '100dvh' }}>
+      {card}
+      {/* The same notes the page has, on top of the diagram -- not a copy:
+          one list, one document, so moving a note here moves it there. The
+          page's own layer is behind this overlay and invisible, which is
+          the whole reason this exists. */}
+      {notesLayer?.onNotes && (
+        <StickyNotes
+          notes={notesLayer.notes}
+          onNotes={notesLayer.onNotes}
+          canvasWidth={0}
+          hidden={notesLayer.hidden}
+        />
+      )}
+    </div>,
+    host || document.body
+  )
 }
 
 /**
@@ -743,7 +865,7 @@ function FocusTrail({ built, label, focusPath, onFocus, onClear }) {
  * one does not, and a heading above a single tree that already has a title
  * is noise.
  */
-function TreeSection({ built, node, flow, widget, showHeader, crossFilters, onToggle, onDrill, onFocus }) {
+function TreeSection({ built, node, flow, widget, showHeader, crossFilters, onToggle, onDrill, onFocus, onDetails }) {
   return (
     <div>
       {showHeader && (
@@ -774,6 +896,7 @@ function TreeSection({ built, node, flow, widget, showHeader, crossFilters, onTo
         onToggle={onToggle}
         onDrill={onDrill}
         onFocus={onFocus}
+        onDetails={onDetails}
         isRoot
       />
     </div>
@@ -787,7 +910,7 @@ function TreeSection({ built, node, flow, widget, showHeader, crossFilters, onTo
  * than absolutely positioned SVG: it survives any row height, any font size
  * and any amount of wrapping, which hand-drawn connectors do not.
  */
-function FlowNode({ node, root, flow, widget, crossFilters, onToggle, onDrill, onFocus, isRoot }) {
+function FlowNode({ node, root, flow, widget, crossFilters, onToggle, onDrill, onFocus, onDetails, isRoot }) {
   const drilled = flowNodeIsDrilled(widget, node, crossFilters)
   const color = node.color || STAGE_PALETTE[node.level % STAGE_PALETTE.length] || '#4F46E5'
   const share = flow.percentBase === 'root' ? node.shareOfRoot : node.share
@@ -885,19 +1008,26 @@ function FlowNode({ node, root, flow, widget, crossFilters, onToggle, onDrill, o
             {canOpen && !isRoot && (
               <button
                 onClick={() => onFocus(node)}
-                className="rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-white hover:text-indigo-600 focus:opacity-100 group-hover:opacity-100"
+                className="row-tool rounded p-1 text-slate-300 transition-opacity hover:bg-white hover:text-indigo-600"
                 title={`Zoom into ${node.label}`}
               >
                 <Maximize2 size={11} />
+              </button>
+            )}
+            {onDetails && canShowDetails(flow, node) && (
+              <button
+                onClick={(e) => onDetails(node, e.currentTarget.getBoundingClientRect())}
+                className="row-tool rounded p-1 text-slate-300 transition-opacity hover:bg-white hover:text-indigo-600"
+                title={`Look at the rows behind ${node.label}`}
+              >
+                <ScanEye size={11} />
               </button>
             )}
             {canDrill && (
               <button
                 onClick={() => onDrill(node)}
                 className={`rounded p-1 transition-opacity hover:bg-white ${
-                  drilled
-                    ? 'text-indigo-600 opacity-100'
-                    : 'text-slate-300 opacity-0 focus:opacity-100 group-hover:opacity-100'
+                  drilled ? 'text-indigo-600' : 'row-tool text-slate-300'
                 }`}
                 title={drilled ? 'Remove this filter from the page' : 'Filter the whole page to these rows'}
               >
@@ -940,6 +1070,7 @@ function FlowNode({ node, root, flow, widget, crossFilters, onToggle, onDrill, o
               onToggle={onToggle}
               onDrill={onDrill}
               onFocus={onFocus}
+              onDetails={onDetails}
             />
           ))}
         </div>

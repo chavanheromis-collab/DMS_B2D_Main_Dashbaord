@@ -176,14 +176,49 @@ export async function listTabs(sheetId) {
   }
 }
 
-/** Writes a single cell, addressed by header name. */
-export async function updateCell(sheetId, tabName, rowNumber, headers, columnName, value) {
-  const colIdx = headers.indexOf(columnName)
+const badRequest = (message) => {
+  const err = new Error(message)
+  err.statusCode = 400
+  return err
+}
+
+/**
+ * Writes a single cell, addressed by header NAME.
+ *
+ * The column is located in the sheet's OWN header row, read here, and the
+ * browser's idea of the headers is never consulted. That is the whole point
+ * of this function, for two separate reasons:
+ *
+ *   PERMISSION. The caller has been checked against a column NAME -- "you
+ *   may edit Remarks". If the position of that name came from the request,
+ *   anyone allowed to edit one column could send a header list that puts
+ *   "Remarks" where "Discount" actually sits, and write it. The name that
+ *   was authorised has to be the name that is written.
+ *
+ *   STALENESS. A tab open in a browser since this morning has this
+ *   morning's column order. If somebody has since inserted a column in
+ *   Google, every index that browser holds is off by one -- and an edit
+ *   made by index would land in the wrong column, silently, with the right
+ *   value.
+ *
+ * The read is nearly always free: the same 15-second cache the dashboard
+ * fills is what answers it.
+ */
+export async function updateCell(sheetId, tabName, rowNumber, columnName, value) {
+  const row = Number(rowNumber)
+  // Row 1 is the header. Writing there renames a column for everybody, and
+  // is the one row an edit can never legitimately mean.
+  if (!Number.isInteger(row) || row < 2) throw badRequest('That row cannot be edited')
+
+  const sheet = await fetchSheetRows(sheetId, tabName)
+  const colIdx = sheet.headers.indexOf(columnName)
   if (colIdx === -1) {
-    const err = new Error(`Column "${columnName}" not found in this tab's header row`)
-    err.statusCode = 400
-    throw err
+    throw badRequest(`Column "${columnName}" not found in this tab's header row`)
   }
+  // Past the last row with data is not an edit, it is an append somewhere
+  // arbitrary -- a typo in a row number should not write into row 90,000.
+  if (row > sheet.rows.length + 1) throw badRequest('That row is no longer in this tab')
+
   const colLetter = columnIndexToLetter(colIdx)
   const range = encodeURIComponent(`${tabName}!${colLetter}${rowNumber}`)
   const result = await sheetsFetch(`/${sheetId}/values/${range}?valueInputOption=USER_ENTERED`, {

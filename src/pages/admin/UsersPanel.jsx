@@ -91,6 +91,7 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
   // twelfth gets a different answer from the first.
   const [picked, setPicked] = useState([])
   const [accessMap, setAccessMap] = useState({})
+  const [accessError, setAccessError] = useState(null)
   const [expanded, setExpanded] = useState(null)
   // Which page's detail is open, inside the open user. Twelve pages drawn
   // as twelve full cards is a wall nobody reads; one line each, and the one
@@ -104,23 +105,39 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
     []
   )
 
-  // One listener per (user, page). Admins are allowed to read the whole
-  // `access` collection, but subscribing per document keeps this identical
-  // to how the dashboard reads it and avoids a second code path.
-  useEffect(() => {
-    const unsubs = []
-    users.forEach((u) => {
-      pages.forEach((page) => {
-        const key = accessId(u.id, page.id)
-        unsubs.push(
-          onSnapshot(doc(db, 'access', key), (snap) =>
-            setAccessMap((m) => ({ ...m, [key]: snap.exists() ? snap.data() : null }))
-          )
-        )
-      })
-    })
-    return () => unsubs.forEach((fn) => fn())
-  }, [users, pages])
+  // ONE listener over the whole `access` collection.
+  //
+  // This used to subscribe per (user, page), which is a listener for every
+  // cell of the grid: forty people and fifteen pages is six hundred live
+  // subscriptions, six hundred separate `setAccessMap` calls on open, and
+  // the whole lot torn down and rebuilt every time anybody's user document
+  // changed -- because `users` is a new array on each snapshot.
+  //
+  // The dashboard still reads these one document at a time, and must: a
+  // non-admin has no right to list them (see firestore.rules). An admin
+  // does, explicitly, and this panel is admin-only.
+  useEffect(
+    () =>
+      onSnapshot(
+        collection(db, 'access'),
+        (snap) => {
+          const next = {}
+          snap.docs.forEach((d) => {
+            next[d.id] = d.data()
+          })
+          // Replaced wholesale rather than merged, so a grant deleted
+          // somewhere else stops showing here instead of lingering as a row
+          // nothing will ever clear.
+          setAccessMap(next)
+          setAccessError(null)
+        },
+        // Said out loud. Failing quietly here draws every person on the
+        // page as having no access to anything -- which is a screen an
+        // admin would act on, and act on wrongly.
+        (e) => setAccessError(e?.message || 'Could not read who has access')
+      ),
+    []
+  )
 
   const sorted = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -223,6 +240,12 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
 
   return (
     <div className="space-y-3">
+      {accessError && (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-[11px] text-rose-700">
+          Who has access to what could not be read, so every row below will look as though it has none:{' '}
+          {accessError}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative max-w-xs flex-1">
         <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />

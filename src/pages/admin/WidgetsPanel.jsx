@@ -65,6 +65,7 @@ import StyleEditor from './StyleEditor.jsx'
 import WidgetControlsEditor from './WidgetControlsEditor.jsx'
 import { ComboEditor, HeatmapEditor, ScatterEditor, StackedEditor } from './ComparisonEditors.jsx'
 import { BulletEditor, MoversEditor, StatGridEditor, WaffleEditor } from './MetricEditors.jsx'
+import { ProcessEditor, PyramidEditor, RingsEditor } from './InfographicEditors.jsx'
 import { CalendarEditor, CohortEditor, GanttEditor } from './TimeEditors.jsx'
 import { BoxPlotEditor, ProfileEditor, SankeyEditor, WordCloudEditor } from './DistributionEditors.jsx'
 import { DumbbellEditor, SunburstEditor } from './RelationEditors.jsx'
@@ -425,6 +426,9 @@ export default function WidgetsPanel({
                 <MoversEditor widget={widget} cols={cols} tabHeaders={tabHeaders} set={set} />
               )}
               {widget.type === 'waffle' && <WaffleEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'rings' && <RingsEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'process' && <ProcessEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'pyramid' && <PyramidEditor widget={widget} cols={cols} set={set} />}
 
               {/* --- time ------------------------------------------ */}
               {widget.type === 'calendar' && <CalendarEditor widget={widget} cols={cols} set={set} />}
@@ -781,7 +785,7 @@ function KpiEditor({ widget, cols, tabs, tabHeaders, set }) {
 
           {/* Only where it would be drawn. A target on a shape that cannot
               show one is a control that does nothing. */}
-          {widget.kpiShape === 'ring' && (
+          {['ring', 'gauge', 'arc'].includes(widget.kpiShape) && (
             <Field
               label="Ring target"
               hint={
@@ -799,7 +803,7 @@ function KpiEditor({ widget, cols, tabs, tabHeaders, set }) {
             </Field>
           )}
 
-          {['ring', 'badge'].includes(widget.kpiShape) && (
+          {['ring', 'gauge', 'arc', 'badge'].includes(widget.kpiShape) && (
             <Field label="Circle size (px)">
               <TextInput
                 type="number"

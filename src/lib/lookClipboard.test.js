@@ -125,7 +125,16 @@ test('every widget renders the element the look is applied to', () => {
   const dir = path.join(ROOT, 'src/components/widgets')
   // Pieces used INSIDE a widget, never rendered as one -- they sit within
   // their parent's card and drawing a second would be a card in a card.
-  const skip = new Set(['Sparkline.jsx', 'PiePanel.jsx', 'FlowPeek.jsx', 'FlowDiagram.jsx'])
+  const skip = new Set([
+    'Sparkline.jsx',
+    'PiePanel.jsx',
+    'FlowPeek.jsx',
+    'FlowDiagram.jsx',
+    // A window OVER a widget rather than one on the canvas. It is portalled
+    // to the body and placed against the row it was opened from, so a card
+    // around it would be a card floating in the middle of the screen.
+    'FlowRowDetails.jsx',
+  ])
   const missing = []
   for (const file of fs.readdirSync(dir)) {
     if (!file.endsWith('.jsx') || skip.has(file)) continue

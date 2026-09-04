@@ -145,6 +145,14 @@ export default function ChartVisualFields({ value, onChange, title = 'Chart draw
               onChange={(n) => set({ pointSize: n })}
               hint="Dots on a line or an area."
             />
+            <Slider
+              label="Depth"
+              suffix="%"
+              value={v.markDepth}
+              range={LIMITS.markDepth}
+              onChange={(n) => set({ markDepth: n })}
+              hint="Stands bars and slices off the card on a shadow. The 3D look, without the distortion."
+            />
             <div className="grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-1.5">
               <Swatch
                 label="Slice edge"
