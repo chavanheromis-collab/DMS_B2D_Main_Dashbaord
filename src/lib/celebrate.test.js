@@ -12,8 +12,21 @@ import {
   celebrationFor,
   celebrationPieces,
 } from './celebrate.js'
-import { ITEM_KINDS } from './branding.js'
-import { ENTRANCE_WAIT_MS, entranceIsKnown, rememberLook, rememberedLook } from './entranceMemory.js'
+import {
+  DEFAULT_ENTRANCE,
+  ITEM_KINDS,
+  entranceDuration,
+  logoBox,
+  resolveBrand,
+} from './branding.js'
+import { backdropOf, themeOf } from './entranceThemes.js'
+import {
+  ENTRANCE_WAIT_MS,
+  entranceIsKnown,
+  entranceIsSettled,
+  rememberLook,
+  rememberedLook,
+} from './entranceMemory.js'
 
 const SRC = path.resolve(import.meta.dirname, '..')
 const read = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf8')
@@ -45,6 +58,51 @@ test('a browser with no storage at all simply has no memory', () => {
   try {
     assert.equal(rememberedLook('main'), null)
     assert.equal(rememberLook('main', { theme: 'sand' }), false)
+  } finally {
+    globalThis.window = original
+  }
+})
+
+test('what comes back paints exactly what went in', () => {
+  // The bug this replaces, and the reason it is a ROUND TRIP rather than a
+  // list of field names: the list was written before the logo could be
+  // resized, `logoSize` and `logoGap` were added later, and nobody added
+  // them to it. The entrance opened at the stock 96px, held there while
+  // Firestore answered, and then jumped to the size the admin had chosen --
+  // the exact flash the memory exists to prevent.
+  //
+  // Asking "does it draw the same?" cannot go stale that way. A look
+  // setting added next year is covered by this test on the day it is added.
+  const store = new Map()
+  const original = globalThis.window
+  globalThis.window = {
+    localStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, v),
+    },
+  }
+  try {
+    const live = {
+      ...DEFAULT_ENTRANCE,
+      theme: 'sand',
+      logoBackdrop: 'plate',
+      logoUrl: 'https://drive.google.com/file/d/abc/view',
+      logoSize: 220,
+      logoGap: -40,
+      brandName: 'Chavan Udyog Samuh',
+      tagline: 'Business Intelligence',
+      durationMs: 3400,
+      items: [{ id: 'a', kind: 'campaign', title: 'Ends Friday' }],
+    }
+    rememberLook('main', live)
+    const look = rememberedLook('main')
+
+    // Every function the entrance draws itself with must agree.
+    assert.deepEqual(logoBox(look), logoBox(live), 'the logo would resize once the read lands')
+    assert.deepEqual(themeOf(look), themeOf(live), 'the ground would change colour')
+    assert.deepEqual(backdropOf(look), backdropOf(live), 'what is behind the logo would change')
+    assert.deepEqual(resolveBrand(look, 'X', 'Y'), resolveBrand(live, 'X', 'Y'), 'the wordmark would change')
+    assert.equal(entranceDuration(look, 0), entranceDuration(live, 0), 'the entrance would change length')
   } finally {
     globalThis.window = original
   }
@@ -88,9 +146,40 @@ test('the look is remembered and the announcements are not', () => {
   }
 })
 
+test('the entrance appears whole, not in pieces', () => {
+  // Three stages, which is what "not stable" looked like: the logo, then
+  // the wordmark, then the announcements landing a fraction of a second
+  // later and shoving both up the screen as the column re-centred.
+  //
+  // The memory says WHAT to paint and cannot say whether the announcements
+  // are in -- it deliberately does not cache them. So the entrance waits
+  // for the real read, and the memory's job is to make that first shown
+  // frame correct rather than to make it early.
+  assert.equal(entranceIsSettled(undefined), false)
+  assert.equal(entranceIsSettled({ theme: 'sand', remembered: true }), false, 'a memory is treated as the article')
+  assert.equal(entranceIsSettled({ theme: 'sand' }), true)
+  assert.equal(entranceIsSettled(null), true, 'no entrance document IS a finished answer')
+
+  // ...and a memory is marked as one, or nothing can tell them apart.
+  const store = new Map()
+  const original = globalThis.window
+  globalThis.window = {
+    localStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, v),
+    },
+  }
+  try {
+    rememberLook('main', { theme: 'sand' })
+    assert.equal(rememberedLook('main').remembered, true)
+  } finally {
+    globalThis.window = original
+  }
+})
+
 test('the splash paints nothing until it knows what to paint', () => {
   const splash = read('components/SplashScreen.jsx')
-  assert.ok(splash.includes('entranceIsKnown(entrance) || waited'), 'it draws before it knows again')
+  assert.ok(splash.includes('entranceIsSettled(entrance) || waited'), 'it draws before the read has landed')
   assert.ok(splash.includes('opacity: ready ? 1 : 0'), 'the wrong theme is painted while it waits')
   // And the clock starts when it is on screen: a splash that spent half its
   // life invisible would be gone before it was read.

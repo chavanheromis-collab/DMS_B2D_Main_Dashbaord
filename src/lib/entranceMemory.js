@@ -21,8 +21,27 @@
 
 const KEY = 'md.entranceLook'
 
-/** The fields that decide what the first frame looks like. */
-const LOOK = ['brandName', 'tagline', 'logoUrl', 'theme', 'logoBackdrop', 'durationMs', 'enabled']
+/**
+ * What is NOT remembered -- everything else is.
+ *
+ * Listed this way round after the list of what IS went stale. It was seven
+ * named fields, written before the logo could be resized; `logoSize` and
+ * `logoGap` were added later and nobody added them here, so the entrance
+ * opened at the stock 96px, held there while Firestore answered, and then
+ * jumped to the size the admin had chosen. Exactly the flash this module
+ * exists to prevent, reintroduced by a list that has to be maintained by
+ * hand and silently keeps working when it is not.
+ *
+ * An exclusion list cannot go stale that way: a new look setting is
+ * remembered the day it is added, and the only thing that must never be
+ * cached is named here with its reason.
+ */
+const NOT_REMEMBERED = [
+  // Announcements have dates on them. A cached campaign could flash up a
+  // week after it ended, which is the kind of small lie a dashboard must
+  // never tell.
+  'items',
+]
 
 const read = () => {
   try {
@@ -44,7 +63,11 @@ const read = () => {
  */
 export function rememberedLook(spaceId) {
   const hit = read()[spaceId || 'main']
-  return hit && typeof hit === 'object' ? hit : null
+  if (!hit || typeof hit !== 'object') return null
+  // Marked as what it is. It says what to PAINT, and it cannot say whether
+  // the announcements have arrived -- which is a different question, and
+  // the one that decides when to paint. See `entranceIsSettled`.
+  return { ...hit, remembered: true }
 }
 
 /**
@@ -56,8 +79,9 @@ export function rememberedLook(spaceId) {
 export function rememberLook(spaceId, entrance) {
   if (!entrance) return false
   const look = {}
-  for (const key of LOOK) {
-    if (entrance[key] !== undefined) look[key] = entrance[key]
+  for (const [key, value] of Object.entries(entrance)) {
+    if (NOT_REMEMBERED.includes(key) || value === undefined) continue
+    look[key] = value
   }
   try {
     const all = read()
@@ -82,6 +106,26 @@ export function rememberLook(spaceId, entrance) {
  */
 export function entranceIsKnown(entrance) {
   return entrance !== undefined
+}
+
+/**
+ * Is this the finished article, or the browser's memory of it?
+ *
+ * The two are a different question from "known", and conflating them is
+ * what made the entrance arrive in pieces: it painted the moment the
+ * memory answered, so the logo and the wordmark appeared, and then the
+ * announcements landed a fraction of a second later and pushed both of them
+ * up the screen as the column re-centred.
+ *
+ * The memory cannot know what the announcements are -- deliberately, since
+ * a cached campaign could outlive the campaign. So the entrance waits for
+ * the real read before showing anything, and the memory's job is to make
+ * that first shown frame correct: the right ground, the right logo at the
+ * right size, fetched at the right width. Capped, like every other wait
+ * here, so a read that never lands still opens the entrance.
+ */
+export function entranceIsSettled(entrance) {
+  return entrance !== undefined && !entrance?.remembered
 }
 
 /**

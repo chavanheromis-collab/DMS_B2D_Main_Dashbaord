@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { chromeIsTrimmed } from '../../lib/widgetChrome'
 import { ChevronRight, Copy, Plus, Search, X } from 'lucide-react'
 import {
   KPI_PALETTE,
@@ -371,7 +372,12 @@ export default function WidgetsPanel({
                     badge: blendIsReady(widget.blend),
                     hint: 'Join a second tab into this one',
                   },
-                  { key: 'look', label: 'Look', badge: hasCustomStyle(widget.style), hint: 'Colours, text, spacing' },
+                  {
+                    key: 'look',
+                    label: 'Look',
+                    badge: hasCustomStyle(widget.style) || chromeIsTrimmed(widget),
+                    hint: 'Colours, text, spacing, and what the card shows',
+                  },
                   widgetNeedsData(widget.type) && {
                     key: 'behaviour',
                     label: 'Behaviour',

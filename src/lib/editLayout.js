@@ -135,6 +135,28 @@ export function previewKind(target) {
   return target?.kind === 'widget' ? 'widget' : 'page'
 }
 
+/**
+ * How tall the widget preview should be.
+ *
+ * A definite number, and that is the point. Every widget on the canvas now
+ * fills the box the reader dragged it to, and a chart asked to be 100% of
+ * an auto-height box is a chart of no height at all -- which is what the
+ * preview would be if this returned nothing.
+ *
+ * Its OWN drawn height where it has one, so the form is changing something
+ * that looks like what the page will draw. A widget that has never been
+ * placed falls back to a comfortable default rather than to zero.
+ */
+export function previewHeight(target, widgets, fallback = 420) {
+  if (previewKind(target) !== 'widget') return undefined
+  const widget = (widgets || []).find((w) => w.id === target?.id)
+  const stored = Number(widget?.boxH)
+  if (Number.isFinite(stored) && stored > 0) return Math.round(Math.max(160, Math.min(1200, stored)))
+  const typed = Number(widget?.heightPx)
+  if (Number.isFinite(typed) && typed > 0) return Math.round(Math.max(160, Math.min(1200, typed)))
+  return fallback
+}
+
 /** What the panel is called, in the one place that has to name it. */
 export function targetTitle(target, widget) {
   if (!target) return ''

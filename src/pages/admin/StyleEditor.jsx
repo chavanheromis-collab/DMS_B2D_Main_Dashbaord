@@ -14,6 +14,7 @@ import { copiedLook, copyLook, hasCopiedLook } from '../../lib/lookClipboard'
 import TypographyFields, { MarkTextFields } from '../../components/TypographyFields.jsx'
 import ChartVisualFields from '../../components/ChartVisualFields.jsx'
 import { hasChartText } from '../../lib/typography'
+import { CHROME_TOGGLES } from '../../lib/widgetChrome'
 
 /**
  * Per-widget appearance.
@@ -103,6 +104,27 @@ export default function StyleEditor({ widget, set }) {
 
   return (
     <div className="mt-2 rounded-lg border border-violet-100 bg-violet-50/40 p-2">
+      {/* What the card shows ABOVE the thing it is showing. First, because
+          it is the setting most likely to be wanted and the one an admin
+          can see the effect of instantly -- and because a card whose title
+          is switched off has nothing else in this panel to look at. */}
+      <div className="mb-2 rounded-lg border border-violet-100 bg-white/70 p-2">
+        <p className="mb-1 text-[11px] font-medium text-slate-500">What this card shows</p>
+        <div className="flex flex-col gap-1">
+          {CHROME_TOGGLES.map((t) => (
+            <Toggle
+              key={t.field}
+              checked={Boolean(widget[t.field])}
+              onChange={(v) => set({ [t.field]: v })}
+              label={t.label}
+            />
+          ))}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+          {CHROME_TOGGLES.map((t) => t.hint).join(' ')}
+        </p>
+      </div>
+
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-1 text-[11px] font-medium text-violet-700">
           <Palette size={11} /> Appearance

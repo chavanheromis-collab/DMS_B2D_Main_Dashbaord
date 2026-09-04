@@ -390,8 +390,8 @@ export default function PipelineWidget({ widget, rowsByTab, rawRowsByTab, crossF
   return (
     <div className="card">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="widget-title">🔀 {widget.title}</h2>
-        <p className="text-[11px] text-slate-400">
+        <h2 className="widget-title"><span className="widget-icon">🔀</span> {widget.title}</h2>
+        <p className="widget-caption text-[11px] text-slate-400">
           {level.map((s) => s.label).join(' → ')}
           {widget.ignoreFilters && ' · unfiltered'}
         </p>

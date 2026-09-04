@@ -445,8 +445,8 @@ export default function FlowWidget({
       >
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="widget-title">🔀 {widget.title}</h2>
-          <p className="truncate text-[11px] text-slate-400">
+          <h2 className="widget-title"><span className="widget-icon">🔀</span> {widget.title}</h2>
+          <p className="widget-caption truncate text-[11px] text-slate-400">
             {describeFlow(widget)}
             {forest.multi && ` · ${forest.trees.length} trees`}
             {widget.ignoreFilters && ' · unfiltered'}

@@ -1013,6 +1013,61 @@ aside.fixed.right-0 {
 }
 
 /* ------------------------------------------------------------------ */
+/* Trimming a widget's chrome                                          */
+/* ------------------------------------------------------------------ */
+/* Three switches an admin can throw per widget: the title, the icon before
+   it, and the caption under it. See lib/widgetChrome.js for why.
+
+   Done here rather than as a branch inside each widget because nineteen
+   widgets draw a header and every one of them draws it a little
+   differently -- some with an export button beside it, one with a search
+   box. Three rules cover all of them; nineteen props would be nineteen
+   chances to miss one.
+
+   `display: none` and not `visibility: hidden`: the point of turning a
+   title off is to get the space back. */
+.chrome-no-title .widget-title,
+.chrome-no-icon .widget-icon,
+.chrome-no-caption .widget-caption {
+  display: none;
+}
+
+/* An empty header is not just empty -- it is a BAND. The heading row is
+   sticky, with the card's own surface behind it, a blur, and a padded strip
+   pulled out to the card's edges so scrolling content passes under it (see
+   the rule above). Hide the words inside and all of that stays: a blurred
+   strip across the top of a card with nothing written on it, which is what
+   "hide the title" looked like.
+
+   So the band is taken off too -- but only when there is genuinely nothing
+   left in it. Two conditions, and both matter:
+
+     NOTHING TO READ. The title is off, and either the caption is off with
+     it or there is no caption element at all.
+
+     NOTHING TO PRESS. A heading row very often holds an export button, a
+     live count or a search box. Those are not chrome an admin asked to
+     hide, and a card that swallowed its own download button would be a
+     worse bug than the one this fixes.
+
+   The band is neutralised rather than removed, so anything still inside it
+   -- a badge, a status pill -- keeps its place and an empty row collapses
+   to nothing on its own. `:has()` is not everywhere yet; where it is
+   missing the strip simply stays as it was, which is today's behaviour. */
+.widget-sized.chrome-no-title.chrome-no-caption
+  > .card
+  > *:has(> .widget-title):not(:has(button, input, select, a)),
+.widget-sized.chrome-no-title
+  > .card
+  > *:has(> .widget-title):not(:has(.widget-caption)):not(:has(button, input, select, a)) {
+  position: static;
+  margin: 0;
+  padding: 0;
+  background-color: transparent;
+  backdrop-filter: none;
+}
+
+/* ------------------------------------------------------------------ */
 /* Tools that live on a row                                            */
 /* ------------------------------------------------------------------ */
 /* Zoom, filter, look-inside: they belong to one row out of forty, and a

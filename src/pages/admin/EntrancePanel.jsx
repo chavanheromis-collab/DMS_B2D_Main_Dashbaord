@@ -4,6 +4,9 @@ import { Plus, Sparkles } from 'lucide-react'
 import { db } from '../../firebase'
 import {
   DEFAULT_ENTRANCE,
+  GAP_DEFAULT,
+  GAP_MAX,
+  GAP_MIN,
   ITEM_KINDS,
   LOGO_DEFAULT,
   LOGO_MAX,
@@ -269,6 +272,36 @@ export default function EntrancePanel() {
           <p className="mt-1 text-[11px] leading-snug text-slate-400">
             The height. The width follows it, so a wide wordmark and a square mark both keep their own shape — and
             the image is fetched at twice this size, so it stays sharp on a good screen.
+          </p>
+
+          <div className="mt-2.5 flex items-baseline justify-between">
+            <p className="text-[11px] font-medium text-slate-500">Space under it</p>
+            <span className="text-[11px] tabular-nums text-slate-400">{logoBox(draft).gap}px</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={GAP_MIN}
+              max={GAP_MAX}
+              step={2}
+              value={logoBox(draft).gap}
+              onChange={(e) => set({ logoGap: Number(e.target.value) })}
+              className="h-1.5 w-full min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-slate-200 accent-indigo-600"
+              aria-label="Space under the logo"
+            />
+            <button
+              onClick={() => set({ logoGap: GAP_DEFAULT })}
+              disabled={logoBox(draft).gap === GAP_DEFAULT}
+              className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+              title="Back to the standard gap"
+            >
+              Reset
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-slate-400">
+            <strong>Goes negative on purpose.</strong> Most logo files are mostly nothing — the ink sits in the middle
+            of the canvas with transparent space above and below it. The browser cannot tell that apart from the logo,
+            so the name below gets pushed down by emptiness. Drag this left to pull it back up.
           </p>
         </div>
 

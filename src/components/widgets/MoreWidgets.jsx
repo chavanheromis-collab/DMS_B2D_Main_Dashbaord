@@ -30,8 +30,8 @@ export default function ActivityFeedWidget({ widget, rows, unfilteredRows, tabEr
   return (
     <div className="card">
       <div className="mb-2">
-        <h2 className="widget-title">🕒 {widget.title}</h2>
-        <p className="text-[11px] text-slate-400">
+        <h2 className="widget-title"><span className="widget-icon">🕒</span> {widget.title}</h2>
+        <p className="widget-caption text-[11px] text-slate-400">
           {widget.tab} · newest {widget.dateColumn ? `by ${widget.dateColumn}` : ''}
         </p>
       </div>
@@ -115,8 +115,8 @@ export function ScorecardWidget({ widget, rows, unfilteredRows, tabError, dateOr
   return (
     <div className="card">
       <div className="mb-3">
-        <h2 className="widget-title">⚖️ {widget.title}</h2>
-        <p className="text-[11px] text-slate-400">{widget.tab}</p>
+        <h2 className="widget-title"><span className="widget-icon">⚖️</span> {widget.title}</h2>
+        <p className="widget-caption text-[11px] text-slate-400">{widget.tab}</p>
       </div>
 
       {tabError ? (

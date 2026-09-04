@@ -14,6 +14,9 @@ import {
 } from './pageBackground.js'
 import {
   DEFAULT_ENTRANCE,
+  GAP_DEFAULT,
+  GAP_MAX,
+  GAP_MIN,
   LOGO_DEFAULT,
   LOGO_MAX,
   LOGO_MIN,
@@ -399,4 +402,70 @@ test('the admin can move it, see it, and put it back', () => {
   // The slider is bounded by the same numbers the model clamps to, or the
   // control offers sizes the entrance will silently refuse.
   assert.ok(panel.includes('min={LOGO_MIN}') && panel.includes('max={LOGO_MAX}'))
+})
+
+// --- the space under the logo -------------------------------------------
+
+test('the gap goes negative, because most logo files are mostly nothing', () => {
+  // The ink sits in the middle of a canvas with transparent space above and
+  // below it. The browser cannot tell that apart from the logo, so the name
+  // underneath is pushed down by emptiness no margin is responsible for --
+  // and the only way back up is through it.
+  assert.ok(GAP_MIN < 0, 'the gap cannot be closed')
+  assert.equal(logoBox({ logoGap: -40 }).gap, -40)
+  assert.equal(logoBox({ logoGap: 0 }).gap, 0)
+})
+
+test('an entrance nobody has adjusted keeps the gap it had', () => {
+  // 24px, which is what `mb-6` was.
+  assert.equal(logoBox(undefined).gap, GAP_DEFAULT)
+  assert.equal(logoBox({}).gap, GAP_DEFAULT)
+  assert.equal(GAP_DEFAULT, 24)
+  assert.equal(DEFAULT_ENTRANCE.logoGap, GAP_DEFAULT, 'the defaults disagree with the box')
+})
+
+test('a gap nobody could have meant is brought back', () => {
+  assert.equal(logoBox({ logoGap: -9999 }).gap, GAP_MIN)
+  assert.equal(logoBox({ logoGap: 9999 }).gap, GAP_MAX)
+  assert.equal(logoBox({ logoGap: 'tight' }).gap, GAP_DEFAULT)
+  // `null` is "not set", and `Number(null)` is 0 -- which would silently
+  // close the gap on every entrance that had once cleared the field.
+  assert.equal(logoBox({ logoGap: null }).gap, GAP_DEFAULT)
+  assert.equal(logoBox({ logoGap: '' }).gap, GAP_DEFAULT)
+})
+
+test('the entrance uses the gap rather than a fixed margin', () => {
+  const splash = fs.readFileSync(path.join(ROOT, 'src/components/SplashScreen.jsx'), 'utf8')
+  assert.ok(!splash.includes('mb-6'), 'the fixed margin is still there')
+  // On BOTH marks: an admin who tuned the gap for their own logo would
+  // otherwise find the stock one ignoring them the day the URL broke.
+  assert.equal((splash.match(/marginBottom: box\.gap/g) || []).length, 2)
+})
+
+test('the admin can close the gap, and put it back', () => {
+  const panel = fs.readFileSync(path.join(ROOT, 'src/pages/admin/EntrancePanel.jsx'), 'utf8')
+  assert.ok(panel.includes('set({ logoGap: Number(e.target.value) })'), 'there is no way to change it')
+  assert.ok(panel.includes('set({ logoGap: GAP_DEFAULT })'), 'there is no way back')
+  assert.ok(panel.includes('min={GAP_MIN}') && panel.includes('max={GAP_MAX}'), 'the slider and the model disagree')
+  // Said where the decision is made, because a negative gap looks like a
+  // mistake until you know what it is for.
+  assert.match(panel, /Goes negative on purpose/)
+})
+
+// --- and everything fits on the screen ----------------------------------
+
+test('the hint has its own row, so nothing can grow into it', () => {
+  // It sat at `bottom-8` while the content was centred in the whole screen,
+  // so a tall logo, a long name and three announcements grew down into it
+  // -- on a laptop the last row of cards was already touching the line.
+  const splash = fs.readFileSync(path.join(ROOT, 'src/components/SplashScreen.jsx'), 'utf8')
+  assert.ok(!splash.includes('splash-hint absolute bottom-8'), 'the hint floats over the content again')
+  assert.ok(splash.includes('splash-hint relative shrink-0'), 'the hint can be squeezed to nothing')
+
+  // The column takes what is left, rather than being centred in the whole
+  // screen and overlapping what is below it.
+  assert.ok(splash.includes('relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto'))
+  // And an entrance that genuinely will not fit scrolls, rather than
+  // hiding the announcements it could not draw.
+  assert.ok(splash.includes('overflow-y-auto'))
 })

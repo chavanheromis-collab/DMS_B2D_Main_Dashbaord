@@ -55,9 +55,9 @@ export default function LeaderboardWidget({
   return (
     <div className="card flex h-[480px] flex-col overflow-hidden">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="widget-title">🏆 {widget.title}</h2>
+        <h2 className="widget-title"><span className="widget-icon">🏆</span> {widget.title}</h2>
         <div className="flex items-center gap-2">
-          <p className="text-[11px] text-slate-400">
+          <p className="widget-caption text-[11px] text-slate-400">
             {widget.tab} · by {widget.groupBy || '—'}
             {widget.ignoreFilters && ' · unfiltered'}
           </p>

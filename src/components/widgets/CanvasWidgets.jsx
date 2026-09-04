@@ -287,7 +287,7 @@ export default function NoteWidget({ widget }) {
     <div className={`card ${alignClass}`}>
       {widget.title && (
         <h2 className="widget-title mb-1.5">
-          {widget.icon} {widget.title}
+          <span className="widget-icon">{widget.icon}</span> {widget.title}
         </h2>
       )}
       <Blocks blocks={blocks} />
@@ -357,7 +357,7 @@ export function MediaWidget({ widget }) {
     <div className="card flex h-full flex-col">
       {widget.title && (
         <h2 className="widget-title mb-2">
-          {widget.icon || '🖼️'} {widget.title}
+          <span className="widget-icon">{widget.icon || '🖼️'}</span> {widget.title}
         </h2>
       )}
       <div className="flex flex-1 items-center justify-center overflow-hidden">{image}</div>
@@ -400,7 +400,7 @@ export function CountdownWidget({ widget }) {
   if (!state.ready) {
     return (
       <div className="card">
-        <h2 className="widget-title mb-2">⏳ {widget.title}</h2>
+        <h2 className="widget-title mb-2"><span className="widget-icon">⏳</span> {widget.title}</h2>
         <p className="empty-state">{state.reason || 'Pick a date in the editor'}</p>
       </div>
     )

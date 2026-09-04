@@ -27,10 +27,10 @@ function Shell({ widget, icon, caption, tabError, children, footer }) {
     <div className="card flex h-full flex-col">
       <div className="mb-2">
         <h2 className="widget-title">
-          {icon} {widget.title}
+          <span className="widget-icon">{icon}</span> {widget.title}
         </h2>
         {caption && (
-          <p className="text-[11px] text-slate-400">
+          <p className="widget-caption text-[11px] text-slate-400">
             {caption}
             {widget.ignoreFilters && ' · unfiltered'}
           </p>

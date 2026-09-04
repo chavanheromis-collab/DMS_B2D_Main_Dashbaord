@@ -19,12 +19,13 @@ import { mergeDraft } from '../lib/editMode'
 import { canDrop, dragPages, orderPages, personalOrder } from '../lib/pageOrder'
 import { valuesForRef } from '../lib/columnValues'
 import { canRedo, canUndo, commitHistory, emptyHistory, historyKeyAction, redoHistory, undoHistory } from '../lib/history'
+import { chromeClass } from '../lib/widgetChrome'
 import { makeWidget, WIDGET_TYPES } from '../lib/newWidget'
 import EditSplit from '../components/EditSplit.jsx'
 import WidgetTypePreview from '../components/WidgetTypePreview.jsx'
 import { hasVariants, variantHint, variantPatch, variantTitle, variantsFor } from '../lib/widgetVariants'
 import { appliedFilters, printStamp } from '../lib/printView'
-import { DEFAULT_FRACTION, DEFAULT_SIDE, previewKind, targetTitle } from '../lib/editLayout'
+import { DEFAULT_FRACTION, DEFAULT_SIDE, previewHeight, previewKind, targetTitle } from '../lib/editLayout'
 import { WorkspaceCtx } from './admin/ui.jsx'
 
 /**
@@ -1573,7 +1574,17 @@ export default function Dashboard() {
                 // A widget the admin sized has to fill that size, not sit
                 // in the top of it: growing the card and leaving a 260px
                 // chart inside it just moves the empty space around.
-                const fillHeight = Number(widget.heightPx) > 0
+                //
+                // ANY widget on the canvas, not only one with a typed
+                // height. That was true when the height was a number in a
+                // form; since the layout became drag-to-resize it is the
+                // BOX that says how big a widget is, and a chart that
+                // ignored it stayed 260px tall inside a card the reader had
+                // just dragged to twice that. The canvas draws every widget
+                // at a definite height -- a phone stacks them at their own
+                // proportions rather than letting them go auto -- so this
+                // resolves everywhere it is drawn.
+                const fillHeight = Number(widget.heightPx) > 0 || isPlaced(widget)
 
                 // Almost all of a chart's appearance reaches it as CSS
                 // custom properties on the wrapper below, which no widget
@@ -1618,7 +1629,15 @@ export default function Dashboard() {
                     // always did -- no widget component knows about theming.
                     <div
                       data-widget={widget.id}
-                      className={`rise-in group/widget relative widget-sized ${styleClass(themed)}`}
+                      // ...and, on the same element, which parts of its
+                      // own chrome this widget has been told to leave out.
+                      // One place rather than nineteen -- see
+                      // lib/widgetChrome.js -- and it is inside `content`,
+                      // so the edit preview shows the same trim the page
+                      // will.
+                      className={`rise-in group/widget relative widget-sized ${styleClass(themed)} ${chromeClass(
+                        widget
+                      )}`}
                       style={{
                         animationDelay: `${Math.min(index * 45, 360)}ms`,
                         ...(styleVars(themed) || {}),
@@ -2549,7 +2568,15 @@ export default function Dashboard() {
             onClose={closeEditor}
             preview={
               previewKind(editTarget) === 'widget' ? (
-                <div className={`page-canvas ${designClass(design)}`} style={designVars(design)}>
+                // A DEFINITE height, because the widget inside now fills
+                // the space it is given: in the preview there is no canvas
+                // to give it one, and a chart asked to be 100% of nothing
+                // is a chart nobody can see. Its own drawn height, so what
+                // the form is changing looks like what the page will draw.
+                <div
+                  className={`page-canvas ${designClass(design)}`}
+                  style={{ ...designVars(design), height: previewHeight(editTarget, view.widgets) }}
+                >
                   {editedItem?.content}
                 </div>
               ) : (

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { entranceDuration, liveEntranceItems, logoBox, resolveBrand } from '../lib/branding'
 import { backdropClass, backdropOf, themeOf, themeVars } from '../lib/entranceThemes'
-import { ENTRANCE_WAIT_MS, entranceIsKnown } from '../lib/entranceMemory'
+import { ENTRANCE_WAIT_MS, entranceIsSettled } from '../lib/entranceMemory'
 import { celebrates, celebrationFor } from '../lib/celebrate'
 import Celebration from './Celebration.jsx'
 import { useImageFallback } from '../hooks/useImageFallback'
@@ -77,11 +77,18 @@ export default function SplashScreen({ onDone, entrance }) {
   // somebody looking at nothing.
   const [waited, setWaited] = useState(false)
   useEffect(() => {
-    if (entranceIsKnown(entrance)) return undefined
+    if (entranceIsSettled(entrance)) return undefined
     const timer = window.setTimeout(() => setWaited(true), ENTRANCE_WAIT_MS)
     return () => window.clearTimeout(timer)
   }, [entrance])
-  const ready = entranceIsKnown(entrance) || waited
+
+  // Shown when the REAL read has landed -- not merely when the browser
+  // remembers what it looked like. The memory says what to paint; only the
+  // read says whether the announcements are in. Painting on the memory
+  // alone is why the entrance arrived in three stages: logo, then wordmark,
+  // then the cards shoving both of them up the screen as the column
+  // re-centred around them.
+  const ready = entranceIsSettled(entrance) || waited
 
   const items = liveEntranceItems(entrance)
   const brand = resolveBrand(entrance, BRAND_NAME, BRAND_TAGLINE)
@@ -145,9 +152,7 @@ export default function SplashScreen({ onDone, entrance }) {
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center overflow-hidden ${
-        leaving ? 'splash-out' : ''
-      }`}
+      className={`fixed inset-0 z-[9999] flex flex-col overflow-hidden ${leaving ? 'splash-out' : ''}`}
       style={{
         ...themeVars(theme),
         background: 'var(--splash-bg)',
@@ -170,13 +175,27 @@ export default function SplashScreen({ onDone, entrance }) {
           a hidden splash is paper nobody sees. */}
       {celebration && ready && <Celebration seed={celebration.seed} durationMs={duration} />}
 
-      <div className="relative flex flex-col items-center px-6 text-center">
+      {/* The content COLUMN, which takes what is left after the hint has
+          had its line -- rather than being centred in the whole screen with
+          the hint floating over it. With a tall logo, a long name and three
+          announcements, those two used to collide: the hint sat at
+          `bottom-8` and the cards grew down into it, and on a laptop the
+          last row was already touching. Given the room instead, they cannot
+          overlap at any size -- and if the entrance genuinely will not fit,
+          it scrolls rather than hiding what did not. */}
+      <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-6 text-center">
         {/* An admin-supplied logo replaces the generic mark entirely -- the
             entrance is the one place a business's own identity belongs. It
             gets a soft glow behind it so a dark logo doesn't disappear into
             the near-black backdrop. */}
         {logo.url && !logo.exhausted ? (
-          <div className={`splash-mark mb-6 flex items-center justify-center ${backdropClass(backdrop)}`}>
+          // The gap is a setting and can be negative: a logo file is very
+          // often mostly transparent, and the browser cannot see that. See
+          // lib/branding.js.
+          <div
+            className={`splash-mark flex items-center justify-center ${backdropClass(backdrop)}`}
+            style={{ marginBottom: box.gap }}
+          >
             <img
               key={logo.url}
               src={logo.url}
@@ -197,8 +216,12 @@ export default function SplashScreen({ onDone, entrance }) {
           // sized the entrance for their own logo would find the stock one
           // ignoring them the day the URL broke.
           <div
-            className="splash-mark mb-6 flex items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-sky-400 to-teal-300 shadow-[0_0_60px_rgba(99,102,241,0.55)]"
-            style={{ height: Math.round(box.height * 0.67), width: Math.round(box.height * 0.67) }}
+            className="splash-mark flex items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-sky-400 to-teal-300 shadow-[0_0_60px_rgba(99,102,241,0.55)]"
+            style={{
+              height: Math.round(box.height * 0.67),
+              width: Math.round(box.height * 0.67),
+              marginBottom: box.gap,
+            }}
           >
             <svg viewBox="0 0 24 24" className="h-1/2 w-1/2" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round">
               <path d="M4 19V10" />
@@ -289,7 +312,7 @@ export default function SplashScreen({ onDone, entrance }) {
       </div>
 
       <p
-        className="splash-hint absolute bottom-8 text-[11px] tracking-wide"
+        className="splash-hint relative shrink-0 pb-7 text-center text-[11px] tracking-wide"
         style={{ color: 'var(--splash-hint)' }}
       >
         click anywhere to continue

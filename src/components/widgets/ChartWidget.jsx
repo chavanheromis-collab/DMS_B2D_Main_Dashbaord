@@ -1092,8 +1092,8 @@ export default function ChartWidget({
     <div className="card flex h-full flex-col">
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="widget-title">📈 {widget.title}</h2>
-          <p className="text-[11px] text-slate-400">
+          <h2 className="widget-title"><span className="widget-icon">📈</span> {widget.title}</h2>
+          <p className="widget-caption text-[11px] text-slate-400">
             {widget.tab} · {caps.binned ? 'distribution of' : 'by'} {subject || '—'}
             {widget.ignoreFilters && ' · unfiltered'}
             {onCrossFilter && ' · click to drill in'}

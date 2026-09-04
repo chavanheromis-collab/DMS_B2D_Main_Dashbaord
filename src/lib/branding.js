@@ -39,6 +39,26 @@ export const LOGO_MIN = 40
 export const LOGO_MAX = 320
 export const LOGO_DEFAULT = 96
 
+/**
+ * The space under the logo, and why it goes NEGATIVE.
+ *
+ * A logo file is very often mostly nothing: the ink sits in the middle of a
+ * square canvas with a third of the height transparent above and below it.
+ * The browser cannot see that -- transparent pixels are pixels -- so the
+ * element is drawn at its full height and the wordmark underneath is pushed
+ * down by empty space nobody put there on purpose. It looks like a huge
+ * margin and no margin is responsible for it.
+ *
+ * Cropping the image is not ours to do, and asking every admin to re-export
+ * their logo is not an answer either. Letting the gap go negative is: it
+ * pulls the wordmark back up through the emptiness, and the amount needed
+ * is a property of that one file, which is exactly the kind of thing a
+ * person can see and a program cannot.
+ */
+export const GAP_MIN = -80
+export const GAP_MAX = 80
+export const GAP_DEFAULT = 24
+
 export const DEFAULT_ENTRANCE = {
   enabled: true,
   brandName: '',
@@ -54,6 +74,7 @@ export const DEFAULT_ENTRANCE = {
   // How tall the logo is drawn, in pixels. 96 is what it always was, so a
   // workspace that never touches this looks exactly as it did.
   logoSize: LOGO_DEFAULT,
+  logoGap: GAP_DEFAULT,
   durationMs: 2600,
   items: [],
 }
@@ -72,18 +93,24 @@ export const DEFAULT_ENTRANCE = {
  *              the one place in this app where a soft image is not
  *              acceptable and every screen worth impressing is a retina one.
  */
+/** `null` and `''` mean "not set", and `Number(null)` is 0 -- which is not. */
+const raw2 = (value) => (value === null || value === undefined || value === '' ? NaN : Number(value))
+
 export function logoBox(entrance) {
   // `null` and `''` are "not set", not zero. `Number(null)` is 0, which is
   // perfectly finite and would clamp every logo on a workspace that had
   // once cleared the field down to the smallest it can be.
-  const raw = entrance?.logoSize
-  const asked = raw === null || raw === undefined || raw === '' ? NaN : Number(raw)
+  const asked = raw2(entrance?.logoSize)
   const height = Math.round(
     Number.isFinite(asked) ? Math.max(LOGO_MIN, Math.min(LOGO_MAX, asked)) : LOGO_DEFAULT
   )
   // 2.7:1, which is the proportion the fixed 96px/260px box always had.
   const maxWidth = Math.round(height * 2.7)
-  return { height, maxWidth, request: Math.min(1600, maxWidth * 2) }
+  const askedGap = raw2(entrance?.logoGap)
+  const gap = Math.round(
+    Number.isFinite(askedGap) ? Math.max(GAP_MIN, Math.min(GAP_MAX, askedGap)) : GAP_DEFAULT
+  )
+  return { height, maxWidth, gap, request: Math.min(1600, maxWidth * 2) }
 }
 
 export function emptyEntranceItem(kind = 'campaign') {
