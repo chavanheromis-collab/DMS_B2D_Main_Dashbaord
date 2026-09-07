@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Download, Filter, GripVertical, Rows3, Search, StickyNote, X } from 'lucide-react'
-import { badgeColor } from '../../lib/dataUtils'
+import { badgeColor, badgeStyle } from '../../lib/dataUtils'
 import ExportButton from '../ExportButton.jsx'
 import { fetchDownloadMeta, getDownloadActions, triggerDownload } from '../../lib/downloadActions.js'
 import RowDetailPanel from '../RowDetailPanel.jsx'
@@ -10,6 +10,9 @@ import RowNotePopover from '../RowNotePopover.jsx'
 import { useRowNoteActions, useRowNotes } from '../../hooks/useRowNotes'
 import { countLabel, latestSummary, noteIdFor, notesEnabled, remarkCount, rowKeyOf } from '../../lib/rowNotes'
 import { isStrayValue, optionsForCell } from '../../lib/columnChoices'
+import { clearedNote, columnsToClear } from '../../lib/clearRules'
+import { liveRow } from '../../lib/openRow'
+import { canFill, fillRange, fillTargets, filledNote, inFillRange } from '../../lib/fillDown'
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
@@ -113,6 +116,9 @@ export default function TableWidget({
   downloadableColumns = [],
   canExport = false,
   onEditCell,
+  // Many cells of one column in a single request. A fill drag needs it, and
+  // a clearing cascade uses it too -- see writeCell.
+  onEditCells,
   saving,
   dateOrder = 'DMY',
   canPersistLayout = false,
@@ -133,16 +139,31 @@ export default function TableWidget({
   const [dragCol, setDragCol] = useState(null)
   const [overCol, setOverCol] = useState(null)
   const [dense, setDense] = useState(false)
-  const [detailRow, setDetailRow] = useState(null)
+  // What was on screen when a panel was opened -- NOT what it shows.
+  //
+  // Saving a cell reloads the tab, and the reload rebuilds every row from
+  // the API response rather than mutating the old ones, so a row captured
+  // on click is frozen at the values it had before the edit. Each of these
+  // is therefore looked up again in the live rows on every render, by the
+  // sheet row number the write itself is addressed by. See lib/openRow.js.
+  const [openDetail, setOpenDetail] = useState(null)
   const [savedOrder, setSavedOrder] = useState(false)
-  const [downloadMenuRow, setDownloadMenuRow] = useState(null)
+  const [openDownloads, setOpenDownloads] = useState(null)
   const [downloadSizes, setDownloadSizes] = useState({})
   // Spreadsheet-style per-column filters: { [column]: { exclude, text } }.
   const [colFilters, setColFilters] = useState({})
+  // The last thing that happened WITHOUT being asked for, said out loud:
+  // fields a rule emptied, rows a drag filled. One banner rather than one
+  // per feature -- a single gesture can do both, and two things to dismiss
+  // for one gesture is two things nobody reads.
+  const [notice, setNotice] = useState(null)
+  // An in-progress fill drag: { column, anchorIndex, toIndex } over the
+  // rows AS DISPLAYED. See lib/fillDown.js.
+  const [fill, setFill] = useState(null)
   const [menuCol, setMenuCol] = useState(null)
   const [menuRect, setMenuRect] = useState(null)
   // { row, rect } -- the row whose note is open, and the button it hangs off.
-  const [noteOpen, setNoteOpen] = useState(null)
+  const [openNote, setOpenNote] = useState(null)
 
   // --- remarks ---------------------------------------------------------
   // Off unless an admin switched it on for this table, and then one listener
@@ -179,6 +200,14 @@ export default function TableWidget({
   }, [order, adminColumns])
 
   const badgeCols = widget.badgeColumns || []
+
+  // The three rows a panel may be open on, as they are NOW.
+  const detailRow = useMemo(() => liveRow(rows, openDetail), [rows, openDetail])
+  const downloadMenuRow = useMemo(() => liveRow(rows, openDownloads), [rows, openDownloads])
+  const noteOpen = useMemo(
+    () => (openNote ? { ...openNote, row: liveRow(rows, openNote.row) } : null),
+    [rows, openNote]
+  )
 
   // Column filters run FIRST, then the table's own search box narrows what
   // they left -- the same order a spreadsheet uses.
@@ -286,8 +315,178 @@ export default function TableWidget({
   async function commitEdit(row, col, next) {
     setEditing(null)
     const value = next === undefined ? draft : next
-    if (value !== (row[col] ?? '')) await onEditCell?.(widget.tab, row, col, value)
+    await writeCell(row, col, value)
   }
+
+  /**
+   * One row's changes and everything they make no longer true, as the
+   * columns to write and the value each one ends up with.
+   *
+   * `changes` is column -> value, because a form saved in one go is not
+   * several independent edits: three fields have to be judged against the
+   * row as it will be with all three on it.
+   *
+   * The clears are applied OVER the changes rather than beside them,
+   * because a rule may name a column being written: "Return to PDI" resets
+   * the row and then takes itself off. Laid over, that cell is written once
+   * and blank; laid beside, it would be set and then unset a moment later
+   * -- two writes and a visible flicker between them.
+   */
+  function editPlan(row, changes) {
+    const also = columnsToClear(widget, row, {
+      changes,
+      editable: editableColumns,
+      dateOrder,
+    })
+    const plan = new Map(Object.entries(changes))
+    for (const target of also) plan.set(target, '')
+    return { also, plan }
+  }
+
+  /**
+   * A plan, sent.
+   *
+   * One request, one column each. Sent one at a time this was a write and a
+   * full page reload per cell, so a keystroke that cleared three fields
+   * took four round trips -- and a failure at the second left the row half
+   * cleared with nothing on screen to say so.
+   */
+  async function sendPlan(row, plan) {
+    if (plan.size === 0) return
+    if (onEditCells) {
+      await onEditCells(
+        widget.tab,
+        [...plan].map(([column, next]) => ({ column, cells: [{ row: row._row, value: next }] }))
+      )
+    } else {
+      for (const [column, next] of plan) await onEditCell?.(widget.tab, row, column, next)
+    }
+  }
+
+  /**
+   * Several fields of one row, saved together.
+   *
+   * The form's Save button, and the one place a row-wide change goes: the
+   * fields that have not actually moved are dropped first, so saving a form
+   * where one field was touched writes one cell rather than twenty.
+   */
+  async function writeRow(row, changes) {
+    const real = Object.fromEntries(
+      Object.entries(changes || {}).filter(([col, next]) => next !== (row[col] ?? ''))
+    )
+    if (Object.keys(real).length === 0) return
+    const { also, plan } = editPlan(row, real)
+    await sendPlan(row, plan)
+    if (also.length > 0) setNotice(`Row ${row._row}: ${clearedNote(also)}`)
+  }
+
+  /**
+   * One edit, and whatever it makes no longer true.
+   *
+   * Every edit goes through here -- a cell, a dropdown, and the row form --
+   * because a rule that fires in the table and not in the form is a rule
+   * that half exists. See lib/clearRules.js for what it will and will not
+   * touch.
+   */
+  async function writeCell(row, col, value) {
+    await writeRow(row, { [col]: value })
+  }
+
+  // --- the fill drag ---------------------------------------------------
+  // Off entirely without a batch writer: filling forty rows one request at
+  // a time is not a slower version of this feature, it is a different and
+  // much worse one.
+  const canDragFill = (col) => Boolean(onEditCells) && canFill(widget, col, editableColumns)
+  const fillSpan = fill ? fillRange(fill.anchorIndex, fill.toIndex, pageRows.length) : null
+
+  /**
+   * The drag, let go of.
+   *
+   * `span` is passed in rather than read from state: the pointer is
+   * released and the state cleared in the same breath, and reading it back
+   * would commit whatever was left after the clear, which is nothing.
+   */
+  async function commitFill(span) {
+    if (!span) return
+    const { writes, capped } = fillTargets(pageRows, {
+      column: span.column,
+      anchorIndex: span.anchorIndex,
+      toIndex: span.toIndex,
+    })
+    if (writes.length === 0) return
+
+    // Every row's plan, gathered per column, so the whole drag AND
+    // everything its values make no longer true is a handful of requests
+    // rather than one per cell. The same rules a single edit fires: one
+    // that applies when you type Cancelled and not when you drag it is a
+    // rule nobody can rely on.
+    const byColumn = new Map()
+    const cleared = new Set()
+    for (const { row, value } of writes) {
+      const { also, plan } = editPlan(row, { [span.column]: value })
+      for (const target of also) cleared.add(target)
+      for (const [column, next] of plan) {
+        if (!byColumn.has(column)) byColumn.set(column, [])
+        byColumn.get(column).push({ row: row._row, value: next })
+      }
+    }
+    const batches = [...byColumn].map(([column, cells]) => ({ column, cells }))
+
+    await onEditCells(widget.tab, batches)
+
+    const parts = [filledNote(span.column, writes.length, capped)]
+    if (cleared.size > 0) parts.push(clearedNote([...cleared]))
+    setNotice(parts.join(' · '))
+  }
+
+  // The span is followed on the DOCUMENT, not on the cells: the pointer
+  // leaves the handle the instant the drag starts, and a listener per cell
+  // would lose it the moment it crossed a gap between two of them.
+  const dragging = fill !== null
+  const fillRef = useRef(null)
+  fillRef.current = fill
+
+  useEffect(() => {
+    if (!dragging) return
+
+    // `pageRows` is captured once, at the moment the drag starts, which is
+    // exactly right: nothing reloads mid-drag, and the rows somebody is
+    // dragging over are the rows that were under the pointer when they
+    // started.
+    function onMove(e) {
+      const under = document.elementFromPoint(e.clientX, e.clientY)
+      const tr = under?.closest?.('[data-fill-row]')
+      if (!tr) return
+      const to = Number(tr.dataset.fillRow)
+      if (!Number.isInteger(to)) return
+      setFill((current) => (current && current.toIndex !== to ? { ...current, toIndex: to } : current))
+    }
+    function onUp() {
+      const span = fillRef.current
+      setFill(null)
+      commitFill(span)
+    }
+    // Let go of it without writing anything. The gesture covers a lot of
+    // rows at once, so there has to be a way out of it that is not "undo".
+    function onKey(e) {
+      if (e.key === 'Escape') setFill(null)
+    }
+
+    // Dragging across a table otherwise selects it, and the blue selection
+    // over the span makes the highlight impossible to read.
+    const previous = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.userSelect = previous
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('keydown', onKey)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging])
 
   const detailColumns = widget.detailColumns?.length ? widget.detailColumns : tabHeaders || []
   const titleColumn = widget.detailTitleColumn || columns[0]
@@ -562,10 +761,14 @@ export default function TableWidget({
               </thead>
 
               <tbody>
-                {pageRows.map((row) => (
+                {pageRows.map((row, rowIndex) => (
                   <tr
                     key={row._row}
-                    onClick={() => widget.rowDetail && setDetailRow(row)}
+                    // How a fill drag knows which row the pointer is over.
+                    // The DISPLAYED position, since that is what was
+                    // dragged across -- see lib/fillDown.js.
+                    data-fill-row={rowIndex}
+                    onClick={() => widget.rowDetail && setOpenDetail(row)}
                     className={`relative border-b border-slate-50 transition-colors hover:bg-indigo-50/40 ${
                       widget.rowDetail ? 'cursor-pointer' : ''
                     } ${detailRow?._row === row._row ? 'bg-indigo-50' : ''}`}
@@ -579,7 +782,7 @@ export default function TableWidget({
                           notes={notes}
                           open={noteOpen?.row?._row === row._row}
                           onOpen={(rect) =>
-                            setNoteOpen((current) =>
+                            setOpenNote((current) =>
                               current?.row?._row === row._row ? null : { row, rect }
                             )
                           }
@@ -594,7 +797,7 @@ export default function TableWidget({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation()
-                              setDownloadMenuRow((current) => (current?._row === row._row ? null : row))
+                              setOpenDownloads((current) => (current?._row === row._row ? null : row))
                             }}
                             className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100"
                           >
@@ -613,7 +816,7 @@ export default function TableWidget({
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       triggerDownload(action.url, action.label)
-                                      setDownloadMenuRow(null)
+                                      setOpenDownloads(null)
                                     }}
                                     className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100"
                                   >
@@ -641,12 +844,20 @@ export default function TableWidget({
                       const choices = editable ? columnChoices[col] : null
                       const asBadge = badgeCols.includes(col) && String(value ?? '').trim() !== ''
 
+                      const fillable = canDragFill(col)
+                      // Only the column being dragged lights up. The span
+                      // is over rows, but the write is one column wide, and
+                      // highlighting the whole row would promise otherwise.
+                      const inSpan = fill?.column === col && inFillRange(fillSpan, rowIndex)
+
                       return (
                         <td
                           key={col}
                           onClick={(e) => editable && !isEditing && startEdit(e, row, col)}
                           title={editable ? 'Click to edit' : undefined}
-                          className={`whitespace-nowrap ${cellPad} ${editable ? 'cursor-text hover:bg-indigo-100/60' : ''}`}
+                          className={`relative whitespace-nowrap ${cellPad} ${
+                            editable ? 'cursor-text hover:bg-indigo-100/60' : ''
+                          } ${inSpan ? 'bg-indigo-100/70 ring-1 ring-inset ring-indigo-400' : ''}`}
                         >
                           {isEditing && choices ? (
                             /* A list, not a box. Typed by hand, "Delivered",
@@ -660,13 +871,29 @@ export default function TableWidget({
                               onBlur={() => setEditing(null)}
                               onKeyDown={(e) => e.key === 'Escape' && setEditing(null)}
                               className="w-40 rounded border border-indigo-300 px-1 py-0.5 text-sm"
+                              // Coloured where the COLUMN is a badge column,
+                              // which is the admin's own answer to "is this a
+                              // status?". On a column of two hundred customer
+                              // names, eight rotating colours is confetti --
+                              // so the menu is coloured exactly where the
+                              // cells already are, and the two never
+                              // disagree.
+                              //
+                              // The closed box takes the current value's
+                              // colour too: that is the state anybody spends
+                              // their time looking at.
+                              style={asBadge ? badgeStyle(draft) : undefined}
                             >
                               {/* Clearing a cell has to stay possible: a
                                   dropdown with no empty option is a cell
                                   that can never be emptied once it is set. */}
                               <option value="">—</option>
                               {optionsForCell(choices, value).map((option) => (
-                                <option key={option} value={option}>
+                                <option
+                                  key={option}
+                                  value={option}
+                                  style={badgeCols.includes(col) ? badgeStyle(option) : undefined}
+                                >
                                   {option}
                                 </option>
                               ))}
@@ -695,6 +922,28 @@ export default function TableWidget({
                             </span>
                           ) : (
                             value || (editable ? <span className="text-slate-300">—</span> : '')
+                          )}
+
+                          {/* The square at the corner of the cell. Nothing
+                              else in the app looks like this, because
+                              everybody already knows what it does. */}
+                          {fillable && !isEditing && (
+                            <span
+                              role="button"
+                              aria-label={`Fill ${col} down from this row`}
+                              title={`Drag to copy this ${col} into the rows you cross`}
+                              data-active={fill?.column === col && fill?.anchorIndex === rowIndex}
+                              className="fill-handle"
+                              onPointerDown={(e) => {
+                                // Not a click on the cell, and not a click
+                                // on the row: this opens neither the editor
+                                // nor the detail panel.
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setFill({ column: col, anchorIndex: rowIndex, toIndex: rowIndex })
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
                           )}
                         </td>
                       )
@@ -773,6 +1022,24 @@ export default function TableWidget({
         </p>
       )}
 
+      {/* Cells changing because of something other than the keystroke that
+          caused them is exactly the kind of thing a person has to be TOLD
+          about. It says what happened and waits to be dismissed rather than
+          fading -- an edit that quietly emptied three fields, or a drag
+          that filled forty rows, is one nobody can check afterwards. */}
+      {notice && (
+        <div className="mt-1 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5">
+          <span className="text-[11px] leading-snug text-amber-800">{notice}</span>
+          <button
+            onClick={() => setNotice(null)}
+            className="ml-auto shrink-0 rounded p-0.5 text-amber-500 hover:bg-white hover:text-amber-700"
+            title="Dismiss"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
       {noteOpen && (
         <RowNotePopover
           anchorRect={noteOpen.rect}
@@ -792,7 +1059,7 @@ export default function TableWidget({
           onRemove={(remark) =>
             removeRemark(noteIdFor(noteScope, noteOpen.row, noteKeyColumn), remark)
           }
-          onClose={() => setNoteOpen(null)}
+          onClose={() => setOpenNote(null)}
         />
       )}
 
@@ -802,8 +1069,20 @@ export default function TableWidget({
         columns={detailColumns}
         title={detailRow ? String(detailRow[titleColumn] ?? `Row ${detailRow._row}`) : ''}
         editableColumns={editableColumns}
-        onEditCell={(row, col, value) => onEditCell?.(widget.tab, row, col, value)}
-        onClose={() => setDetailRow(null)}
+        // The same lists the cells offer, so the form and the table cannot
+        // disagree about what a column may contain.
+        columnChoices={columnChoices}
+        // The SAME popover the table's own marker opens, with the same
+        // state behind it -- a remark is on the record, and one added from
+        // the panel has to be the one the row shows.
+        onOpenNotes={
+          showNotes && detailRow ? (rect) => setOpenNote({ row: detailRow, rect }) : undefined
+        }
+        noteCount={
+          detailRow ? remarkCount(notes[noteIdFor(noteScope, detailRow, noteKeyColumn)]) : 0
+        }
+        onSaveRow={writeRow}
+        onClose={() => setOpenDetail(null)}
         saving={saving}
       />
     </div>

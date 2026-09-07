@@ -137,6 +137,24 @@ export function exitFullscreen(doc = globalThis.document, element = null) {
 }
 
 /**
+ * Where a floating window has to be mounted to be visible AT ALL.
+ *
+ * The rule that catches everybody: while an element is fullscreen, the
+ * browser renders that element's subtree and nothing else. A popover
+ * portalled to `<body>` -- which is the right answer everywhere else,
+ * because it escapes every card, transform and overflow on the way -- is
+ * simply not drawn. Not hidden behind something, not mispositioned: not
+ * rendered.
+ *
+ * So the target is the fullscreen element while there is one, and the body
+ * the rest of the time. Read on every render rather than remembered,
+ * because it changes the moment somebody presses Esc.
+ */
+export function topLayerHost(doc = globalThis.document) {
+  return fullscreenElement(doc) || doc?.body || null
+}
+
+/**
  * Has the reader left fullscreen by a route we do not control?
  *
  * Esc and F11 are handled by the browser itself and tell us nothing except

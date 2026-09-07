@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { isPieChart, operatorMeta } from '../../lib/config'
+import { PIE3D_DEFAULTS } from '../../lib/pie3d'
 import { chromeIsTrimmed } from '../../lib/widgetChrome'
 import { ChevronRight, Copy, Plus, Search, X } from 'lucide-react'
 import {
@@ -34,6 +36,8 @@ import {
 } from '../../lib/chartAnalytics'
 import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
 import { blankChoice, choiceProblem } from '../../lib/columnChoices'
+import { newClearRule, ruleProblem } from '../../lib/clearRules'
+import { FILL_LIMIT, fillColumnsOf } from '../../lib/fillDown'
 import {
   DEFAULT_SPIN,
   MAX_SIZE,
@@ -56,7 +60,9 @@ import {
   optValue,
   useWorkspaceCtx,
 } from './ui.jsx'
-import ConditionBuilder from './ConditionBuilder.jsx'
+import ConditionBuilder, { OperatorValue } from './ConditionBuilder.jsx'
+import VisibilityEditor from './VisibilityEditor.jsx'
+import { visibilityCount } from '../../lib/visibility'
 import { conditionCount, emptyRowCondition } from '../../lib/rowConditions'
 import BlendEditor from './BlendEditor.jsx'
 import FlowEditor from './FlowEditor.jsx'
@@ -384,8 +390,25 @@ export default function WidgetsPanel({
                     badge: Boolean(widget.ignoreFilters) || widget.allowExport === false,
                     hint: 'Page filters and downloads',
                   },
+                  {
+                    key: 'visibility',
+                    label: 'Visible when',
+                    badge: visibilityCount(widget),
+                    hint: 'Keep it off the page until it is worth showing',
+                  },
                 ]}
               />
+
+              {here === 'visibility' && (
+                <VisibilityEditor
+                  owner={widget}
+                  set={set}
+                  filters={(pageControls || []).filter((c) => c.kind !== 'button')}
+                  buttons={(pageControls || []).filter((c) => c.kind === 'button')}
+                  tabs={tabs}
+                  tabHeaders={tabHeaders}
+                />
+              )}
 
               {here === 'setup' && cols.length === 0 && widgetNeedsData(widget.type) && (
                 <p className="mb-2 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
@@ -1032,7 +1055,7 @@ function ChartAdvanced({ widget, set }) {
               to anything in PiePanel, and a control that does nothing is
               worse than a missing one -- somebody will spend a minute
               proving it does nothing. */}
-          {!['pie', 'donut', 'rose'].includes(widget.chartType || 'bar') && (
+          {!isPieChart(widget.chartType || 'bar') && (
             <Toggle checked={!!widget.showLegend} onChange={(v) => set({ showLegend: v })} label="Legend" />
           )}
         </div>
@@ -1525,7 +1548,7 @@ function ChartEditor({ widget, cols, set }) {
       </div>
     )}
 
-    {['pie', 'donut', 'rose'].includes(type) && (
+    {isPieChart(type) && (
       <div className="mt-2 space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Slice labels show" className="w-44">
@@ -1571,6 +1594,41 @@ function ChartEditor({ widget, cols, set }) {
             </>
           )}
         </div>
+
+        {(widget.chartType === 'pie3d' || widget.chartType === 'donut3d') && (
+          <div className="flex flex-wrap items-end gap-3 border-t border-slate-200/70 pt-2">
+            <Field label="Tilt" className="w-28" hint="1 is face-on; lower leans it away.">
+              <TextInput
+                type="number"
+                step="0.05"
+                value={widget.pie3dTilt ?? PIE3D_DEFAULTS.tilt}
+                onChange={(v) => set({ pie3dTilt: Number(v) || PIE3D_DEFAULTS.tilt })}
+              />
+            </Field>
+            <Field label="Thickness" className="w-28" hint="The side wall, in pixels.">
+              <TextInput
+                type="number"
+                value={widget.pie3dDepth ?? PIE3D_DEFAULTS.depth}
+                onChange={(v) => set({ pie3dDepth: Number(v) })}
+              />
+            </Field>
+            {widget.chartType === 'donut3d' && (
+              <Field label="Hole" className="w-28" hint="A share of the radius.">
+                <TextInput
+                  type="number"
+                  step="0.05"
+                  value={widget.pie3dHole ?? 0.5}
+                  onChange={(v) => set({ pie3dHole: Number(v) })}
+                />
+              </Field>
+            )}
+            <p className="max-w-md text-[11px] leading-relaxed text-amber-700">
+              Worth knowing: tilting a pie <strong>distorts its angles</strong> — a slice at the front covers more of
+              the screen than the same slice behind it. Every slice is labelled with its percentage for that reason.
+              Where the comparison matters more than the look, the flat pie is the honest one.
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-wrap items-end gap-3 border-t border-slate-200/70 pt-2">
           <div className="pb-1.5">
@@ -1651,7 +1709,7 @@ function ChartEditor({ widget, cols, set }) {
     </>
     )}
 
-    {part === 'style' && !['waterfall', 'pareto', 'pie', 'donut', 'rose'].includes(type) && (
+    {part === 'style' && !['waterfall', 'pareto'].includes(type) && !isPieChart(type) && (
       <p className="mt-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] text-slate-500">
         This style has no options of its own beyond the ones above — everything that shapes it lives under
         <strong> Data</strong> and <strong>Advanced</strong>.
@@ -2055,6 +2113,162 @@ function ChoiceEditor({ widget, set, cols }) {
   )
 }
 
+/**
+ * Fields that stop applying when a row changes state.
+ *
+ * The one editor in this panel that writes to the spreadsheet by itself, so
+ * it says so, twice: once about needing inline editing at all (without it
+ * nothing here can ever run) and once per rule about the per-user grant
+ * (a rule naming a column this reader cannot write is skipped, not
+ * attempted).
+ *
+ * The trigger and the target are deliberately different shapes -- one
+ * dropdown against a grid of checkboxes -- because they are different
+ * questions. "Which column changed" has one answer; "and what stops being
+ * true" usually has three, and picking three from three dropdowns is three
+ * times the clicking for the same sentence.
+ */
+function ClearEditor({ widget, set, cols }) {
+  const { valuesFor } = useWorkspaceCtx()
+  const list = widget.clearRules || []
+  const ops = listOps(list, (next) => set({ clearRules: next }))
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] leading-snug text-slate-400">
+        A job marked <em>Cancelled</em> still carries its delivery date, its finance company and
+        the name of whoever was going to hand over the keys. None of it is true any more, and
+        every one of those cells still counts in the charts and lands in Friday&rsquo;s export. Say
+        it once here and those fields empty themselves on the row that changed &mdash; at the
+        moment somebody changes it, never in a sweep over old rows.
+      </p>
+
+      {!widget.editable && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-700">
+          <strong>Inline editing is off for this table</strong>, so nothing here can ever run: a rule
+          fires on an edit and only on an edit. Turn on &ldquo;Allow inline editing&rdquo; under Rows.
+        </p>
+      )}
+
+      {list.map((rule, i) => {
+        const problem = ruleProblem(rule, cols)
+        const targets = (rule.clear || []).filter(Boolean)
+        return (
+          <div key={rule.id || i} className="rounded-lg border border-slate-200 bg-white p-2">
+            <div className="flex flex-wrap items-end gap-2">
+              <span className="pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                when
+              </span>
+              <Field label="Column" className="w-44">
+                <Select
+                  value={rule.column || ''}
+                  // A column cannot trigger a rule and be cleared by it, so
+                  // becoming the trigger takes it off its own target list --
+                  // rather than leaving it checked and quietly ignored.
+                  onChange={(v) => ops.update(rule.id, { column: v, clear: targets.filter((c) => c !== v) })}
+                  options={cols}
+                  placeholder="— pick —"
+                />
+              </Field>
+              <div className="flex flex-wrap items-center gap-1.5 pb-1.5">
+                <OperatorValue
+                  operator={rule.operator || 'equals'}
+                  value={rule.value}
+                  value2={rule.value2}
+                  onChange={(patch) => ops.update(rule.id, patch)}
+                  className="w-40"
+                  // Everything that column has ever held, not just what the
+                  // page is showing -- a rule about "Cancelled" is written
+                  // before anything has been cancelled.
+                  choices={valuesFor?.(widget.tab, rule.column)}
+                />
+              </div>
+              <div className="ml-auto pb-1">
+                <RowControls
+                  onUp={() => ops.move(i, -1)}
+                  onDown={() => ops.move(i, 1)}
+                  onDelete={() => ops.remove(rule.id)}
+                  isFirst={i === 0}
+                  isLast={i === list.length - 1}
+                />
+              </div>
+            </div>
+
+            <p className="mb-1 mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              then clear
+            </p>
+            <div className="grid max-h-32 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-slate-100 p-2 md:grid-cols-3">
+              {cols
+                .filter((col) => col !== rule.column)
+                .map((col) => {
+                  const on = targets.includes(col)
+                  return (
+                    <label key={col} className="flex items-center gap-1.5 text-[11px]">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() =>
+                          ops.update(rule.id, {
+                            clear: on ? targets.filter((c) => c !== col) : [...targets, col],
+                          })
+                        }
+                      />
+                      <span className="truncate" title={col}>
+                        {col}
+                      </span>
+                    </label>
+                  )
+                })}
+            </div>
+
+            {/* A status that erases itself. Deliberately a separate switch
+                rather than a checkbox in the grid above: it is the one
+                target that is not "another field", and every other rule in
+                the app leaves the column it is triggered by alone. */}
+            {rule.column && (
+              <label className="mt-1.5 flex items-start gap-1.5 text-[11px] text-slate-600">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={Boolean(rule.clearTrigger)}
+                  onChange={(e) => ops.update(rule.id, { clearTrigger: e.target.checked })}
+                />
+                <span>
+                  …and empty <strong>{rule.column}</strong> itself
+                  <span className="block text-[10px] text-slate-400">
+                    For a value that is an action rather than a state — “Return to PDI” resets the row and
+                    puts the column back to blank, instead of staying on it.
+                  </span>
+                </span>
+              </label>
+            )}
+
+            {problem ? (
+              <p className="mt-1 text-[11px] text-rose-600">{problem}</p>
+            ) : (
+              <p className="mt-1 text-[11px] text-slate-400">
+                Changing <strong className="text-slate-600">{rule.column}</strong> so that it{' '}
+                {operatorMeta(rule.operator).label.replace(/ \(.*\)$/, '')}{' '}
+                {operatorMeta(rule.operator).arity >= 1 && (
+                  <strong className="text-slate-600">{rule.value}</strong>
+                )}{' '}
+                empties{' '}
+                <strong className="text-slate-600">
+                  {[...targets, ...(rule.clearTrigger ? [rule.column] : [])].join(', ')}
+                </strong>{' '}
+                on that row. Only the fields that person is allowed to edit, and only the ones with
+                something in them.
+              </p>
+            )}
+          </div>
+        )
+      })}
+
+      <Btn onClick={() => ops.add(newClearRule(uid('cr')))}>+ Clearing rule</Btn>
+    </div>
+  )
+}
+
 function TableEditor({ widget, cols, set }) {
   const selected = widget.columns?.length ? widget.columns : cols
   const [part, setPart] = useState('rows')
@@ -2095,6 +2309,12 @@ function TableEditor({ widget, cols, set }) {
             label: 'Pills',
             badge: (widget.badgeColumns || []).length,
             hint: 'Columns shown as coloured pills',
+          },
+          {
+            key: 'clearing',
+            label: 'Clearing',
+            badge: (widget.clearRules || []).length,
+            hint: 'Fields that empty themselves when a status changes',
           },
         ]}
       />
@@ -2203,8 +2423,52 @@ function TableEditor({ widget, cols, set }) {
         </p>
       )}
 
+      {/* --- Drag to fill ----------------------------------------------
+          Under Rows, and only once editing is on, for the same reason as
+          the note above: it is the switch that makes the question mean
+          anything. */}
+      {part === 'rows' && widget.editable && (
+        <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+          <p className="mb-1 text-[11px] font-medium text-slate-500">
+            Drag to fill down{' '}
+            <span className="font-normal text-slate-400">
+              (a square at the corner of the cell, like a spreadsheet)
+            </span>
+          </p>
+          <div className="grid max-h-32 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-slate-100 bg-white p-2 md:grid-cols-3">
+            {cols.map((col) => {
+              const on = fillColumnsOf(widget).includes(col)
+              return (
+                <label key={col} className="flex items-center gap-1.5 text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => {
+                      const current = fillColumnsOf(widget)
+                      set({ fillColumns: on ? current.filter((c) => c !== col) : [...current, col] })
+                    }}
+                  />
+                  <span className="truncate" title={col}>
+                    {col}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+          <p className="mt-1 text-[10px] text-slate-400">
+            Off everywhere until you pick a column here. One drag can rewrite a hundred cells, so it belongs on
+            Status or Stage — the columns where a run of rows genuinely shares an answer — and not on a chassis
+            number. It still obeys each person&rsquo;s own grant, it fills only the rows on screen, and it stops
+            at {FILL_LIMIT.toLocaleString('en-IN')} cells.
+          </p>
+        </div>
+      )}
+
       {/* --- Dropdowns -------------------------------------------------- */}
       {part === 'choices' && <ChoiceEditor widget={widget} set={set} cols={cols} />}
+
+      {/* --- Fields that stop applying ---------------------------------- */}
+      {part === 'clearing' && <ClearEditor widget={widget} set={set} cols={cols} />}
 
       {/* --- Remarks ---------------------------------------------------- */}
       {part === 'remarks' && (

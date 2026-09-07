@@ -1477,3 +1477,53 @@ aside.fixed.right-0 {
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------
+   The fill handle -- the square at the corner of a table cell
+   --------------------------------------------------------------------- */
+/* Drawn once, here, rather than as a dozen utility classes at the one place
+   it is used: it is a hit target as much as a graphic, and its size on a
+   finger has nothing to do with its size under a mouse.
+
+   Visible by DEFAULT, because a touch screen has no hover -- there is no
+   gesture that could reveal it, so on a tablet it is simply there. Only a
+   real pointer gets the tidier behaviour of showing it on the cell it is
+   over. */
+.fill-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #4f46e5;
+  box-shadow: 0 0 0 1.5px #fff;
+  cursor: crosshair;
+  touch-action: none; /* a drag on it must not scroll the page */
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+/* A finger is not 9px wide. The target is grown outwards without moving
+   anything on screen. */
+.fill-handle::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+
+.fill-handle[data-active='true'] {
+  transform: scale(1.35);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .fill-handle {
+    opacity: 0;
+  }
+  td:hover > .fill-handle,
+  .fill-handle[data-active='true'] {
+    opacity: 1;
+  }
+  .fill-handle::after {
+    inset: -5px;
+  }
+}

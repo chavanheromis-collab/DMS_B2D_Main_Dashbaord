@@ -11,6 +11,7 @@ import {
   fullscreenSupported,
   requestFullscreen,
   stillFullscreen,
+  topLayerHost,
 } from './deviceFullscreen.js'
 
 const SRC = path.resolve(import.meta.dirname, '..')
@@ -211,4 +212,42 @@ test('full screen still means the whole of it', () => {
   const at = flow.indexOf('createPortal(')
   const overlay = flow.slice(at, flow.indexOf('document.body', at))
   assert.ok(!/max-w|maxWidth|padding|p-\d/.test(overlay), 'full screen stops short of the edges')
+})
+
+// --- where a floating window has to live --------------------------------
+
+test('a window opened from full screen is mounted on the thing filling it', () => {
+  // The rule that catches everybody: while an element is fullscreen the
+  // browser draws THAT element's subtree and nothing else. A popover
+  // portalled to `<body>` -- the right answer everywhere else, because it
+  // escapes every card, transform and overflow on the way -- is not drawn
+  // at all. Not hidden, not mispositioned: not rendered.
+  const body = { tag: 'body' }
+  const overlay = { tag: 'overlay' }
+  assert.equal(topLayerHost({ body }), body, 'a normal page does not mount on the body')
+  assert.equal(topLayerHost({ body, fullscreenElement: overlay }), overlay, 'the window is invisible in full screen')
+  // Safari spells it its own way, and gets the same answer.
+  assert.equal(topLayerHost({ body, webkitFullscreenElement: overlay }), overlay)
+  // And no document at all is null rather than a throw.
+  assert.equal(topLayerHost(null), null)
+})
+
+test('both windows a flow can open follow that rule', () => {
+  // The details window and the hover magnifier. Both were on the body, and
+  // both vanished the moment the flow filled the screen.
+  for (const file of ['components/widgets/FlowRowDetails.jsx', 'components/widgets/FlowPeek.jsx']) {
+    const text = read(file)
+    assert.ok(text.includes('createPortal('), `${file}: no longer portalled`)
+    assert.ok(text.includes('topLayerHost()'), `${file}: mounted where full screen cannot draw it`)
+    const onBody = `    document.body${String.fromCharCode(10)}  )`
+    assert.ok(!text.includes(onBody), `${file}: still mounted on the body`)
+  }
+})
+
+test('...and it is read on every render, not remembered', () => {
+  // It changes the moment somebody presses Esc.
+  const lib = read('lib/deviceFullscreen.js')
+  const at = lib.indexOf('export function topLayerHost')
+  const body = lib.slice(at, lib.indexOf(String.fromCharCode(10) + '}', at))
+  assert.ok(body.includes('fullscreenElement(doc)'), 'the answer is cached somewhere')
 })

@@ -176,6 +176,10 @@ export async function listTabs(sheetId) {
   }
 }
 
+// One drag, one paste, one bulk change. Past this a request is either a
+// mistake or somebody probing, and either way it is not a spreadsheet edit.
+const MAX_BATCH_CELLS = 500
+
 const badRequest = (message) => {
   const err = new Error(message)
   err.statusCode = 400
@@ -224,6 +228,55 @@ export async function updateCell(sheetId, tabName, rowNumber, columnName, value)
   const result = await sheetsFetch(`/${sheetId}/values/${range}?valueInputOption=USER_ENTERED`, {
     method: 'PUT',
     body: JSON.stringify({ values: [[value]] }),
+  })
+  invalidateCache(sheetId, tabName)
+  return result
+}
+
+/**
+ * Writes MANY cells in ONE column, in a single call.
+ *
+ * The shape is deliberately narrow -- one column name, many row numbers --
+ * and it is narrow for the permission check's sake. The caller upstream has
+ * been cleared to edit exactly one named column; letting each entry name
+ * its own column would mean one grant standing in for a write anywhere on
+ * the sheet. A drag fills one column by definition, so nothing is lost.
+ *
+ * Everything `updateCell` refuses, this refuses too, per entry and before
+ * anything is sent: the header row, a row past the end of the data, a
+ * column that is not in the sheet's own header row. A batch is all-or-
+ * nothing on validation for a plain reason -- a partly applied drag leaves
+ * a span with no way to see where it stopped.
+ */
+export async function updateCells(sheetId, tabName, columnName, entries) {
+  const list = Array.isArray(entries) ? entries : []
+  if (list.length === 0) throw badRequest('Nothing to write')
+  if (list.length > MAX_BATCH_CELLS) throw badRequest(`That is more than ${MAX_BATCH_CELLS} cells in one go`)
+
+  const sheet = await fetchSheetRows(sheetId, tabName)
+  const colIdx = sheet.headers.indexOf(columnName)
+  if (colIdx === -1) {
+    throw badRequest(`Column "${columnName}" not found in this tab's header row`)
+  }
+  const colLetter = columnIndexToLetter(colIdx)
+  const lastRow = sheet.rows.length + 1
+
+  const seen = new Set()
+  const data = []
+  for (const entry of list) {
+    const row = Number(entry?.row)
+    if (!Number.isInteger(row) || row < 2) throw badRequest('That row cannot be edited')
+    if (row > lastRow) throw badRequest('One of those rows is no longer in this tab')
+    // The same cell twice in one batch is two answers to one question, and
+    // which one wins is whatever order Google happens to apply them in.
+    if (seen.has(row)) throw badRequest('The same row was sent twice')
+    seen.add(row)
+    data.push({ range: `${tabName}!${colLetter}${row}`, values: [[entry?.value ?? '']] })
+  }
+
+  const result = await sheetsFetch(`/${sheetId}/values:batchUpdate`, {
+    method: 'POST',
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data }),
   })
   invalidateCache(sheetId, tabName)
   return result

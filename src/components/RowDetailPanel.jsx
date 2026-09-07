@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react'
-import { X, Pencil, Check, Copy } from 'lucide-react'
-import { badgeColor } from '../lib/dataUtils'
+import { X, Pencil, Check, Copy, Eraser, MessageSquare, Save } from 'lucide-react'
+import { badgeStyle } from '../lib/dataUtils'
+import { isStrayValue, optionsForCell } from '../lib/columnChoices'
+import {
+  NO_DRAFT,
+  changeCount,
+  changedFields,
+  clearedDraft,
+  draftField,
+  fieldValue,
+  unsavedNote,
+} from '../lib/rowForm'
 
 /**
  * Slides in from the right when a row is clicked. Only rendered when the
@@ -10,14 +20,49 @@ import { badgeColor } from '../lib/dataUtils'
  * Columns the user is allowed to edit get a pencil; everything else is
  * read-only, matching the same per-tab grant the table itself uses.
  */
-export default function RowDetailPanel({ open, row, columns, title, editableColumns = [], onEditCell, onClose, saving }) {
+export default function RowDetailPanel({
+  open,
+  row,
+  columns,
+  title,
+  editableColumns = [],
+  // The same lists the table's own cells offer. A form beside a table that
+  // asks for the status as free text, while the table two inches away
+  // offers a menu of five, is two different rules for one column -- and the
+  // typed one is the one that produces "Deliverd" in the chart.
+  columnChoices = {},
+  // The row's remarks, opened through the table's own popover rather than
+  // reimplemented here: they belong to the RECORD, so a remark added from
+  // the panel has to be the same note the table's marker shows.
+  onOpenNotes,
+  noteCount = 0,
+  // The whole form, saved in one go. Field-at-a-time meant six writes and
+  // six page reloads to correct six fields, no way to change your mind
+  // about the third, and a rule firing on a half-corrected row.
+  onSaveRow,
+  onClose,
+  saving,
+}) {
   const [editing, setEditing] = useState(null)
+  // What is being typed into the field that is open right now.
   const [draft, setDraft] = useState('')
+  // What has been typed into the form and not yet saved: column -> value.
+  // Kept apart from the row so the row can keep moving underneath -- it is
+  // re-read live from the sheet, and somebody else's edit to a field this
+  // person has not touched should still show. See lib/rowForm.js.
+  const [form, setForm] = useState(NO_DRAFT)
   const [copied, setCopied] = useState(null)
 
+  // A DIFFERENT record stops whatever was being edited and drops the
+  // draft with it -- unsaved changes belong to the record they were typed
+  // against, not to the panel. Keyed on the sheet row number rather than
+  // the object, because the object is replaced on every reload, and
+  // reloading is exactly what saving does: keying on identity would throw
+  // away the rest of the form the moment the first save came back.
   useEffect(() => {
     setEditing(null)
-  }, [row])
+    setForm(NO_DRAFT)
+  }, [row?._row])
 
   useEffect(() => {
     function onKey(e) {
@@ -29,9 +74,30 @@ export default function RowDetailPanel({ open, row, columns, title, editableColu
 
   if (!open || !row) return null
 
-  async function commit(col) {
+  /**
+   * A field, filled in. Nothing is written until Save.
+   *
+   * The value is passed in where the caller has it -- a list fires with its
+   * choice, and reading it back off `draft` would race the state update:
+   * the field would take the value BEFORE the one just picked. The same
+   * reason the table's own cells commit this way.
+   */
+  function commit(col, next) {
     setEditing(null)
-    if (draft !== (row[col] ?? '')) await onEditCell?.(row, col, draft)
+    setForm((current) => draftField(current, col, next === undefined ? draft : next))
+  }
+
+  const changes = changedFields(row, form)
+  const pendingCount = changeCount(row, form)
+
+  async function save() {
+    if (pendingCount === 0) return
+    // Cleared FIRST. The save reloads the page, the row comes back with the
+    // new values on it, and a draft still holding them would then read as
+    // "0 unsaved" anyway -- but only after a render in which the bar was
+    // still offering to save what had just been saved.
+    setForm(NO_DRAFT)
+    await onSaveRow?.(row, changes)
   }
 
   function copy(col) {
@@ -40,7 +106,7 @@ export default function RowDetailPanel({ open, row, columns, title, editableColu
     setTimeout(() => setCopied(null), 1200)
   }
 
-  const filled = columns.filter((c) => String(row[c] ?? '').trim() !== '').length
+  const filled = columns.filter((c) => String(fieldValue(row, form, c)).trim() !== '').length
 
   return (
     <>
@@ -56,58 +122,132 @@ export default function RowDetailPanel({ open, row, columns, title, editableColu
               {saving && ' · saving…'}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            title="Close"
-            aria-label="Close"
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 hover:text-slate-700"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {onOpenNotes && (
+              <button
+                onClick={(e) => onOpenNotes(e.currentTarget.getBoundingClientRect())}
+                title={noteCount > 0 ? `${noteCount} remark${noteCount === 1 ? '' : 's'}` : 'Add a remark'}
+                className={`flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium ${
+                  noteCount > 0
+                    ? 'bg-white/70 text-indigo-600'
+                    : 'text-slate-400 hover:bg-white/70 hover:text-slate-700'
+                }`}
+              >
+                <MessageSquare size={13} />
+                {noteCount > 0 && <span className="tabular-nums">{noteCount}</span>}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              title="Close"
+              aria-label="Close"
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-white/70 hover:text-slate-700"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-3">
           <dl className="space-y-1">
             {columns.map((col) => {
-              const value = row[col] ?? ''
+              // What the field SHOWS: what has been typed into the form,
+              // falling back to the sheet. Reading the row directly would
+              // mean a field went back to its old value the moment it lost
+              // focus, and stayed there until Save.
+              const value = fieldValue(row, form, col)
               const canEdit = editableColumns.includes(col)
               const isEditing = editing === col
+              const touched = Object.prototype.hasOwnProperty.call(form, col) && value !== (row[col] ?? '')
+              // Only where the field can be edited: a list of choices on a
+              // read-only field is a promise the panel cannot keep.
+              const choices = canEdit ? columnChoices[col] : null
               const empty = String(value).trim() === ''
               const short = !empty && String(value).length <= 24
 
               return (
                 <div
                   key={col}
-                  className="group grid grid-cols-5 items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50"
+                  className={`group grid grid-cols-5 items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 ${
+                    touched ? 'bg-amber-50/70 ring-1 ring-inset ring-amber-200' : ''
+                  }`}
                 >
-                  <dt className="col-span-2 pt-0.5 text-[11px] font-medium text-slate-500">{col}</dt>
+                  <dt className="col-span-2 pt-0.5 text-[11px] font-medium text-slate-500">
+                    {col}
+                    {/* Which fields are waiting, without having to
+                        remember. A form of twenty fields with three changed
+                        is otherwise a memory test. */}
+                    {touched && <span className="ml-1 text-[10px] font-normal text-amber-600">edited</span>}
+                  </dt>
                   <dd className="col-span-3 flex items-start gap-1">
                     {isEditing ? (
                       <>
-                        <input
-                          autoFocus
-                          value={draft}
-                          onChange={(e) => setDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') commit(col)
-                            if (e.key === 'Escape') setEditing(null)
-                          }}
-                          className="w-full rounded border border-indigo-300 px-1.5 py-0.5 text-xs"
-                        />
-                        <button onClick={() => commit(col)} className="text-emerald-600" title="Save">
-                          <Check size={14} />
-                        </button>
+                        {choices ? (
+                          /* A list, not a box -- the same rule the table's
+                             own cells follow. Typed by hand, "Delivered",
+                             "delivered" and "Deliverd" are three statuses,
+                             and the chart counting them says so. */
+                          <select
+                            autoFocus
+                            value={draft}
+                            onChange={(e) => commit(col, e.target.value)}
+                            onKeyDown={(e) => e.key === 'Escape' && setEditing(null)}
+                            className="w-full rounded border border-indigo-300 px-1 py-0.5 text-xs"
+                            // The colour a value is shown in here, so the
+                            // menu and the field agree. This panel paints a
+                            // SHORT value as a pill -- its own rule, and the
+                            // one the options follow, rather than a second
+                            // idea about which values are worth a colour.
+                            style={short ? badgeStyle(draft) : undefined}
+                          >
+                            {/* Clearing a field has to stay possible: a list
+                                with no empty option is a field that can
+                                never be emptied once it is set. */}
+                            <option value="">—</option>
+                            {optionsForCell(choices, value).map((option) => (
+                              <option
+                                key={option}
+                                value={option}
+                                style={String(option).length <= 24 ? badgeStyle(option) : undefined}
+                              >
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            autoFocus
+                            value={draft}
+                            onChange={(e) => setDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commit(col)
+                              if (e.key === 'Escape') setEditing(null)
+                            }}
+                            className="w-full rounded border border-indigo-300 px-1.5 py-0.5 text-xs"
+                          />
+                        )}
+                        {!choices && (
+                          <button onClick={() => commit(col)} className="text-emerald-600" title="Save">
+                            <Check size={14} />
+                          </button>
+                        )}
                       </>
                     ) : (
                       <>
                         <span className="min-w-0 flex-1 break-words text-xs text-slate-700">
                           {empty ? (
                             <span className="text-slate-300">—</span>
-                          ) : short ? (
+                          ) : choices && isStrayValue(choices, value) ? (
+                            /* Says so rather than quietly correcting it: the
+                               salesman who left is still who sold it. */
                             <span
-                              className="inline-block rounded px-1.5 py-0.5 font-medium"
-                              style={{ backgroundColor: badgeColor(value).bg, color: badgeColor(value).fg }}
+                              className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-amber-700"
+                              title="Not one of the values this column offers"
                             >
+                              {value}
+                            </span>
+                          ) : short ? (
+                            <span className="inline-block rounded px-1.5 py-0.5 font-medium" style={badgeStyle(value)}>
                               {value}
                             </span>
                           ) : (
@@ -148,9 +288,50 @@ export default function RowDetailPanel({ open, row, columns, title, editableColu
           </dl>
         </div>
 
+        {/* Save and Clear, on the form rather than on each field.
+            Going through a record and putting it right is one gesture, and
+            it ends when the person says it does -- not when a field
+            happens to lose focus. */}
+        {editableColumns.length > 0 && (
+          <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-2">
+            <button
+              onClick={() => setForm(clearedDraft(row, columns, editableColumns))}
+              disabled={saving}
+              title="Empty every field you can edit — nothing is written until you press Save"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600 hover:border-rose-200 hover:text-rose-600 disabled:opacity-40"
+            >
+              <Eraser size={13} /> Clear
+            </button>
+
+            <button
+              onClick={save}
+              disabled={pendingCount === 0 || saving}
+              className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              <Save size={13} /> {saving ? 'Saving…' : 'Save'}
+            </button>
+
+            {pendingCount > 0 && (
+              <>
+                <span className="text-[11px] font-medium text-amber-700">{unsavedNote(pendingCount)}</span>
+                {/* A way back that is not "retype the record". Clear is one
+                    press and it empties everything, so undoing it has to be
+                    one press too. */}
+                <button
+                  onClick={() => setForm(NO_DRAFT)}
+                  className="ml-auto text-[11px] text-slate-400 underline hover:text-slate-600"
+                >
+                  discard
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="border-t border-slate-100 px-4 py-2 text-[10px] text-slate-400">
           Press <kbd className="rounded border border-slate-200 px-1">Esc</kbd> to close
           {editableColumns.length === 0 && ' · you have read-only access to this tab'}
+          {pendingCount > 0 && ' · closing loses unsaved changes'}
         </div>
       </aside>
     </>

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { isPieChart } from './config.js'
+
 // ---------------------------------------------------------------------
 // Are the buttons still connected to anything?
 // ---------------------------------------------------------------------
@@ -484,7 +486,10 @@ test('the generic legend switch is not offered where nothing reads it', () => {
   // because somebody spends a minute proving it does nothing.
   const pie = read('components/widgets/PiePanel.jsx')
   assert.ok(!pie.includes('widget.showLegend'), 'the pie still ignores it')
-  assert.ok(panel.includes("{!['pie', 'donut', 'rose'].includes(widget.chartType || 'bar') && ("))
+  // Through the one list, so the 3D pies added later are covered by the
+  // same decision rather than by somebody remembering to add them here.
+  assert.ok(panel.includes("{!isPieChart(widget.chartType || 'bar') && ("))
+  assert.ok(isPieChart('pie3d') && isPieChart('donut3d'), 'a 3D pie is offered a legend nothing reads')
 })
 
 // --- a log axis, and a chart about proportions ---------------------------
@@ -640,4 +645,37 @@ test('a widget outside a dashboard has no notes and does not mind', () => {
   // read of the layer has to survive it being null.
   assert.ok(widget.includes('notesLayer?.onNotes &&'), 'a preview would throw on the notes layer')
   assert.ok(widget.includes('notesLayer?.onHidden &&'), 'a preview would throw on the switch')
+})
+
+// --- zoomed mode has what the card has -----------------------------------
+
+test('the widget’s own filters and buttons come with it into full screen', () => {
+  // They are drawn ABOVE the card by the page, which is right there and
+  // wrong in full screen: the overlay covers the page, so a flow narrowed
+  // by its own controls could not be un-narrowed without leaving it.
+  assert.ok(widget.includes('{fullscreen && ownControls}'), 'the controls are left behind on the page')
+
+  const dashboard = fs.readFileSync(path.join(SRC, 'pages/Dashboard.jsx'), 'utf8')
+  assert.ok(dashboard.includes('const ownControls = ('), 'the bar is not built anywhere it can be shared')
+  assert.ok(dashboard.includes('ownControls={myControls.length > 0 ? ownControls : null}'), 'the flow is never given it')
+  // The SAME bar the page draws, so there is one set of controls with one
+  // state rather than two that can disagree.
+  assert.equal((dashboard.match(/<WidgetControls/g) || []).length, 1, 'a second control bar was built for full screen')
+  assert.ok(dashboard.includes('{ownControls}'), 'the page stopped drawing it')
+})
+
+test('...and inside the panel, so they fade with the rest of the chrome', () => {
+  // Over a diagram the chrome floats and can be faded out of the way. A
+  // control bar pinned outside that would be the one thing that could not.
+  const at = widget.indexOf('{fullscreen && ownControls}')
+  const panelEnd = widget.indexOf('{forest.depth === 0 ?')
+  assert.ok(at > 0 && at < panelEnd, 'the controls sit outside the floating panel')
+})
+
+test('a warning about a truncated flow is readable in both modes', () => {
+  // In full screen the diagram fills the card absolutely, so an in-flow
+  // warning after it has nowhere to be and ends up behind the panel.
+  assert.ok(widget.includes('const truncatedNote = forest.truncated ?'), 'the note is written twice')
+  assert.ok(widget.includes('{floating && truncatedNote}'), 'it is unreachable over a diagram')
+  assert.ok(widget.includes('{!floating && truncatedNote}'), 'it is drawn twice on a card')
 })

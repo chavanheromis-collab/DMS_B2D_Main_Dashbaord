@@ -49,8 +49,12 @@ test('the boundary is INSIDE the edit chrome, not around it', () => {
   assert.ok(at > 0 && editPill > 0 && arrangeBar > 0)
   assert.ok(editPill < at, 'the Edit pill is rendered before the boundary opens')
   assert.ok(arrangeBar < at, 'and so is the arrange pill')
-  // The widgets themselves are all inside it.
-  assert.ok(dashboard.indexOf('<WidgetControls') > at)
+  // The widgets themselves are all inside it, and so is their control bar
+  // -- where it is DRAWN. The element is built further up so a widget that
+  // can fill the screen can be handed the same one, and building an element
+  // is not rendering it: nothing runs until it is placed, and it is placed
+  // in here.
+  assert.ok(dashboard.indexOf('{ownControls}') > at, 'the control bar is drawn outside the boundary')
   assert.ok(dashboard.indexOf("{widget.type === 'kpi'") > at)
 })
 

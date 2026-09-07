@@ -101,6 +101,81 @@ export function controlColumns(control) {
 
 export const DEFAULT_JOIN = ' · '
 
+/**
+ * Which of a column's values a control offers.
+ *
+ * Every one of them is the right answer for a status with five, and the
+ * wrong one for a column with ninety -- where what an admin wants on the
+ * page is the four that matter and not a scrolling wall. `maxChips` caps
+ * the count but cannot say WHICH four: it takes the first N of whatever
+ * order the list happens to be in.
+ */
+export const VALUE_SOURCES = [
+  {
+    value: 'all',
+    label: 'Every value in the column',
+    hint: 'Whatever the sheet has, as it changes. New values appear on their own.',
+  },
+  {
+    value: 'picked',
+    label: 'Only the ones I pick',
+    hint: 'A fixed list. A value added to the sheet later will not appear until you add it here.',
+  },
+]
+
+/**
+ * Which of the two this control is on.
+ *
+ * `all` unless somebody said otherwise, so every control that already
+ * exists behaves exactly as it did -- and so does a control whose picked
+ * list has been emptied, rather than quietly offering nothing.
+ */
+export function valueSourceOf(control) {
+  return control?.valueSource === 'picked' ? 'picked' : 'all'
+}
+
+/** The values an admin has picked, as a list. */
+export function pickedValues(control) {
+  return (control?.pickedValues || [])
+    // Dropped BEFORE stringifying: `String(null)` is the four letters
+    // "null", which would then be offered as a value the column does not
+    // have and quietly filter the page to nothing.
+    .filter((v) => v !== null && v !== undefined && String(v) !== '')
+    .map((v) => String(v))
+}
+
+/** That list with one value added or taken away. */
+export function togglePicked(control, value) {
+  const wanted = String(value ?? '').trim()
+  if (!wanted) return pickedValues(control)
+  const list = pickedValues(control)
+  return list.includes(wanted) ? list.filter((v) => v !== wanted) : [...list, wanted]
+}
+
+/**
+ * The options, narrowed to what the admin picked.
+ *
+ * Two rules, and both are about not surprising anybody:
+ *
+ *   A PICKED VALUE THE DATA NO LONGER HAS is dropped, exactly as any other
+ *   absent value already is. A chip that filters the page to nothing is
+ *   worse than a chip that is not there.
+ *
+ *   THE ORDER IS THE ADMIN'S, where they have not asked for a sort. Picking
+ *   four values out of ninety is an arrangement, and it is the arrangement
+ *   they will expect to see. An explicit sort still wins, because that is
+ *   the more deliberate of the two statements.
+ */
+export function limitToPicked(options, control) {
+  if (valueSourceOf(control) !== 'picked') return options
+  const wanted = pickedValues(control)
+  if (wanted.length === 0) return options
+  const have = new Set(options)
+  const kept = wanted.filter((v) => have.has(v))
+  if (control?.optionSort) return options.filter((v) => kept.includes(v))
+  return kept
+}
+
 export function controlOptions(control, rows, dateOrder = 'DMY', selected) {
   const columns = controlColumns(control)
 
@@ -114,7 +189,13 @@ export function controlOptions(control, rows, dateOrder = 'DMY', selected) {
           .sort(new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare)
       : bucketedValues(rows, columns[0], control, dateOrder)
 
-  const ordered = orderOptions(options, control, rows, dateOrder)
+  // Ordered, then narrowed to what the admin picked.
+  //
+  // The two are interchangeable as far as the ANSWER goes -- filtering a
+  // sorted list and sorting a filtered one give the same list in the same
+  // order, for every sort here. This way round because the sort may have to
+  // read the rows behind each value, and the narrowing is a set lookup.
+  const ordered = limitToPicked(orderOptions(options, control, rows, dateOrder), control)
 
   // A value that is CURRENTLY SELECTED always stays on the list, even after
   // the other filters have narrowed it out of existence. Without this rule,

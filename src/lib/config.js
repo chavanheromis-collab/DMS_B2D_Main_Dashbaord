@@ -373,6 +373,8 @@ export const CHART_TYPES = [
   { value: 'histogram', label: 'Histogram (distribution)' },
   { value: 'pie', label: 'Pie' },
   { value: 'donut', label: 'Donut' },
+  { value: 'pie3d', label: 'Pie (3D)' },
+  { value: 'donut3d', label: 'Donut (3D)' },
   { value: 'rose', label: 'Rose / polar area' },
   { value: 'radar', label: 'Radar' },
   { value: 'radial', label: 'Radial bars' },
@@ -380,6 +382,23 @@ export const CHART_TYPES = [
   { value: 'funnel', label: 'Funnel' },
   { value: 'progress', label: 'Progress list' },
 ]
+
+/**
+ * The chart types that are a circle rather than a plot.
+ *
+ * One list, because there were four: the widget that draws them, and three
+ * places in the editor deciding which settings to offer. Adding the two 3D
+ * pies to one of those and not the others is how a chart ends up offered an
+ * axis label it has no axis for.
+ *
+ * `rose` is here for the same reason it is on a pie's menu: it is a circle
+ * of wedges, and everything an admin can say about a pie applies to it.
+ */
+export const PIE_CHART_TYPES = ['pie', 'donut', 'rose', 'pie3d', 'donut3d']
+
+export function isPieChart(type) {
+  return PIE_CHART_TYPES.includes(type)
+}
 
 // Colour ramps for the heat map. Each is [low, high]; values in between are
 // interpolated, so any number of distinct values gets a sensible colour.

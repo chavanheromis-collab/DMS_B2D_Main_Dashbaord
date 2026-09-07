@@ -5,6 +5,7 @@ import { formatNumber } from '../../lib/dataUtils.js'
 import { STAGE_PALETTE } from '../../lib/config.js'
 import { flowNodeCanDrill } from '../../lib/flow.js'
 import { PEEK_SIZE, peekPlacement, peekRows } from '../../lib/flowView.js'
+import { topLayerHost } from '../../lib/deviceFullscreen.js'
 
 /**
  * A magnified window over one branch.
@@ -223,7 +224,10 @@ export default function FlowPeek({ node, anchor, onClose, onStay, onLeave, onFoc
         </button>
       </div>
     </div>,
-    document.body
+    // Not `document.body`: while the flow is fullscreen the browser
+    // draws that element's subtree and NOTHING else, so a window mounted
+    // on the body is not drawn at all. See lib/deviceFullscreen.js.
+    topLayerHost()
   )
 }
 

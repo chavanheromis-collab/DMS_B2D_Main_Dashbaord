@@ -12,6 +12,10 @@ import {
   controlColumns,
   canBeDefault,
   controlMode,
+  pickedValues,
+  togglePicked,
+  valueSourceOf,
+  VALUE_SOURCES,
   controlWidth,
   defaultList,
   takesManyValues,
@@ -37,6 +41,7 @@ import {
   useWorkspaceCtx,
 } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
+import VisibilityEditor from './VisibilityEditor.jsx'
 import { conditionCount, emptyRowCondition } from '../../lib/rowConditions'
 import EmojiPicker from './EmojiPicker.jsx'
 
@@ -528,6 +533,19 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                       </Field>
                     )}
                     {['select', 'multi', 'chips'].includes(control.kind) && (
+                      <Field
+                        label="Values to offer"
+                        className="w-56"
+                        hint={VALUE_SOURCES.find((v) => v.value === valueSourceOf(control))?.hint}
+                      >
+                        <Select
+                          value={valueSourceOf(control)}
+                          onChange={(v) => set({ valueSource: v })}
+                          options={VALUE_SOURCES}
+                        />
+                      </Field>
+                    )}
+                    {['select', 'multi', 'chips'].includes(control.kind) && (
                       <Field label="Order values by" className="w-52">
                         <Select
                           value={control.optionSort || ''}
@@ -989,6 +1007,23 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                     </div>
                   )}
 
+                  {/* --- When it is on the page at all ------------------- */}
+                  {/* A page that unfolds: the model dropdown appears once a
+                      brand has been picked. Deliberately NOT self-
+                      referential -- a control that hid itself the moment it
+                      was set would be one nobody could unset -- so this
+                      control is left off both lists below. */}
+                  <div className="border-t border-slate-100 pt-2">
+                    <VisibilityEditor
+                      owner={control}
+                      set={set}
+                      filters={controls.filter((c) => c.id !== control.id && c.kind !== 'button')}
+                      buttons={controls.filter((c) => c.id !== control.id && c.kind === 'button')}
+                      tabs={[control.tab]}
+                      tabHeaders={tabHeaders}
+                    />
+                  </div>
+
                   {/* --- Placement --------------------------------------- */}
                   <div className="flex flex-wrap items-end gap-4 border-t border-slate-100 pt-2">
                     <Field label="On the page" className="w-72">
@@ -1030,6 +1065,67 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                       </Field>
                     )}
                   </div>
+
+                  {/* Which of the column's values this control offers. Every
+                      one of them is right for a status with five and wrong
+                      for a column with ninety, where what belongs on the
+                      page is the four that matter. */}
+                  {valueSourceOf(control) === 'picked' &&
+                    ['select', 'multi', 'chips'].includes(control.kind) && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2">
+                      <div className="mb-1 flex items-baseline justify-between">
+                        <p className="text-[11px] font-medium text-slate-500">
+                          The values this control offers, in this order
+                        </p>
+                        <button
+                          onClick={() => set({ pickedValues: valuesFor(control.tab, control.column) })}
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 hover:bg-slate-50"
+                          title="Start from every value the column has"
+                        >
+                          Pick all
+                        </button>
+                      </div>
+                      <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto">
+                        {valuesFor(control.tab, control.column).map((v) => {
+                          const on = pickedValues(control).includes(v)
+                          return (
+                            <button
+                              key={v}
+                              onClick={() => set({ pickedValues: togglePicked(control, v) })}
+                              className={`max-w-[12rem] truncate rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                                on
+                                  ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                                  : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                              }`}
+                              title={on ? 'Remove from the control' : 'Offer this value'}
+                            >
+                              {on ? `${pickedValues(control).indexOf(v) + 1}. ` : ''}
+                              {v}
+                            </button>
+                          )
+                        })}
+                        {valuesFor(control.tab, control.column).length === 0 && (
+                          <span className="text-[11px] text-slate-400">
+                            No values known yet — open <strong>Data Sources</strong> and sync this spreadsheet.
+                          </span>
+                        )}
+                      </div>
+                      {pickedValues(control).length === 0 ? (
+                        <p className="mt-1 text-[11px] text-amber-700">
+                          Nothing picked, so the control still offers every value — an empty list would be a control
+                          with nothing on it.
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+                          {pickedValues(control).length} of {valuesFor(control.tab, control.column).length}
+                          {control.optionSort
+                            ? ' · ordered by the sort above'
+                            : ' · in the order you picked them'}
+                          . A value the data no longer has is left out, like any other.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {mode === 'fixed' && (
                     <p

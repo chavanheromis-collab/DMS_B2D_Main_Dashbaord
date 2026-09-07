@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { peekPlacement } from '../../lib/flowView.js'
+import { topLayerHost } from '../../lib/deviceFullscreen.js'
 import { detailPairs, detailsFor } from '../../lib/flowDetails.js'
 
 const WIDTH = 320
@@ -112,6 +113,9 @@ export default function FlowRowDetails({ node, flow, anchor, onClose }) {
         </p>
       )}
     </div>,
-    document.body
+    // Not `document.body`: while the flow is fullscreen the browser
+    // draws that element's subtree and NOTHING else, so a window mounted
+    // on the body is not drawn at all. See lib/deviceFullscreen.js.
+    topLayerHost()
   )
 }

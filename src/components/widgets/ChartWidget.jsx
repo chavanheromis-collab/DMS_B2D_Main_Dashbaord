@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { PIE_CHART_TYPES } from '../../lib/config.js'
 import {
   Area,
   Bar,
@@ -71,7 +72,9 @@ function nameFromChartEvent(state) {
 
 /** A click straight on a shape (slice, tile, segment). */
 // The part-of-whole family, which needs a layout rather than a shape.
-const PIE_TYPES = new Set(['pie', 'donut', 'rose'])
+// One list, in config, so the widget and the editor cannot disagree about
+// what counts as a pie.
+const PIE_TYPES = new Set(PIE_CHART_TYPES)
 // Styles whose CATEGORY axis is the vertical one, so they grow downwards.
 const HORIZONTAL_TYPES = new Set(['hbar', 'arrowRow'])
 

@@ -119,3 +119,24 @@ export async function updateCell(idToken, pageId, ref, rowNumber, columnName, va
     body: JSON.stringify({ page: pageId, ref, row: rowNumber, column: columnName, value }),
   })
 }
+
+/**
+ * Writes many cells of ONE column in a single request -- a fill drag, and
+ * the cascade a clearing rule sets off.
+ *
+ * `cells` is [{ row, value }]. The column is named once, at the top, for
+ * the same reason its position is never sent: it is what the server checks
+ * the permission against, and a per-entry column would let one grant write
+ * anywhere on the sheet.
+ *
+ * One request rather than one per cell is not only speed. Forty writes with
+ * a reload between each is a table that flickers for half a minute, and a
+ * failure at the twentieth leaves a span half filled with nothing on screen
+ * to say where it stopped.
+ */
+export async function updateCells(idToken, pageId, ref, columnName, cells) {
+  return apiFetch(idToken, '/api/sheets', {
+    method: 'POST',
+    body: JSON.stringify({ page: pageId, ref, column: columnName, cells }),
+  })
+}

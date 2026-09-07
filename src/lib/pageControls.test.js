@@ -8,6 +8,12 @@ import {
   activeCount,
   canBeDefault,
   captureView,
+  controlOptions,
+  limitToPicked,
+  pickedValues,
+  togglePicked,
+  valueSourceOf,
+  VALUE_SOURCES,
   controlActive,
   controlWidth,
   defaultList,
@@ -286,4 +292,87 @@ test('the picker offers the column’s values, and says where they came from', (
   const box = panel.slice(panel.indexOf('function ValueBox('), panel.indexOf('export default function ControlsPanel'))
   assert.ok(box.includes('<TextInput'), 'a value not yet in the sheet cannot be typed')
   assert.ok(box.includes('disabled={!usable}'), 'a comma value is offered as though it would work')
+})
+
+// --- which of a column's values a control offers -------------------------
+
+const ROWS = [{ S: 'A' }, { S: 'B' }, { S: 'C' }, { S: 'D' }]
+const chips = (extra = {}) => ({ kind: 'chips', column: 'S', ...extra })
+
+test('a control nobody has touched offers every value, as it always has', () => {
+  assert.equal(valueSourceOf(undefined), 'all')
+  assert.equal(valueSourceOf({}), 'all')
+  assert.equal(valueSourceOf({ valueSource: 'nonsense' }), 'all')
+  assert.equal(valueSourceOf({ valueSource: 'picked' }), 'picked')
+  assert.deepEqual(controlOptions(chips(), ROWS), ['A', 'B', 'C', 'D'])
+})
+
+test('picking narrows it to what was picked, in the order it was picked', () => {
+  // Picking four values out of ninety is an arrangement, and it is the one
+  // the admin will expect to see.
+  assert.deepEqual(controlOptions(chips({ valueSource: 'picked', pickedValues: ['C', 'A'] }), ROWS), ['C', 'A'])
+})
+
+test('...but a sort they asked for still wins, and sorts the picked few', () => {
+  // The more deliberate of the two statements. And it sorts the four they
+  // chose rather than the ninety they did not.
+  assert.deepEqual(
+    controlOptions(chips({ valueSource: 'picked', pickedValues: ['C', 'A'], optionSort: 'name_asc' }), ROWS),
+    ['A', 'C']
+  )
+})
+
+test('a picked value the data no longer has is left out', () => {
+  // Exactly as any other absent value already is. A chip that filters the
+  // page to nothing is worse than a chip that is not there.
+  assert.deepEqual(controlOptions(chips({ valueSource: 'picked', pickedValues: ['C', 'GONE'] }), ROWS), ['C'])
+})
+
+test('picking nothing offers everything, rather than a control with nothing on it', () => {
+  assert.deepEqual(controlOptions(chips({ valueSource: 'picked', pickedValues: [] }), ROWS), ['A', 'B', 'C', 'D'])
+  assert.deepEqual(controlOptions(chips({ valueSource: 'picked' }), ROWS), ['A', 'B', 'C', 'D'])
+})
+
+test('a value somebody is filtering by stays reachable even if it was not picked', () => {
+  // The oldest rule here: a reader must always be able to undo what emptied
+  // their page. A saved view can hold a value the admin has since removed
+  // from the list.
+  assert.deepEqual(
+    controlOptions(chips({ valueSource: 'picked', pickedValues: ['A'] }), ROWS, 'DMY', ['B']),
+    ['A', 'B']
+  )
+})
+
+test('pressing a value adds it, pressing it again takes it away', () => {
+  const control = chips({ pickedValues: ['A', 'B'] })
+  assert.deepEqual(togglePicked(control, 'C'), ['A', 'B', 'C'])
+  assert.deepEqual(togglePicked(control, 'A'), ['B'])
+  assert.deepEqual(togglePicked(chips({}), 'A'), ['A'])
+  // Blank is not a value.
+  assert.deepEqual(togglePicked(control, '  '), ['A', 'B'])
+})
+
+test('the list survives whatever is in it', () => {
+  // Stored as a real array, so a value with a comma in it is just a value.
+  assert.deepEqual(pickedValues({ pickedValues: ['SPLENDOR PLUS, BLACK'] }), ['SPLENDOR PLUS, BLACK'])
+  assert.deepEqual(pickedValues({ pickedValues: ['a', '', null, 'b'] }), ['a', 'b'])
+  assert.deepEqual(pickedValues({}), [])
+  assert.deepEqual(pickedValues(null), [])
+  assert.deepEqual(limitToPicked(['A'], null), ['A'])
+})
+
+test('every source the picker offers is one the model knows', () => {
+  for (const source of VALUE_SOURCES) {
+    assert.ok(source.label && source.hint, `${source.value} has no label or hint`)
+    assert.equal(valueSourceOf({ valueSource: source.value }), source.value)
+  }
+})
+
+test('the admin can pick them, pick all of them, and see what they picked', () => {
+  const panel = fs.readFileSync(path.join(ROOT, 'src/pages/admin/ControlsPanel.jsx'), 'utf8')
+  assert.ok(panel.includes('set({ valueSource: v })'), 'there is no way to choose between the two')
+  assert.ok(panel.includes('set({ pickedValues: togglePicked(control, v) })'), 'nothing is pickable')
+  assert.ok(panel.includes('set({ pickedValues: valuesFor(control.tab, control.column) })'), 'no way to take them all')
+  // And is told when an empty list means "everything" rather than "nothing".
+  assert.match(panel, /Nothing picked, so the control still offers every value/)
 })

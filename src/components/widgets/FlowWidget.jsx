@@ -101,6 +101,12 @@ export default function FlowWidget({
   dateOrder,
   canExport = false,
   fillHeight = false,
+  // This widget's own filters and buttons. They are drawn ABOVE the card by
+  // the page, which is right there and wrong here: full screen covers the
+  // page, so a flow narrowed by its own controls could not be un-narrowed
+  // without leaving. Drawn again inside the overlay, from the same element
+  // -- one set of controls with one state, shown where it can be reached.
+  ownControls = null,
 }) {
   const flow = { ...DEFAULT_FLOW, ...(widget.flow || {}) }
   const source = widget.ignoreFilters ? rawRowsByTab : rowsByTab
@@ -409,6 +415,14 @@ export default function FlowWidget({
   // panel all measure their percentages against the same thing.
   const viewFlow = useMemo(() => ({ ...flow, percentBase }), [flow, percentBase])
 
+  // Said once, drawn in whichever place has room for it.
+  const truncatedNote = forest.truncated ? (
+    <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
+      Stopped after {flow.maxNodes} branches. Close a level, or focus into the branch you care about, to keep going
+      deeper.
+    </p>
+  ) : null
+
   const card = (
     <div
       ref={rootRef}
@@ -598,6 +612,14 @@ export default function FlowWidget({
         </div>
       </div>
 
+      {floating && truncatedNote}
+
+      {/* The widget's own filters and buttons, brought inside. On a card
+          the page draws them above it and this is not rendered at all; in
+          full screen the page is behind the overlay and they would be
+          unreachable. */}
+      {fullscreen && ownControls}
+
       {/* A viewer-changeable breakdown: the single most useful control a
           drill tool can offer, because the interesting split is rarely the
           one anyone predicted when the page was built. */}
@@ -765,12 +787,11 @@ export default function FlowWidget({
         <FlowRowDetails node={details.node} flow={viewFlow} anchor={details.anchor} onClose={closeDetails} />
       )}
 
-      {forest.truncated && (
-        <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
-          Stopped after {flow.maxNodes} branches. Close a level, or focus into the branch you care about, to keep
-          going deeper.
-        </p>
-      )}
+      {/* Under the diagram on a card. In full screen the diagram fills the
+          card absolutely, so an in-flow warning after it has nowhere to be
+          and ends up behind the floating panel -- it is drawn up there
+          instead, with the rest of the chrome. */}
+      {!floating && truncatedNote}
     </div>
   )
 

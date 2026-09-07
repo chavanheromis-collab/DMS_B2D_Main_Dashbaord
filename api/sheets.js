@@ -1,5 +1,5 @@
 import { requireUser, getAccess, adminDb } from './_lib/firebaseAdmin.js'
-import { fetchManyTabs, listTabs, updateCell } from './_lib/googleSheets.js'
+import { fetchManyTabs, listTabs, updateCell, updateCells } from './_lib/googleSheets.js'
 import { valueIndexFor } from '../src/lib/columnValues.js'
 
 // ---------------------------------------------------------------------
@@ -293,12 +293,20 @@ async function handlePost(req, res, uid) {
   const pageId = body.page || body.sheet
   const { ref, tab, row, column, value } = body
 
+  // A fill drag sends many rows of ONE column. One column, because the
+  // permission below clears a column by name -- see updateCells for why
+  // letting each entry name its own would make that grant meaningless.
+  const cells = Array.isArray(body.cells) ? body.cells : null
+
   // `headers` is still accepted in the body and deliberately ignored: the
   // column is located in the sheet's own header row (see updateCell), so a
   // request cannot choose which column its permission applies to. Older
   // browsers still send it; there is nothing to break.
-  if (!pageId || !row || !column) {
+  if (!pageId || !column || (!row && !cells)) {
     return res.status(400).json({ error: 'Missing page, row or column in request body' })
+  }
+  if (cells && cells.length === 0) {
+    return res.status(400).json({ error: 'Nothing to write' })
   }
 
   const access = await getAccess(uid, pageId)
@@ -316,7 +324,13 @@ async function handlePost(req, res, uid) {
     if (!allowedLegacy) {
       return res.status(403).json({ error: `You are not allowed to edit "${column}" on the ${tab} tab` })
     }
-    return res.status(200).json(await updateCell(legacy.sheetId, tab, row, column, value))
+    return res
+      .status(200)
+      .json(
+        cells
+          ? await updateCells(legacy.sheetId, tab, column, cells)
+          : await updateCell(legacy.sheetId, tab, row, column, value)
+      )
   }
 
   const targetRef = ref || (tab && page.sourceIds?.length ? makeRef(page.sourceIds[0], tab) : '')
@@ -341,7 +355,13 @@ async function handlePost(req, res, uid) {
   const source = sources[sourceId]
   if (!source?.sheetId) return res.status(400).json({ error: 'That spreadsheet is no longer connected' })
 
-  return res.status(200).json(await updateCell(source.sheetId, tabName, row, column, value))
+  return res
+    .status(200)
+    .json(
+      cells
+        ? await updateCells(source.sheetId, tabName, column, cells)
+        : await updateCell(source.sheetId, tabName, row, column, value)
+    )
 }
 
 function splitList(value) {

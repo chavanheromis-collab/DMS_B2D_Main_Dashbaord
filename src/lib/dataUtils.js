@@ -1163,6 +1163,23 @@ export function badgeColor(value) {
   return BADGE_COLORS[hash % BADGE_COLORS.length]
 }
 
+/**
+ * The same colour, as a style object.
+ *
+ * Because a value is painted in more than one place -- the cell, the row
+ * form, and the menu you pick it from -- and the whole point of a colour
+ * per value is that those agree. Two spellings of the same two lines is how
+ * they come to disagree.
+ *
+ * Blank gets nothing: an empty cell is not a status, and a coloured pill
+ * around no text is a smudge.
+ */
+export function badgeStyle(value) {
+  if (String(value ?? '').trim() === '') return undefined
+  const { bg, fg } = badgeColor(value)
+  return { backgroundColor: bg, color: fg }
+}
+
 // ---------------------------------------------------------------------
 // Time bucketing (Trend widget)
 // ---------------------------------------------------------------------

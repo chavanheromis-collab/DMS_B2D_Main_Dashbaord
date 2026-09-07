@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { ellipsePoint, pie3dGeometry, shade } from '../../lib/pie3d.js'
 import { Cell, Pie, PieChart, ResponsiveContainer, Sector } from 'recharts'
 import { DEFAULT_PIE_OPTIONS, PIE_PERCENT_BASES, REST_LABEL, labelledSlices, legendScrollStart, legendWindowSize, listColumns, listLayout, pieSlices, pieWindow, rollupNote, sliceLabel } from '../../lib/pieData.js'
 
@@ -22,8 +23,103 @@ import { DEFAULT_PIE_OPTIONS, PIE_PERCENT_BASES, REST_LABEL, labelledSlices, leg
  *     the list is how you read the circle rather than a separate legend to
  *     cross-reference.
  */
+/**
+ * The pie with thickness, off a printed infographic.
+ *
+ * Drawn by hand rather than by the chart library, because the library draws
+ * circles and this is an ellipse with a wall under it -- three passes in a
+ * particular order, which is what makes it read as an object. The geometry
+ * is in lib/pie3d.js, along with a plain statement of what tilting one
+ * costs the reader.
+ *
+ * Every slice is LABELLED, and that is not decoration. Tilting distorts the
+ * angles -- a wedge at the front covers more of the screen than the same
+ * wedge behind -- so the figure has to be somewhere the eye does not have
+ * to estimate it.
+ */
+function Pie3D({ slices, widget, fmt, colorFor, dim, onPick, size }) {
+  const geo = useMemo(
+    () =>
+      pie3dGeometry(slices, {
+        size,
+        tilt: widget.pie3dTilt,
+        depth: widget.pie3dDepth,
+        hole: widget.type === 'donut3d' ? (widget.pie3dHole ?? 0.5) : 0,
+      }),
+    [slices, size, widget.pie3dTilt, widget.pie3dDepth, widget.pie3dHole, widget.type]
+  )
+  if (geo.tops.length === 0) return null
+
+  const total = slices.reduce((sum, s) => sum + Number(s.value || 0), 0)
+  const fill = (index) => {
+    const slice = slices[index]
+    return slice?.isOther || slice?.isRest ? '#cbd5e1' : colorFor(slice, index)
+  }
+
+  return (
+    <svg
+      viewBox={`0 0 ${geo.width} ${geo.height}`}
+      width="100%"
+      height="100%"
+      style={{ display: 'block', overflow: 'visible' }}
+    >
+      {/* The wall, and the inside of the ring behind it. Darkened, because a
+          side lit the same as the top is not a side -- it reads as a flat
+          shape with a lump on it. */}
+      {geo.pieces.map((piece) => (
+        <path
+          key={piece.id}
+          d={piece.d}
+          fill={shade(fill(piece.index))}
+          fillOpacity={dim(slices[piece.index])}
+        />
+      ))}
+
+      {/* The tops last: they tile the ellipse without overlapping, so
+          nothing among them can fight over what is in front. */}
+      {geo.tops.map((top) => (
+        <path
+          key={top.id}
+          d={top.d}
+          fill={fill(top.index)}
+          fillOpacity={dim(slices[top.index])}
+          stroke="#fff"
+          strokeWidth={1}
+          cursor={onPick ? 'pointer' : 'default'}
+          onClick={() => onPick?.(slices[top.index])}
+        />
+      ))}
+
+      {widget.showLabels !== false &&
+        geo.tops.map((top) => {
+          const share = total > 0 ? top.value / total : 0
+          // Under about a twentieth there is no room on the slice, and a
+          // label that overlaps its neighbour is worse than the legend.
+          if (share < 0.05) return null
+          const mid = -Math.PI / 2 + (geo.tops.slice(0, top.index).reduce((a, t) => a + t.value, 0) + top.value / 2) / (total || 1) * Math.PI * 2
+          const r = geo.hole > 0 ? (1 + geo.hole) / 2 : 0.62
+          const at = ellipsePoint(geo.cx, geo.cy, geo.rx * r, geo.ry * r, mid)
+          return (
+            <text
+              key={`${top.id}-label`}
+              x={at.x}
+              y={at.y}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              className="label-on-fill"
+              style={{ fontSize: 11, fontWeight: 700, fill: '#fff', pointerEvents: 'none' }}
+            >
+              {`${Math.round(share * 100)}%`}
+            </text>
+          )
+        })}
+    </svg>
+  )
+}
+
 export default function PiePanel({ type, data, widget, fmt, colorFor, activeName, onDrill, height }) {
   const [hover, setHover] = useState(-1)
+  const is3d = type === 'pie3d' || type === 'donut3d'
 
   // "Scroll" is the other answer to a hundred and twenty categories: every
   // one of them in the legend, and the pie showing whichever are in view.
@@ -102,6 +198,22 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
     <div className="flex min-h-0 flex-1 flex-col">
       <div className={`flex min-h-0 flex-1 ${listAt.wrap}`}>
         <div className="relative widget-body flex-1">
+          {/* Only the DRAWING is different. The slices, the roll-up, the
+              legend, the list and the drill are the pie's own and are not
+              worth a second implementation for the sake of a tilt. */}
+          {is3d ? (
+            <div className="flex h-full w-full items-center justify-center">
+              <Pie3D
+                slices={slices}
+                widget={widget}
+                fmt={fmt}
+                colorFor={colorFor}
+                dim={dim}
+                onPick={onDrill ? drill : undefined}
+                size={260}
+              />
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height={height}>
             <PieChart>
               <Pie
@@ -137,6 +249,7 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
               </Pie>
             </PieChart>
           </ResponsiveContainer>
+          )}
 
           {/* The centre of a donut is the most valuable real estate on the
               chart and is otherwise a hole. */}

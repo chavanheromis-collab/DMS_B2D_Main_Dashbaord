@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+
+import { badgeColor, badgeStyle } from './dataUtils.js'
 import path from 'node:path'
 import {
   MAX_OPTIONS,
@@ -268,4 +270,106 @@ test('each choice carries an id, because the list is keyed by one', () => {
   for (const field of ['{ column: v }', "{ tab: v, valueColumn: '' }", '{ valueColumn: v }']) {
     assert.ok(panel.includes(`ops.update(choice.id, ${field})`), field)
   }
+})
+
+// --- the form obeys the same rules as the table --------------------------
+
+test('the detail form offers the list the cells offer', () => {
+  // A form beside a table that asks for the status as free text, while the
+  // table two inches away offers a menu of five, is two rules for one
+  // column -- and the typed one is what produces "Deliverd" in the chart.
+  const panel = read('src/components/RowDetailPanel.jsx')
+  // The branch, not just the call inside it: a list built in a branch
+  // nothing reaches is a list nobody sees.
+  assert.ok(panel.includes('{choices ? ('), 'the form takes free text where the table does not')
+  assert.ok(panel.includes('optionsForCell(choices, value)'), 'the list is not the column’s')
+  assert.ok(panel.includes('<option value="">—</option>'), 'a field that can never be emptied once it is set')
+  assert.ok(panel.includes('isStrayValue(choices, value)'), 'a value not on the list passes without a word')
+
+  // Through the SAME helpers, not a second opinion about what a column may
+  // contain.
+  assert.ok(panel.includes("from '../lib/columnChoices'"))
+})
+
+test('...and only where the field can be edited at all', () => {
+  // A list of choices on a read-only field is a promise the panel cannot
+  // keep.
+  const panel = read('src/components/RowDetailPanel.jsx')
+  assert.ok(panel.includes('const choices = canEdit ? columnChoices[col] : null'))
+})
+
+test('a choice is saved as the choice, not as whatever was there before', () => {
+  // Reading it back off `draft` would race the state update: the field
+  // would save the value BEFORE the one just picked. The same reason the
+  // table's own cells pass it in.
+  const panel = read('src/components/RowDetailPanel.jsx')
+  assert.ok(panel.includes('commit(col, e.target.value)'))
+  assert.ok(panel.includes('draftField(current, col, next === undefined ? draft : next)'))
+})
+
+test('the form has a way to open the row’s remarks', () => {
+  const panel = read('src/components/RowDetailPanel.jsx')
+  assert.ok(panel.includes('{onOpenNotes && ('), 'the button is never drawn')
+  assert.ok(
+    panel.includes('onOpenNotes(e.currentTarget.getBoundingClientRect())'),
+    'it opens without saying where, and the popover lands in a corner'
+  )
+  // And says whether there are any, or it is a button with no news.
+  assert.ok(panel.includes('{noteCount > 0 && <span'), 'the count is never shown')
+})
+
+test('the table hands the form its own lists and its own remarks', () => {
+  const table = read('src/components/widgets/TableWidget.jsx')
+  const at = table.indexOf('<RowDetailPanel')
+  assert.ok(at >= 0, 'the table no longer opens the form')
+  const call = table.slice(at, table.indexOf('/>', at))
+  assert.ok(call.includes('columnChoices={columnChoices}'), 'the form works out its own lists')
+  // The same popover and the same state, because a remark is on the RECORD:
+  // one added from the form has to be the one the row shows.
+  assert.ok(call.includes('onOpenNotes='), 'the form cannot reach the row’s remarks')
+  assert.ok(call.includes('setOpenNote({ row: detailRow, rect })'), 'it opens a second, separate note')
+  assert.ok(call.includes('noteCount='), 'the form does not say whether there are any')
+})
+
+// --- the menu is coloured like the thing it is choosing ------------------
+
+test('a value is painted the same way wherever it appears', () => {
+  // One helper, because a value shows up in the cell, in the row form, and
+  // in the menu you pick it from -- and the whole point of a colour per
+  // value is that those three agree.
+  assert.deepEqual(badgeStyle('Booked'), {
+    backgroundColor: badgeColor('Booked').bg,
+    color: badgeColor('Booked').fg,
+  })
+  // Blank gets nothing: an empty cell is not a status, and a coloured pill
+  // around no text is a smudge.
+  assert.equal(badgeStyle(''), undefined)
+  assert.equal(badgeStyle('   '), undefined)
+  assert.equal(badgeStyle(null), undefined)
+  // Stable, or the menu and the cell disagree on every render.
+  assert.deepEqual(badgeStyle('Booked'), badgeStyle('Booked'))
+  assert.notDeepEqual(badgeStyle('Booked'), badgeStyle('Delivered'))
+})
+
+test('the table colours its menu exactly where it colours its cells', () => {
+  // On a column of two hundred customer names, eight rotating colours is
+  // confetti. `badgeColumns` is the admin's own answer to "is this a
+  // status?", and it decides both.
+  const table = read('src/components/widgets/TableWidget.jsx')
+  assert.ok(table.includes('style={badgeCols.includes(col) ? badgeStyle(option) : undefined}'), 'the options are plain')
+  // And the closed box takes the current value's colour: that is the state
+  // anybody spends their time looking at.
+  assert.ok(table.includes('style={asBadge ? badgeStyle(draft) : undefined}'), 'only the open menu is coloured')
+})
+
+test('the form colours its menu by the rule the form already uses', () => {
+  // It paints a SHORT value as a pill. The options follow that, rather than
+  // a second idea about which values are worth a colour.
+  const panel = read('src/components/RowDetailPanel.jsx')
+  assert.ok(panel.includes('String(option).length <= 24 ? badgeStyle(option) : undefined'), 'the options are plain')
+  assert.ok(panel.includes('style={short ? badgeStyle(draft) : undefined}'), 'only the open menu is coloured')
+  // ...and the pill it already drew goes through the same helper, so the
+  // two cannot drift.
+  assert.ok(panel.includes('style={badgeStyle(value)}'))
+  assert.ok(!panel.includes('badgeColor('), 'a second spelling of the same colour')
 })

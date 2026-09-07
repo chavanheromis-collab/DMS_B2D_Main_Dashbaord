@@ -16,6 +16,12 @@ import { fetchPageData } from '../lib/sheetsApi'
  *
  * Returns { tabs, loading, error, reload, lastLoaded }
  *   tabs = { [ref]: { headers, rows, error? } }
+ *
+ * `reload` also RESOLVES to what it read. State lands a render later, which
+ * is too late for a caller that has to compare the fresh rows against the
+ * edits it is still holding on screen -- see lib/pendingEdits.js. It
+ * resolves to null when the read was superseded or refused, which is the
+ * honest answer to "what does the sheet say now": not known.
  */
 export function usePageData(getIdToken, pageId, refs, canView) {
   const [tabs, setTabs] = useState({})
@@ -35,7 +41,7 @@ export function usePageData(getIdToken, pageId, refs, canView) {
       requestRef.current += 1
       setTabs({})
       setLoading(false)
-      return
+      return null
     }
     const requestId = ++requestRef.current
     setLoading(true)
@@ -46,19 +52,27 @@ export function usePageData(getIdToken, pageId, refs, canView) {
       // Ignore a slow response that lost the race to a newer one (e.g. the
       // user clicked a different page in the sidebar while this was still
       // in flight).
-      if (requestId !== requestRef.current) return
-      setTabs(result.tabs || {})
+      if (requestId !== requestRef.current) return null
+      const fresh = result.tabs || {}
+      setTabs(fresh)
       setLastLoaded(new Date())
+      return fresh
     } catch (e) {
-      if (requestId !== requestRef.current) return
+      if (requestId !== requestRef.current) return null
       setError(e)
+      throw e
     } finally {
       if (requestId === requestRef.current) setLoading(false)
     }
   }, [getIdToken, pageId, key, canView])
 
   useEffect(() => {
-    load()
+    // The effect is not a caller that can handle a rejection: `load` now
+    // rethrows so an explicit reload can tell a failed re-read from a
+    // successful one, and an unhandled rejection here would be noise in
+    // every console the moment the network blinks. The error is already in
+    // state, which is where the page reads it from.
+    load().catch(() => {})
   }, [load])
 
   return { tabs, loading, error, reload: load, lastLoaded }

@@ -12,9 +12,18 @@ import { newNote } from '../lib/stickyNotes'
 import { usePageData, useLocalState } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, usePagePrefs, orderWidgets } from '../hooks/useUserPrefs'
-import { updateCell, SheetsAuthError } from '../lib/sheetsApi'
+import { updateCell, updateCells, SheetsAuthError } from '../lib/sheetsApi'
+import {
+  addAllPending,
+  applyPendingByRef,
+  dropPending,
+  newPending,
+  pendingCount,
+  settlePending,
+} from '../lib/pendingEdits'
 import { applyFilters, buildKeyBridge, filterIsActive, matchesConditions } from '../lib/filterEngine'
 import { applyRowConditions } from '../lib/rowConditions'
+import { isVisible } from '../lib/visibility'
 import { mergeDraft } from '../lib/editMode'
 import { canDrop, dragPages, orderPages, personalOrder } from '../lib/pageOrder'
 import { valuesForRef } from '../lib/columnValues'
@@ -528,6 +537,16 @@ export default function Dashboard() {
   // that tab. A filter/button only touches the refs it explicitly names, so
   // a MASTER filter never empties the GOOGLE REVIEW table sitting next to
   // it -- and now, never empties a different sheet's MASTER either.
+  // --- Edits that are on screen but not yet on the sheet ----------------
+  // Laid over the rows the moment somebody types, and lifted only once a
+  // reload comes back agreeing. It goes on FIRST -- above the calculated
+  // columns -- so a formula column worked out from an edited field
+  // recomputes with the new value rather than the old one, and so every
+  // chart, filter and KPI on the page sees the same sheet the table does.
+  // See lib/pendingEdits.js.
+  const [pending, setPending] = useState({})
+  const editedByRef = useMemo(() => applyPendingByRef(dataByRef, pending), [dataByRef, pending])
+
   // --- Calculated columns, before anything else -------------------------
   // A column the sheet does not have -- margin, age in days, a status worked
   // out from three other fields -- defined once on the TAB and true from
@@ -540,7 +559,7 @@ export default function Dashboard() {
   // exist yet, and a per-user row scope has to be able to hide rows BY one.
   const computedByRef = useMemo(() => {
     const out = {}
-    for (const [ref, data] of Object.entries(dataByRef)) {
+    for (const [ref, data] of Object.entries(editedByRef)) {
       const { sourceId, tab } = parseRef(ref)
       const defs = computedFor(sourcesById[sourceId], tab)
       if (defs.length === 0) {
@@ -555,7 +574,7 @@ export default function Dashboard() {
       }
     }
     return out
-  }, [dataByRef, sourcesById, dateOrder])
+  }, [editedByRef, sourcesById, dateOrder])
 
   const tabColumns = useMemo(() => {
     const out = {}
@@ -1274,17 +1293,100 @@ export default function Dashboard() {
     [isAdmin, access, dataByRef, refByLabel]
   )
 
+  /**
+   * Fresh rows, asked for by hand.
+   *
+   * It settles the overlay too: a reload is a reload, and an edit the sheet
+   * has caught up with should stop being held over it whether the re-read
+   * was triggered by the save or by somebody pressing refresh.
+   */
+  const refresh = useCallback(() => {
+    reload()
+      .then((fresh) => {
+        if (fresh) setPending((current) => settlePending(current, fresh))
+      })
+      // Already in `error`, which is what the page renders from. An
+      // unhandled rejection here would be console noise on every blink of
+      // the network.
+      .catch(() => {})
+  }, [reload])
+
+  /**
+   * One cell: on screen now, on the sheet shortly.
+   *
+   * Nothing here is awaited by the caller for the sake of the display --
+   * the overlay above has already put the value in front of everybody. What
+   * IS awaited is the write, so that a refusal can take the value back off
+   * again rather than leaving a lie on screen.
+   */
   async function handleEditCell(label, row, column, value) {
     const ref = refByLabel[label]
     if (!ref) return
+    await runEdits(ref, [newPending(ref, row._row, column, value)], (idToken) =>
+      updateCell(idToken, page.id, ref, row._row, column, value)
+    )
+  }
+
+  /**
+   * Many cells of one column, and ONE reload at the end.
+   *
+   * A fill drag and a clearing cascade both want this: writing them one at
+   * a time would reload the whole page between every cell, so a drag of
+   * forty rows is forty round trips and forty redraws -- and half of it
+   * lands before the failure that stops the rest.
+   *
+   * `writes` is [{ column, cells: [{ row, value }] }]: one entry per
+   * column, because that is the unit the server checks a permission
+   * against. They go in order and stop at the first failure, so a cascade
+   * never gets ahead of the edit that caused it.
+   */
+  async function handleEditCells(label, writes) {
+    const ref = refByLabel[label]
+    if (!ref || !writes?.length) return
+    const optimistic = []
+    for (const { column, cells } of writes) {
+      for (const cell of cells || []) optimistic.push(newPending(ref, cell.row, column, cell.value))
+    }
+    await runEdits(ref, optimistic, async (idToken) => {
+      for (const { column, cells } of writes) {
+        if (!column || !cells?.length) continue
+        await updateCells(idToken, page.id, ref, column, cells)
+      }
+    })
+  }
+
+  /**
+   * The one path every write takes: show it, send it, then catch up.
+   *
+   * The reload afterwards is what makes the overlay temporary rather than a
+   * second copy of the data -- it is also the only way to pick up anything
+   * the SHEET decided, which is a formula in a neighbouring column, a
+   * validation, a date reformatted on the way in. `settlePending` then
+   * lifts exactly the entries that reload confirmed and leaves the rest,
+   * so an edit made while the reload was in flight is not thrown away.
+   */
+  async function runEdits(ref, optimistic, write) {
+    if (!optimistic.length) return
+    setPending((current) => addAllPending(current, optimistic))
     setSaving(true)
     setEditError(null)
     try {
       const idToken = await getIdToken()
-      await updateCell(idToken, page.id, ref, row._row, column, value)
-      await reload()
+      await write(idToken)
     } catch (e) {
+      // Put it back to whatever the sheet says. Leaving it on screen after
+      // a refusal is worse than the wait this replaced.
+      setPending((current) => dropPending(current, optimistic))
       setEditError(e.message)
+      setSaving(false)
+      return
+    }
+    try {
+      const fresh = await reload()
+      setPending((current) => settlePending(current, fresh))
+    } catch {
+      // The write landed; only the re-read failed. The overlay stays, so
+      // the value stays on screen, and the next reload settles it.
     } finally {
       setSaving(false)
     }
@@ -1326,13 +1428,41 @@ export default function Dashboard() {
     [tabColumns, labelFor, sourcesById]
   )
 
+  /**
+   * The controls worth showing right now.
+   *
+   * A page that unfolds: the model dropdown appears once a brand has been
+   * picked, the date range once somebody has said they want a period. The
+   * bar is one line at rest instead of nine controls asked before anybody
+   * has said what they are looking at.
+   *
+   * Never narrowed while arranging, for the same reason a widget is not: a
+   * control that has hidden itself is a control nobody can reach the
+   * settings of.
+   */
+  const shownControls = useMemo(
+    () =>
+      view.controls.filter(
+        (control) =>
+          arranging ||
+          isVisible(control, {
+            rows: rowsByLabel[control.tab] || [],
+            filters,
+            values: effectiveValues,
+            activeButtonIds: effectiveButtonIds,
+            dateOrder,
+          })
+      ),
+    [view.controls, arranging, rowsByLabel, filters, effectiveValues, effectiveButtonIds, dateOrder]
+  )
+
   // Drawn on the page and again in the editor's preview, so it is a
   // variable rather than two copies: two copies drift, and the preview
   // stops being a preview of anything.
   const controlBar =
     canView && !error && allowedWidgets.length > 0 ? (
             <ControlBar
-            controls={view.controls}
+            controls={shownControls}
             values={filterValues}
             onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
             activeButtonIds={activeButtonIds}
@@ -1513,7 +1643,7 @@ export default function Dashboard() {
         </button>
       )}
       <button
-        onClick={reload}
+        onClick={refresh}
         className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
         title="Refresh from Google Sheets"
       >
@@ -1577,6 +1707,26 @@ export default function Dashboard() {
                   widget.tab,
                   dateOrder
                 )
+                // Worth showing at all? Asked of the rows this widget
+                // would have drawn -- after the page filters, so something
+                // hidden because nothing is overdue comes back the moment
+                // somebody filters to a branch where something is.
+                //
+                // Never while editing. A widget hidden by its own rule that
+                // an admin could not see would be a widget they could not
+                // fix: the only way back to it is the panel it just took
+                // off the page.
+                const showing =
+                  editing ||
+                  isVisible(widget, {
+                    rows: preControl,
+                    filters,
+                    values: effectiveValues,
+                    activeButtonIds: effectiveButtonIds,
+                    dateOrder,
+                  })
+                if (!showing) return null
+
                 const myControls = widget.controls || []
                 const myValues = controlValues[widget.id]
                 const rows = myControls.length
@@ -1626,6 +1776,30 @@ export default function Dashboard() {
                 // visuals ride along as a prop for those, merged in the
                 // same page-then-widget order the cascade would have used.
                 const chartVisuals = mergeVisuals(design.chartVisuals, themed?.chartVisuals)
+
+                // This widget's own controls, built once. They are drawn
+                // ABOVE the card, which is right on the page and wrong in
+                // full screen -- there the card covers the page and takes
+                // its own controls out of reach with it. A widget that can
+                // fill the screen is handed them as well, and draws them
+                // somewhere they can still be used. See FlowWidget.
+                const ownControls = (
+                  <WidgetControls
+                    controls={myControls}
+                    values={myValues}
+                    rows={preControl}
+                    dateOrder={dateOrder}
+                    onChange={(controlId, value) =>
+                      setControlValues((all) => ({
+                        ...all,
+                        [widget.id]: { ...(all[widget.id] || {}), [controlId]: value },
+                      }))
+                    }
+                    onReset={() =>
+                      setControlValues((all) => ({ ...all, [widget.id]: initialControlValues(myControls) }))
+                    }
+                  />
+                )
 
                 const common = {
                   widget,
@@ -1807,21 +1981,7 @@ export default function Dashboard() {
                         {/* This widget's own controls, above its card. Living
                             here rather than inside each widget is what lets
                             every type has them. */}
-                        <WidgetControls
-                          controls={myControls}
-                          values={myValues}
-                          rows={preControl}
-                          dateOrder={dateOrder}
-                          onChange={(controlId, value) =>
-                            setControlValues((all) => ({
-                              ...all,
-                              [widget.id]: { ...(all[widget.id] || {}), [controlId]: value },
-                            }))
-                          }
-                          onReset={() =>
-                            setControlValues((all) => ({ ...all, [widget.id]: initialControlValues(myControls) }))
-                          }
-                        />
+                        {ownControls}
 
                         {widget.type === 'kpi' && (
                           <KpiWidget
@@ -1898,12 +2058,17 @@ export default function Dashboard() {
                             dateOrder={dateOrder}
                             canExport={canExport}
                             fillHeight={fillHeight}
+                            ownControls={myControls.length > 0 ? ownControls : null}
                           />
                         )}
                         {widget.type === 'filters' && (
                           <FilterPanelWidget
                             widget={widget}
-                            controls={view.controls}
+                            // The same narrowed list the bar gets. A panel
+                            // that still offered a control the bar had
+                            // hidden would be two answers to one question,
+                            // both on screen at once.
+                            controls={shownControls}
                             values={filterValues}
                             onChange={(id, value) => setFilterValues((v) => ({ ...v, [id]: value }))}
                             tabsData={dataByLabel}
@@ -1940,6 +2105,7 @@ export default function Dashboard() {
                               widget.downloadButtons ? grantFor('downloadable', widget.tab) : []
                             }
                             onEditCell={handleEditCell}
+                            onEditCells={handleEditCells}
                             saving={saving}
                             dateOrder={dateOrder}
                             canExport={canExport}
@@ -2039,6 +2205,11 @@ export default function Dashboard() {
                   ),
                 }
               })
+    // A widget whose rule says "not now" is simply not on the page. It
+    // draws nothing and reads nothing -- but it also changes no totals
+    // anywhere else: hiding the overdue table does not take overdue jobs
+    // out of the KPI beside it. Whoever wants that wants a filter.
+    .filter(Boolean)
 
   // The widget the editor is pointed at, and the canvas item that draws it
   // -- both taken from what the page is ALREADY rendering, so the preview
@@ -2338,7 +2509,7 @@ export default function Dashboard() {
             {error instanceof SheetsAuthError ? (
               <p className="text-xs text-slate-400">Try signing out and back in.</p>
             ) : (
-              <button onClick={reload} className="rounded-lg bg-ink px-4 py-2 text-sm text-white">
+              <button onClick={refresh} className="rounded-lg bg-ink px-4 py-2 text-sm text-white">
                 Retry
               </button>
             )}

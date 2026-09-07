@@ -700,6 +700,38 @@ const VARIANTS = {
       </div>
     </Frame>
   ),
+  // Tilted, with a wall under it. Two stacked ellipses is the whole trick,
+  // and at 140px it is the trick the real one uses as well.
+  'chart:pie3d': () => (
+    <Frame className="items-center justify-center">
+      <div className="relative h-9 w-16">
+        <div
+          className="absolute inset-x-0 top-2.5 h-7 rounded-[50%]"
+          style={{ background: 'conic-gradient(rgb(55 48 163), rgb(67 56 202), rgb(129 140 248))' }}
+        />
+        <div
+          className="absolute inset-x-0 top-0 h-7 rounded-[50%]"
+          style={{ background: 'conic-gradient(rgb(99 102 241 / .95) 0 45%, rgb(129 140 248 / .8) 45% 72%, rgb(199 210 254) 72% 100%)' }}
+        />
+      </div>
+    </Frame>
+  ),
+  'chart:donut3d': () => (
+    <Frame className="items-center justify-center">
+      <div className="relative h-9 w-16">
+        <div
+          className="absolute inset-x-0 top-2.5 h-7 rounded-[50%]"
+          style={{ background: 'conic-gradient(rgb(55 48 163), rgb(67 56 202), rgb(129 140 248))' }}
+        />
+        <div
+          className="absolute inset-x-0 top-0 flex h-7 items-center justify-center rounded-[50%]"
+          style={{ background: 'conic-gradient(rgb(99 102 241 / .95) 0 45%, rgb(129 140 248 / .8) 45% 72%, rgb(199 210 254) 72% 100%)' }}
+        >
+          <span className="h-3 w-7 rounded-[50%] bg-white" />
+        </div>
+      </div>
+    </Frame>
+  ),
   'chart:radial': () => (
     <Frame className="items-center justify-center">
       <div className="relative h-12 w-12">
