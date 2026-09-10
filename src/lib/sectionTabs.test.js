@@ -93,7 +93,9 @@ test('a widget’s section is remembered per widget', () => {
 
 test('the marks say what is configured without opening anything', () => {
   assert.ok(widgets.includes('badge: (widget.controls || []).length'))
-  assert.ok(widgets.includes('badge: blendIsReady(widget.blend)'))
+  // One predicate over both kinds of join: a flow's lives on its trees.
+  assert.ok(widgets.includes('badge: widgetIsBlended(widget)'))
+  assert.ok(widgets.includes("widget?.type === 'flow' ? flowIsBlended(widget) : blendIsReady(widget?.blend)"))
   assert.ok(widgets.includes('badge: hasCustomStyle(widget.style)'))
   assert.ok(sources.includes('badge: selected.length'))
   assert.ok(sources.includes('badge: computedCount'))
@@ -102,7 +104,17 @@ test('the marks say what is configured without opening anything', () => {
 })
 
 test('a blend button is only offered where a blend is possible', () => {
-  assert.ok(widgets.includes("BLENDABLE.has(widget.type) && { key: 'blend'"))
+  assert.ok(widgets.includes("blendableWidget(widget) && {"))
+  assert.ok(widgets.includes("const blendableWidget = (widget) => BLENDABLE.has(widget?.type) || widget?.type === 'flow'"))
+})
+
+test('a flow reaches its join the same way every other widget does', () => {
+  // Its blend belongs to a TREE rather than to the widget, so it cannot
+  // use the plain editor -- but that is a reason for different CONTENTS
+  // behind the tab, not for hiding the tab. Folded inside whichever tree
+  // owned it, nobody found it.
+  assert.ok(widgets.includes("here === 'blend' && widget.type === 'flow' && <FlowBlendEditor"))
+  assert.ok(widgets.includes("here === 'blend' && BLENDABLE.has(widget.type) && <BlendEditor"))
 })
 
 test('a source card opens at the section there is a reason to open', () => {

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ArrowDown, ChevronRight, Layers, Plus } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ArrowDown, ChevronRight, Layers, Link as LinkIcon, Plus } from 'lucide-react'
 import { AGGREGATIONS, NUMBER_FORMATS, STAGE_PALETTE, aggNeedsColumn, uid } from '../../lib/config'
 import {
   DEFAULT_FLOW,
@@ -28,6 +28,66 @@ import EmojiPicker from './EmojiPicker.jsx'
  * every branch -- so three levels describe a tree of any width, and adding
  * depth is one row, not one row per branch.
  */
+/**
+ * Every tree's join, in one place.
+ *
+ * A flow's blend belongs to a TREE and not to the widget -- a flow can
+ * hold several trees rooted on different tabs, so "the widget's tab" is
+ * not one thing to join against. That is why `flow` is not in BLENDABLE
+ * and why this exists instead of the plain editor every other widget gets.
+ *
+ * It is still reached the same way: a Blend tab beside Setup and Controls.
+ * Somebody looking for a join should find it where joins live on every
+ * other widget, rather than folded inside whichever tree happens to own
+ * it -- which is where it was, and why nobody found it.
+ *
+ * With one tree it reads exactly like any other widget's Blend tab. With
+ * several it is one block per tree, each headed by the tab it starts from,
+ * because "join a second tab into this one" is a different question for
+ * each of them.
+ */
+export function FlowBlendEditor({ widget, set }) {
+  const { labelFor } = useWorkspaceCtx()
+  const flow = { ...DEFAULT_FLOW, ...(widget.flow || {}) }
+  const trees = flowTrees(widget)
+
+  // The same write the tree editor makes: `levels` and `conditions` at the
+  // flow level are the pre-forest shape, and are cleared the moment
+  // anything is written as a list of trees -- see `flowTrees`.
+  const write = (next) => set({ flow: { ...flow, trees: next, levels: [], conditions: [] } })
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] leading-snug text-slate-400">
+        A flow joins per <strong>tree</strong>, because each tree starts from its own tab. The columns a join
+        brings across become pickable wherever that tree reads its own tab — the split and measure columns at
+        every level, the flow’s measures, and the row-detail window.
+      </p>
+
+      {trees.map((tree, i) => (
+        <div key={tree.id} className="rounded-lg border border-slate-100 p-2">
+          {trees.length > 1 && (
+            <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{i + 1}</span>
+              {tree.label || labelFor(tree.tab) || 'Tree'}
+              <span className="font-normal text-slate-400">from {labelFor(tree.tab)}</span>
+            </p>
+          )}
+          <BlendEditor
+            widget={{ id: `${widget.id}_${tree.id}`, tab: tree.tab, blend: tree.blend, title: tree.label }}
+            set={(patch) => write(trees.map((t, n) => (n === i ? { ...t, ...patch } : t)))}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Is any of this flow's trees joined to a second tab? */
+export function flowIsBlended(widget) {
+  return flowTrees(widget).some((tree) => blendIsReady(tree.blend))
+}
+
 export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
   const { labelFor } = useWorkspaceCtx()
   const flow = { ...DEFAULT_FLOW, ...(widget.flow || {}) }
@@ -45,7 +105,34 @@ export default function FlowEditor({ widget, tabs, tabHeaders, set }) {
   const treeOps = listOps(trees, setTrees)
 
   const columnsOf = (tab) => tabHeaders?.[tab] || []
-  const rootCols = columnsOf(flowRootTab(widget))
+
+  /**
+   * Every column this flow can put in front of somebody, joins included.
+   *
+   * There are two `rootCols` in this file and they were not the same
+   * thing. The one inside a tree editor asks `flowTreeColumns`, which
+   * knows about that tree's blend. THIS one asked `tabHeaders` directly,
+   * so the metric picker and the row-detail picker -- both of them up here,
+   * because they belong to the flow rather than to one tree -- offered
+   * only the starting tab's own columns. A blend could be set up, could be
+   * seen working in the diagram, and none of the columns it brought across
+   * could be chosen for a measure or for the detail window.
+   *
+   * The union across trees rather than the first one's: these pickers are
+   * for the whole flow, a flow may hold several trees rooted on different
+   * tabs, and the runtime already keeps only the columns a given branch's
+   * rows actually have (see `detailColumns`). Offering a column that some
+   * branches lack is exactly what the note under the picker describes.
+   */
+  const rootCols = useMemo(() => {
+    const seen = []
+    for (const tree of trees) {
+      for (const column of flowTreeColumns(tree, tabHeaders)) {
+        if (column && !seen.includes(column)) seen.push(column)
+      }
+    }
+    return seen
+  }, [trees, tabHeaders])
 
   function addTree() {
     treeOps.add({
@@ -451,11 +538,18 @@ function TreeEditor({ tree, index, count, widget, tabs, tabHeaders, labelFor, se
             />
           </div>
 
-          {/* --- the join ------------------------------------------------- */}
-          <BlendEditor
-            widget={{ id: `${widget.id}_${tree.id}`, tab: tree.tab, blend: tree.blend, title: tree.label }}
-            set={(patch) => setTree(patch)}
-          />
+          {/* The join itself lives under the widget's own Blend tab, with
+              every other tree's -- one place for one kind of decision, and
+              the same place an admin looks for it on every other widget.
+              What belongs HERE is only the fact that there is one, because
+              it changes what the column pickers below are offering. */}
+          {blendIsReady(tree.blend) && (
+            <p className="flex items-center gap-1 rounded-lg bg-indigo-50/60 px-2 py-1 text-[10px] text-indigo-700">
+              <LinkIcon size={10} className="shrink-0" />
+              Joined with {labelFor(tree.blend.ref)} — its columns are pickable below. Change it under{' '}
+              <strong>Blend</strong>.
+            </p>
+          )}
 
           {/* --- the path ------------------------------------------------- */}
           <div>

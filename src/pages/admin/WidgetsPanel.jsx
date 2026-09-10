@@ -84,7 +84,7 @@ import VisibilityEditor from './VisibilityEditor.jsx'
 import { visibilityCount } from '../../lib/visibility'
 import { conditionCount, emptyRowCondition } from '../../lib/rowConditions'
 import BlendEditor from './BlendEditor.jsx'
-import FlowEditor from './FlowEditor.jsx'
+import FlowEditor, { FlowBlendEditor, flowIsBlended } from './FlowEditor.jsx'
 import { DEFAULT_FLOW, DEFAULT_FLOW_LEVEL } from '../../lib/flow'
 import { makeWidget } from '../../lib/newWidget'
 import StyleEditor from './StyleEditor.jsx'
@@ -115,6 +115,12 @@ import EmojiPicker from './EmojiPicker.jsx'
 // Every widget that reads ONE tab can blend a second one into itself. The
 // pipeline is the exception: each of its stages already picks its own tab,
 // so "the widget's tab" isn't a single thing to join against.
+//
+// The FLOW is the other exception and a different one. It has the same
+// problem -- several trees, each rooted on its own tab -- but unlike a
+// pipeline it does blend, per tree. So it is absent from this set (there
+// is no `widget.blend` for it to fill in) and still gets the Blend tab,
+// which mounts a per-tree editor instead. See `blendableWidget` below.
 const BLENDABLE = new Set([
   'kpi', 'table', 'chart', 'leaderboard', 'trend', 'pivot', 'gauge',
   'activity', 'scorecard', 'heatmap', 'stacked', 'combo', 'scatter',
@@ -122,6 +128,13 @@ const BLENDABLE = new Set([
   // tab's columns are as useful here as anywhere else.
   'dumbbell', 'sunburst',
 ])
+
+/** Does this widget offer a Blend tab, whichever kind of join it has? */
+const blendableWidget = (widget) => BLENDABLE.has(widget?.type) || widget?.type === 'flow'
+
+/** Is it actually joined to anything right now? */
+const widgetIsBlended = (widget) =>
+  widget?.type === 'flow' ? flowIsBlended(widget) : blendIsReady(widget?.blend)
 
 /**
  * Builds the page's widgets. Every widget is pinned to a TAB -- now a tab of
@@ -297,7 +310,7 @@ export default function WidgetsPanel({
                     <p className="truncate text-sm font-medium text-ink">{widget.title || 'Untitled widget'}</p>
                     <p className="truncate text-[11px] text-slate-400">
                       {typeMeta?.label} · {labelFor(widget.tab)} · {widget.width}
-                      {blendIsReady(widget.blend) && ' · 🔗 blended'}
+                      {widgetIsBlended(widget) && ' · 🔗 blended'}
                       {(widget.controls || []).length > 0 && ` · ${widget.controls.length} control(s)`}
                       {hasCustomStyle(widget.style) && ' · themed'}
                     </p>
@@ -391,11 +404,14 @@ export default function WidgetsPanel({
                     badge: conditionCount(widget),
                     hint: 'Only the rows that match — a rule, not a filter',
                   },
-                  BLENDABLE.has(widget.type) && {
+                  blendableWidget(widget) && {
                     key: 'blend',
                     label: 'Blend',
-                    badge: blendIsReady(widget.blend),
-                    hint: 'Join a second tab into this one',
+                    badge: widgetIsBlended(widget),
+                    hint:
+                      widget.type === 'flow'
+                        ? 'Join a second tab into each tree'
+                        : 'Join a second tab into this one',
                   },
                   {
                     key: 'look',
@@ -444,6 +460,9 @@ export default function WidgetsPanel({
               {widget.type === 'pipeline' && (
                 <PipelineEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
+              {/* Raw per-tab headers. A flow blends per TREE and resolves
+                  its own blended columns from `tree.blend` -- see
+                  flowTreeColumns. */}
               {widget.type === 'flow' && (
                 <FlowEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />
               )}
@@ -575,6 +594,10 @@ export default function WidgetsPanel({
                 </div>
               )}
 
+              {/* A flow joins per tree, so its Blend tab holds one editor
+                  per tree rather than one for the widget. Reached the same
+                  way as every other join, which is the point. */}
+              {here === 'blend' && widget.type === 'flow' && <FlowBlendEditor widget={widget} set={set} />}
               {here === 'blend' && BLENDABLE.has(widget.type) && <BlendEditor widget={widget} set={set} />}
               {here === 'look' && <StyleEditor widget={widget} set={set} />}
 

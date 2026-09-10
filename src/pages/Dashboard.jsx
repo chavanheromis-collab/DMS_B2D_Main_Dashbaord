@@ -2264,6 +2264,14 @@ export default function Dashboard() {
                         {widget.type === 'flow' && (
                           <FlowWidget
                             widget={widget}
+                            // The whole map of tabs, unblended. A flow
+                            // hops between tabs, so it cannot be handed
+                            // one set of rows like every other widget --
+                            // and its blend is PER TREE rather than per
+                            // widget (see `tree.blend`), joined inside
+                            // `buildFlow` where the tree's own tab is
+                            // known. There is nothing for the widget-level
+                            // blend to do here.
                             rowsByTab={rowsByLabel}
                             rawRowsByTab={rawRowsByLabel}
                             headersByTab={headersByLabel}

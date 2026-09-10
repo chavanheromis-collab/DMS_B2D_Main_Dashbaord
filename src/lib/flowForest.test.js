@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import {
   buildFlowTrees,
@@ -236,4 +238,93 @@ test('a focused branch of one tree is the only thing that tree draws', () => {
   const layout = layoutForest([focused, built.trees[1].root], {})
   const labels = layout.nodes.map((n) => n.node.label).sort()
   assert.deepEqual(labels, ['A', 'Nashik', 'PDI', 'Repair', 'SERVICE', 'Pune'].sort())
+})
+
+
+// ---------------------------------------------------------------------
+// The blend, and being able to find it
+// ---------------------------------------------------------------------
+// A flow's blend is per TREE rather than per widget -- a flow can hold
+// several trees rooted on different tabs, so "the widget's tab" is not one
+// thing to join against. That much always worked: `buildFlow` joins at the
+// root and `flowTreeColumns` reports the joined column list.
+//
+// What did not work was choosing anything with it. There are two column
+// lists in the flow editor and only one of them knew about the join, so a
+// blend could be set up, could be watched working in the diagram, and none
+// of the columns it brought across could be picked for a measure or for
+// the row-detail window. And the editor that turns it on was dropped in
+// bare, with nothing on screen naming it.
+
+const FLOW_BLEND = { enabled: true, ref: 'b::Sales', leftKey: 'C', rightKey: 'C', type: 'left', multi: 'first' }
+const FLOW_HEADERS = { MASTER: ['C', 'Model'], 'b::Sales': ['C', 'Salesman'] }
+
+const editor = fs
+  .readFileSync(path.join(path.resolve(import.meta.dirname, '..'), 'pages/admin/FlowEditor.jsx'), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
+  .replace(/^\s*\/\/.*$/gm, ' ')
+  .replace(/\s+/g, ' ')
+
+test("a flow's blend is per TREE, and reports its joined columns", () => {
+  const tree = { id: 't0', tab: 'MASTER', blend: FLOW_BLEND, levels: [] }
+  assert.deepEqual(flowTreeColumns(tree, FLOW_HEADERS), ['C', 'Model', 'Salesman', 'Match count'])
+  // Without a blend it is simply the tab's own columns.
+  assert.deepEqual(flowTreeColumns({ tab: 'MASTER' }, FLOW_HEADERS), ['C', 'Model'])
+})
+
+test('the flow-wide pickers offer every tree’s joined columns', () => {
+  // The measure picker and the row-detail picker belong to the FLOW, not
+  // to one tree, so they take the union -- and the runtime already keeps
+  // only the columns a given branch's rows actually have.
+  const widget = {
+    tab: 'MASTER',
+    flow: {
+      trees: [
+        { id: 't0', tab: 'MASTER', blend: FLOW_BLEND, levels: [] },
+        { id: 't1', tab: 'b::Sales', levels: [] },
+      ],
+    },
+  }
+  const union = []
+  for (const tree of flowTrees(widget)) {
+    for (const c of flowTreeColumns(tree, FLOW_HEADERS)) if (!union.includes(c)) union.push(c)
+  }
+  assert.ok(union.includes('Salesman'), 'a blended column must be pickable')
+  assert.ok(union.includes('Model'), "...without losing the root tab's own")
+
+  // ...and the editor builds it that way rather than off one tab.
+  assert.match(editor, /for \(const tree of trees\) \{ for \(const column of flowTreeColumns\(tree, tabHeaders\)\)/)
+  assert.equal(/const rootCols = columnsOf\(flowRootTab\(widget\)\)/.test(editor), false)
+})
+
+test('the join is reached from a Blend tab, like every other widget', () => {
+  // It used to be dropped in bare between the conditions and the levels,
+  // with nothing naming it -- the one feature people went looking for was
+  // the one nothing on screen mentioned. It is a tab now, and the tree
+  // editor only says that a join exists, because that changes what its
+  // column pickers are offering.
+  assert.match(editor, /export function FlowBlendEditor/)
+  assert.match(editor, /export function flowIsBlended/)
+  assert.equal(/setShowBlend/.test(editor), false, 'the inline fold is gone')
+
+  // One editor per tree, because each starts from its own tab.
+  assert.match(editor, /trees\.map\(\(tree, i\) => \(/)
+  assert.match(editor, /write\(trees\.map\(\(t, n\) => \(n === i \? \{ \.\.\.t, \.\.\.patch \} : t\)\)\)/)
+
+  // ...and the tree still says a join is in force, since that is what the
+  // pickers below it are reflecting.
+  assert.match(editor, /Joined with \{labelFor\(tree\.blend\.ref\)\}/)
+})
+
+test('nothing routes a widget-level blend into a flow', () => {
+  // `widget.blend` is never set for a flow -- it is deliberately not in
+  // BLENDABLE, because its blend belongs to a tree. Plumbing one in was
+  // plumbing with nothing at either end.
+  const dash = fs.readFileSync(
+    path.join(path.resolve(import.meta.dirname, '..'), 'pages/Dashboard.jsx'),
+    'utf8'
+  )
+  assert.match(dash, /rowsByTab=\{rowsByLabel\}/)
+  assert.equal(/blendedTabs/.test(dash), false)
 })

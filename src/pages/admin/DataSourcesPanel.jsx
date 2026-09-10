@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Check, ChevronDown, ChevronRight, Database, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Check, ChevronDown, ChevronRight, Database, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { extractSheetId } from '../../lib/config'
 import { fetchSpreadsheetTabs, syncSource } from '../../lib/sheetsApi'
 import { emptySource } from '../../lib/workspace'
@@ -53,11 +53,70 @@ export default function DataSourcesPanel({ sources, pages, onSave, onDelete }) {
     }
   }
 
+  /**
+   * What is unsaved, and how to save it.
+   *
+   * Each card owns its own draft -- it has to, because a card is a form
+   * and a form is edited in place -- so the panel cannot see the unsaved
+   * work from up here. Instead every card reports itself: `{ dirty, save }`
+   * against its id, replaced whenever either changes and removed when the
+   * card goes.
+   *
+   * Held as STATE rather than a ref, because the button's own label counts
+   * them; a ref would leave "Save 2 changes" on screen after both had been
+   * saved.
+   */
+  const [pending, setPending] = useState({})
+
+  const report = useCallback((id, entry) => {
+    setPending((current) => {
+      // An unchanged card is absent rather than present-and-false, so the
+      // count is `Object.keys().length` and cannot drift.
+      if (!entry?.dirty) {
+        if (!current[id]) return current
+        const next = { ...current }
+        delete next[id]
+        return next
+      }
+      return { ...current, [id]: entry }
+    })
+  }, [])
+
+  const unsaved = Object.values(pending)
+
+  /**
+   * Saves every card that has something to save.
+   *
+   * Each card's own Save button is still there and still the one an admin
+   * reaches for while they are inside a card. This is for the other way
+   * round: three cards opened, tabs ticked in two of them, and the memory
+   * of which two is the thing that fails. A card whose draft is not yet
+   * saveable -- no sheet id, no tabs ticked -- reports itself as not
+   * dirty, so this cannot write a half-filled source.
+   */
+  function saveAll() {
+    for (const entry of unsaved) entry.save()
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
         <Btn variant="accent" onClick={() => onSave(emptySource(`Spreadsheet ${sources.length + 1}`))}>
           <Plus size={13} /> Connect a spreadsheet
+        </Btn>
+
+        {/* Beside Sync all, and it says the COUNT -- an admin who has been
+            through three cards wants to know there are two changes waiting,
+            not merely that the button is available. Disabled when there is
+            nothing, so it is also the answer to "did I save that?". */}
+        <Btn
+          variant="primary"
+          onClick={saveAll}
+          disabled={unsaved.length === 0}
+          title={unsaved.length === 0 ? 'Nothing to save' : `Save ${unsaved.length} unsaved source${unsaved.length === 1 ? '' : 's'}`}
+        >
+          <Save size={12} />
+          {unsaved.length === 0 ? 'All saved' : `Save ${unsaved.length} change${unsaved.length === 1 ? '' : 's'}`}
         </Btn>
 
         {syncable.length > 1 && (
@@ -98,6 +157,7 @@ export default function DataSourcesPanel({ sources, pages, onSave, onDelete }) {
             usedBy={pages.filter((p) => (p.sourceIds || []).includes(source.id))}
             onSave={onSave}
             onDelete={onDelete}
+            onReport={report}
           />
         ))}
       </div>
@@ -118,7 +178,7 @@ function agoText(iso) {
   return `${Math.round(hours / 24)}d ago`
 }
 
-function SourceCard({ source, usedBy, onSave, onDelete }) {
+function SourceCard({ source, usedBy, onSave, onDelete, onReport }) {
   const { getIdToken } = useAuth()
   const [draft, setDraft] = useState(source)
   const [available, setAvailable] = useState([])
@@ -152,6 +212,50 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
   const sheetId = extractSheetId(draft.sheetId)
   const dirty = !stableEqual({ ...draft, sheetId }, source)
+
+  /**
+   * Whether this card has work that can actually be written.
+   *
+   * Not the same question as `dirty`: a card being filled in for the first
+   * time is dirty from the first keystroke and cannot be saved until it
+   * has a spreadsheet and at least one tab. The card's own Save button has
+   * always used this, and Save-all uses the identical test -- so a card
+   * that looks unsaveable here is one Save-all leaves alone, rather than
+   * writing a half-filled source nobody asked it to.
+   */
+  const saveable = dirty && Boolean(sheetId) && (draft.tabs || []).length > 0
+
+  // Kept in a ref and refreshed every render, so the thing reported to
+  // the panel below never has to change identity. Put in the effect's
+  // dependencies instead, it would be a new function on every keystroke --
+  // and `onSave` arrives from the admin page as a fresh arrow each time it
+  // renders, so the effect would fire on renders that changed nothing here
+  // at all.
+  const commitRef = useRef(null)
+  commitRef.current = () => {
+    onSave({ ...draft, sheetId })
+    setMessage({ type: 'ok', text: 'Saved.' })
+  }
+
+  const commit = useCallback(() => commitRef.current?.(), [])
+
+  /**
+   * Tells the panel what is waiting here, so its Save-all can reach it.
+   *
+   * A card owns its own draft -- it is a form, and a form is edited in
+   * place -- so the only way the panel above can know is for the card to
+   * say. It reports a BOOLEAN and a stable function, which is why this
+   * fires when the card becomes saveable or stops being saveable and not
+   * once per character typed.
+   *
+   * Withdrawn when the card unmounts, or a deleted source would leave a
+   * save behind pointing at a document that has gone.
+   */
+  useEffect(() => {
+    onReport?.(source.id, saveable ? { dirty: true, save: commit } : null)
+  }, [onReport, source.id, saveable, commit])
+
+  useEffect(() => () => onReport?.(source.id, null), [onReport, source.id])
 
   async function loadTabs() {
     if (!sheetId) {
@@ -419,14 +523,7 @@ function SourceCard({ source, usedBy, onSave, onDelete }) {
           way back to a particular tab strip to save it. */}
       <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
         <div className="flex items-center gap-2 pb-1">
-          <Btn
-            variant="primary"
-            disabled={!dirty || !sheetId || selected.length === 0}
-            onClick={() => {
-              onSave({ ...draft, sheetId })
-              setMessage({ type: 'ok', text: 'Saved.' })
-            }}
-          >
+          <Btn variant="primary" disabled={!saveable} onClick={commit}>
             Save source
           </Btn>
 
