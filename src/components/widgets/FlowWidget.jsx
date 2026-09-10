@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react'
 import { formatNumber } from '../../lib/dataUtils.js'
+import { dataColumns } from '../../lib/rowMeta.js'
 import { canShowDetails } from '../../lib/flowDetails.js'
 import {
   FULLSCREEN_EVENTS,
@@ -392,7 +393,7 @@ export default function FlowWidget({
 
   const columnsOf = (tab) => {
     const sample = (source?.[tab] || [])[0]
-    return sample ? Object.keys(sample).filter((c) => c !== '_row') : []
+    return sample ? dataColumns(Object.keys(sample)) : []
   }
 
   // The trees as the READER has asked to see them: focused into, re-ordered,

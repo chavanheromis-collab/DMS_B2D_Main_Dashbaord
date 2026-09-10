@@ -12,6 +12,8 @@
 // with the screen is worse than no file, because the disagreement is
 // invisible until someone acts on it.
 
+import { META_COLUMNS } from './rowMeta.js'
+
 const NEEDS_QUOTES = /[",\r\n]|^\s|\s$/
 
 // The characters a spreadsheet reads as "this is a formula" when it opens a
@@ -84,8 +86,14 @@ export function toCsv(rows, columns, { delimiter = ',', header = true } = {}) {
   return lines.join('\r\n')
 }
 
-/** Every column any of these rows has, in first-seen order. */
-export function columnsOfRows(rows, { skip = ['_row'] } = {}) {
+/**
+ * Every column any of these rows has, in first-seen order.
+ *
+ * Defaulted from META_COLUMNS rather than from a literal: a row now carries
+ * a fingerprint as well as a row number, and a hash in a downloaded CSV is
+ * a column somebody has to explain.
+ */
+export function columnsOfRows(rows, { skip = META_COLUMNS } = {}) {
   const seen = []
   const has = new Set(skip)
   for (const row of rows || []) {

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bookmark, ChevronDown, Paintbrush, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
 
 import { filterIsActive } from '../lib/filterEngine'
-import { numericBounds, stepFor, stepperTicks } from '../lib/widgetControls'
+import { boundsHolding, dateSpan, numericBounds, numericSpan, stepFor, stepperTicks } from '../lib/widgetControls'
+import DateRange from './DateRange.jsx'
 import {
   activeCount,
   controlActive,
@@ -11,6 +12,7 @@ import {
   controlWidth,
   isButton,
   menuWidthFor,
+  narrowingOf,
   partitionByProminence,
   viewIsActive,
 } from '../lib/pageControls'
@@ -100,6 +102,50 @@ function MultiSelect({ control, value, options, onChange, fill = '' }) {
   )
 }
 
+/** A date said the short way, for a hint that has to fit next to two boxes. */
+const shortDate = (d) => d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
+
+/**
+ * The ends of what the page currently holds in a range control's column.
+ *
+ * `from` and `to` are ready to sit in the two placeholders, `label` is the
+ * one line a date range needs (a native date input draws no placeholder of
+ * its own), and `title` is the hover for all three.
+ *
+ * Everything comes back empty in the two cases where a number would be a
+ * lie rather than a hint:
+ *
+ *   THE ADMIN TURNED NARROWING OFF. A control on "the whole tab" is
+ *   deliberately not describing the current view, so it must not label
+ *   itself with one. The wording is "Currently" rather than "this page
+ *   holds" for the same reason in the other direction: on the middle
+ *   setting these ends have not been told about a clicked chart segment,
+ *   and claiming they describe the whole page would overstate them.
+ *
+ *   THE COLUMN HOLDS NOTHING OF THAT KIND. An invented span reads as data.
+ *   `numericSpan` and `dateSpan` answer with nulls rather than the 0-100 a
+ *   slider's bounds fall back to, which is exactly why they are separate.
+ *
+ * It is a hint and it stays one. Neither box carries a `min` or a `max`, so
+ * a reader can always type a range wider than what is on the page -- which
+ * they will want the moment they are about to clear the filter that
+ * narrowed it.
+ */
+function rangeEnds(control, rows, dateOrder, fmt) {
+  const none = { from: '', to: '', label: '', title: undefined }
+  if (narrowingOf(control) === 'none' || !control.column) return none
+
+  const said = (from, to) => ({ from, to, label: `${from} – ${to}`, title: `Currently ${from} to ${to}` })
+
+  if (control.kind === 'number') {
+    const { min, max } = numericSpan(rows, control.column)
+    return min === null ? none : said(fmt(min), fmt(max))
+  }
+
+  const { min, max } = dateSpan(rows, control.column, dateOrder)
+  return min === null ? none : said(shortDate(min), shortDate(max))
+}
+
 /**
  * One control of any kind.
  *
@@ -120,10 +166,46 @@ function Control({ control, value, rows, optionRows, onChange, isOn, onToggleBut
     active ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 bg-white'
   }`
 
-  const bounds = useMemo(
-    () => (['slider', 'threshold'].includes(control.kind) ? numericBounds(rows, control.column, control) : null),
-    [control, rows]
+  /**
+   * The rows this control describes ITSELF from: the page as everything
+   * else has narrowed it, or the whole tab when the admin turned narrowing
+   * off (Dashboard hands back the unnarrowed rows for those, so there is
+   * nothing to decide here).
+   *
+   * One name for it because every kind below is asking the same question in
+   * a different shape -- a dropdown's list, a slider's track and a range
+   * box's hint are all "what is actually there". A slider reading the raw
+   * tab was the last one that was not: pick a branch whose biggest order is
+   * two lakh and the track still ran to fifty, so four fifths of every drag
+   * filtered the page to nothing.
+   */
+  const listRows = optionRows ?? rows
+
+  // Both of the next two read every row, so both are memoised on the rows
+  // and not on the value -- a drag changes `value` sixty times a second,
+  // and re-scanning four thousand rows on each of those is the difference
+  // between a slider and a slideshow. `control` covers `control.format`,
+  // which is the only other thing either of them reads.
+  const dataBounds = useMemo(
+    () =>
+      ['slider', 'threshold'].includes(control.kind)
+        ? numericBounds(listRows, control.column, control)
+        : null,
+    [control, listRows]
   )
+
+  const span = useMemo(
+    () => (['number', 'date'].includes(control.kind) ? rangeEnds(control, listRows, dateOrder, fmt) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fmt is control.format
+    [control, listRows, dateOrder]
+  )
+
+  // Cheap by comparison -- two numbers off the value, no rows -- so it sits
+  // outside the memo and stays correct while the handle is moving.
+  // `boundsHolding` is what keeps a narrowed track reachable: without it a
+  // slider set wide, then narrowed by a filter picked afterwards, loses its
+  // own handle off the end. See lib/widgetControls.js.
+  const bounds = dataBounds && boundsHolding(dataBounds, value)
 
   // --- Action ------------------------------------------------------------
   if (isButton(control)) {
@@ -239,7 +321,7 @@ function Control({ control, value, rows, optionRows, onChange, isOn, onToggleBut
       <MultiSelect
         control={control}
         value={value}
-        options={controlOptions(control, optionRows ?? rows, dateOrder, value)}
+        options={controlOptions(control, listRows, dateOrder, value)}
         onChange={onChange}
         fill={fill}
       />
@@ -248,7 +330,7 @@ function Control({ control, value, rows, optionRows, onChange, isOn, onToggleBut
 
   if (control.kind === 'chips') {
     const selected = value || []
-    const { shown, hidden } = visibleChips(controlOptions(control, optionRows ?? rows, dateOrder, value), control.maxChips)
+    const { shown, hidden } = visibleChips(controlOptions(control, listRows, dateOrder, value), control.maxChips)
     return (
       // Every value, and the row scrolls rather than pushing the rest of the
       // bar off the page. A control with ninety values is a real thing; a
@@ -297,28 +379,51 @@ function Control({ control, value, rows, optionRows, onChange, isOn, onToggleBut
     )
   }
 
-  if (control.kind === 'date' || control.kind === 'number') {
-    const isDate = control.kind === 'date'
+  // --- Date range --------------------------------------------------------
+  // Its own component: one button in the bar, and a calendar plus the named
+  // periods in a popover behind it. See components/DateRange.jsx for why the
+  // two native date inputs could not stay in the bar.
+  if (control.kind === 'date') {
+    return (
+      <DateRange
+        control={control}
+        value={value}
+        onChange={onChange}
+        fill={fill}
+        sized={sized}
+        dataSpan={span}
+      />
+    )
+  }
+
+  // --- Number range ------------------------------------------------------
+  if (control.kind === 'number') {
     const v = value || {}
+    // `span` (computed above, with the rest of what reads every row) says
+    // what the page currently holds. A min/max pair is TYPED, not dragged,
+    // so unlike a slider there is nothing on screen saying what a sensible
+    // answer would even look like -- and a range picked out of the air is
+    // the one that comes back empty. See `rangeEnds`: it is a hint and it
+    // stays one.
     return (
       <div className={`${shell} ${fill}`}>
-        <span className="whitespace-nowrap text-[11px] font-medium text-slate-400">
-          {isDate ? '📅' : '#'} {control.label}
-        </span>
+        <span className="whitespace-nowrap text-[11px] font-medium text-slate-400"># {control.label}</span>
         <input
-          type={isDate ? 'date' : 'number'}
+          type="number"
           value={v.from || ''}
           onChange={(e) => onChange({ ...v, from: e.target.value })}
           className="w-[112px] rounded border border-slate-200 px-1.5 py-0.5 text-xs"
-          placeholder={isDate ? '' : 'min'}
+          placeholder={span.from || 'min'}
+          title={span.title}
         />
         <span className="text-[11px] text-slate-300">to</span>
         <input
-          type={isDate ? 'date' : 'number'}
+          type="number"
           value={v.to || ''}
           onChange={(e) => onChange({ ...v, to: e.target.value })}
           className="w-[112px] rounded border border-slate-200 px-1.5 py-0.5 text-xs"
-          placeholder={isDate ? '' : 'max'}
+          placeholder={span.to || 'max'}
+          title={span.title}
         />
         {active && (
           <button onClick={() => onChange({})} className="text-slate-300 hover:text-rose-500">
@@ -339,7 +444,7 @@ function Control({ control, value, rows, optionRows, onChange, isOn, onToggleBut
       }`}
     >
       <option value="__ALL__">{control.label}: All</option>
-      {controlOptions(control, optionRows ?? rows, dateOrder, value).map((opt) => (
+      {controlOptions(control, listRows, dateOrder, value).map((opt) => (
         <option key={opt} value={opt}>
           {opt}
         </option>

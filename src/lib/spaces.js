@@ -54,6 +54,46 @@ export function spaceOf(doc) {
   return typeof id === 'string' && id.trim() ? id.trim() : DEFAULT_SPACE
 }
 
+/**
+ * Every dashboard, each with the pages inside it -- the sidebar's own
+ * shape, as a list.
+ *
+ * The sidebar shows ONE space at a time because that is what navigating
+ * means: you are in a dashboard. Users & access is the opposite job -- you
+ * are looking at a person, and a person's rights run across every
+ * dashboard at once -- so it needs the same structure laid out end to end
+ * rather than switched between.
+ *
+ * A space with no pages is left out: there is nothing to grant in it, and a
+ * heading over nothing is a section somebody opens once and never again.
+ * Spaces come back in `listSpaces` order, which is the order the switcher
+ * offers them in, and pages keep whatever order they were handed in.
+ */
+export function pagesBySpace(spaceDocs, pages) {
+  const byId = new Map()
+  for (const page of pages || []) {
+    const id = spaceOf(page)
+    if (!byId.has(id)) byId.set(id, [])
+    byId.get(id).push(page)
+  }
+
+  const known = listSpaces(spaceDocs)
+  const out = known
+    .filter((space) => (byId.get(space.id) || []).length > 0)
+    .map((space) => ({ id: space.id, name: space.name || DEFAULT_SPACE_NAME, pages: byId.get(space.id) }))
+
+  // A page stamped with a space whose document has gone. It still exists
+  // and somebody still has to be able to grant it, so it is shown under its
+  // own id rather than dropped -- silently hiding a page is how a grant
+  // becomes impossible to make.
+  const listed = new Set(out.map((s) => s.id))
+  for (const [id, inThere] of byId) {
+    if (listed.has(id)) continue
+    out.push({ id, name: id, pages: inThere, missing: true })
+  }
+  return out
+}
+
 /** Everything in one dashboard. */
 export function inSpace(docs, spaceId) {
   const want = spaceId || DEFAULT_SPACE

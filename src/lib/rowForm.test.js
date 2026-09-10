@@ -136,6 +136,20 @@ test('clear does not count fields that are already empty', () => {
   assert.equal(changeCount(ROW, clearedDraft(ROW, COLUMNS, EDITABLE)), 3)
 })
 
+test('clear does not take out what has to stay in', () => {
+  // Blank it and let Save refuse, and one press becomes a form nobody can
+  // save until they have retyped a value they never meant to lose.
+  const out = clearedDraft(ROW, COLUMNS, EDITABLE, ['Status'])
+  assert.equal('Status' in out, false)
+  assert.deepEqual(out, { 'Delivery Date': '', Finance: '' })
+  // ...and with nothing required, it clears exactly as it did.
+  assert.deepEqual(clearedDraft(ROW, COLUMNS, EDITABLE, []), {
+    Status: '',
+    'Delivery Date': '',
+    Finance: '',
+  })
+})
+
 test('clear on an already-empty record is a no-op, not three blank writes', () => {
   const blank = { _row: 4, Status: '', Finance: '', 'Delivery Date': '' }
   assert.deepEqual(clearedDraft(blank, COLUMNS, EDITABLE), {})
@@ -159,6 +173,70 @@ const read = (p) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
 const PANEL = read('src/components/RowDetailPanel.jsx')
 const TABLE = read('src/components/widgets/TableWidget.jsx')
 
+test('an editable field is a box, ready to type in', () => {
+  // Not a pencil that reveals one. The pencil was the "are you sure" for a
+  // write that happened the moment the field closed; Save is the write now,
+  // so the click before every field bought nothing and cost twenty-two of
+  // them to correct eleven fields.
+  assert.match(PANEL, /\{canEdit \? \(/, 'the box is drawn on the grant, not on a click')
+  assert.equal(PANEL.includes('Pencil'), false, 'no pencil to press first')
+  assert.equal(PANEL.includes('setEditing'), false, 'and no per-field open/closed state left behind')
+  assert.equal(PANEL.includes('autoFocus'), false, 'nothing steals the caret when the panel opens')
+})
+
+test('a read-only field is still text, not a box that refuses', () => {
+  // A disabled input on every field a reader cannot write is a form that
+  // looks broken rather than one that is partly theirs.
+  const start = PANEL.indexOf('{canEdit ? (')
+  const body = PANEL.slice(start, PANEL.indexOf('</dd>', start))
+  const readOnly = body.slice(body.indexOf(') : ('))
+  assert.equal(readOnly.includes('<input'), false)
+  assert.equal(readOnly.includes('<select'), false)
+  assert.match(readOnly, /onClick=\{\(\) => copy\(col\)\}/, 'and can still be copied out')
+})
+
+test('each box is fed its own column, and its own drafted value', () => {
+  // Everything above says the boxes are DRAWN. This says they are WIRED:
+  // a box showing the sheet while the draft says otherwise looks exactly
+  // like a form that ignores what you type, and one handed a neighbour's
+  // column writes the right value into the wrong field.
+  assert.match(PANEL, /<select\n\s*value=\{value\}/, 'the list shows the draft, not the sheet')
+  assert.match(
+    PANEL,
+    /<FormInput\n\s*value=\{value\}\n\s*onChange=\{\(next\) => commit\(col, next\)\}/,
+    'and the box writes back into the column it belongs to'
+  )
+})
+
+test('a text field types at the speed of the keyboard', () => {
+  // Handing every keystroke straight to the form re-renders thirty fields
+  // per letter, which is where fast typing starts dropping characters.
+  assert.match(PANEL, /function FormInput\(\{ value, onChange, placeholder, type = 'text'/)
+  assert.match(PANEL, /useTypingBuffer\(value, onChange\)/)
+  // The buffer's own value is what is rendered. Rendering the incoming one
+  // instead leaves the field fighting its own echo: a letter is typed, and
+  // shows up a debounce later.
+  //
+  // BOTH boxes: the one-line input and the long-text one are two renders of
+  // the same buffer, and an assertion that either satisfies is an assertion
+  // about neither.
+  const boxes = PANEL.match(/value=\{text\}\n\s*onChange=\{\(e\) => onType\(e\.target\.value\)\}/g) || []
+  assert.equal(boxes.length, 2, 'the single line and the long text')
+  assert.equal(
+    (PANEL.match(/onBlur=\{flush\}/g) || []).length,
+    2,
+    'and both flush on the way out — people finish by leaving'
+  )
+  assert.match(PANEL, /if \(e\.key === 'Enter'\) flush\(\)/)
+})
+
+test('a value the list has lost is said, without being taken away', () => {
+  // The salesman who left is still who sold it, so the value stays exactly
+  // as the sheet has it and the list simply notes that it is not its own.
+  assert.match(PANEL, /choices && !empty && isStrayValue\(choices, value\)/)
+  assert.match(PANEL, /is not one of the values this column offers/)
+})
+
 test('a field is filled in, not written', () => {
   const start = PANEL.indexOf('function commit(col, next)')
   const body = PANEL.slice(start, PANEL.indexOf('\n  }\n', start))
@@ -174,7 +252,7 @@ test('the form shows what has been typed, and marks it', () => {
 
 test('Save sends the whole form in one go, and Clear only drafts', () => {
   assert.match(PANEL, /await onSaveRow\?\.\(row, changes\)/)
-  assert.match(PANEL, /onClick=\{\(\) => setForm\(clearedDraft\(row, columns, editableColumns\)\)\}/)
+  assert.match(PANEL, /setForm\(clearedDraft\(row, columns, editableColumns, requiredColumnsOf\(widget\)\)\)/)
   const clear = PANEL.slice(PANEL.indexOf('setForm(clearedDraft('))
   assert.equal(
     clear.slice(0, clear.indexOf('</button>')).includes('onSaveRow'),
@@ -183,8 +261,11 @@ test('Save sends the whole form in one go, and Clear only drafts', () => {
   )
 })
 
-test('Save is dead until there is something to save', () => {
-  assert.match(PANEL, /disabled=\{pendingCount === 0 \|\| saving\}/)
+test('Save is dead until there is something to save, and while something is missing', () => {
+  assert.match(PANEL, /disabled=\{pendingCount === 0 \|\| missing\.length > 0 \|\| bad\.length > 0 \|\| saving\}/)
+  // ...and refuses from the handler too. A disabled button is a hint, not
+  // a rule: it is one Enter key or one stale render away from firing.
+  assert.match(PANEL, /if \(pendingCount === 0 \|\| missing\.length > 0 \|\| bad\.length > 0\) return/)
 })
 
 test('there is a way back from Clear that is not retyping the record', () => {
@@ -214,5 +295,5 @@ test('a whole form is judged as one change, not several', () => {
   // fire on a row where the new date had been typed but not yet saved.
   const start = TABLE.indexOf('function editPlan(')
   const body = TABLE.slice(start, TABLE.indexOf('\n  }\n', start))
-  assert.match(body, /columnsToClear\(widget, row, \{\s*changes,/)
+  assert.match(body, /clearReport\(widget, row, \{\s*changes: wanted,/)
 })

@@ -237,6 +237,28 @@ test('a refused write does not leave a lie on the screen', () => {
   assert.match(body, /setEditError\(e\.message\)/)
 })
 
+test('and says so where it cannot be missed', () => {
+  // A banner in the page header was honest while a save blocked the screen
+  // until it finished -- you were looking at the top of the page because
+  // you had just pressed something there. Saves go to the background now:
+  // the failure arrives while somebody is three thousand pixels down a
+  // table, or behind the detail drawer, and a banner they have scrolled
+  // past is an alert that was never given.
+  const start = DASH.indexOf('const editAlert = editError ? (')
+  assert.ok(start >= 0, 'the alert still exists')
+  const body = DASH.slice(start, DASH.indexOf('\n  ) : null', start))
+  assert.match(body, /className="fixed /, 'not something that can be scrolled away from')
+  assert.match(body, /z-\[60\]/, 'and not behind the drawer the edit came from')
+  assert.match(body, /role="alert"/)
+  assert.match(body, /onClick=\{\(\) => setEditError\(null\)\}/, 'it waits to be dismissed rather than fading')
+  assert.match(body, /That change was not saved/, 'in words, not just an error string')
+
+  // Mounted OUTSIDE the shell, or the drawer covers the thing telling you
+  // the drawer's save failed.
+  assert.match(DASH, /<\/AppShell>[\s\S]{0,300}?\{editAlert\}/)
+  assert.equal(DASH.includes('{editError && ('), false, 'and the old banner is not still there as well')
+})
+
 test('the overlay is lifted by what the sheet says, not by the write returning', () => {
   const start = DASH.indexOf('async function runEdits(')
   const body = DASH.slice(start, DASH.indexOf('\n  }\n', start))

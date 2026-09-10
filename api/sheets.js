@@ -1,6 +1,24 @@
 import { requireUser, getAccess, adminDb } from './_lib/firebaseAdmin.js'
-import { fetchManyTabs, listTabs, updateCell, updateCells } from './_lib/googleSheets.js'
+import {
+  appendRows,
+  deleteRows,
+  fetchManyTabs,
+  fetchSheetRows,
+  listTabs,
+  updateCell,
+  updateCells,
+} from './_lib/googleSheets.js'
 import { valueIndexFor } from '../src/lib/columnValues.js'
+import { staleRows } from '../src/lib/rowFingerprint.js'
+import {
+  canAdd,
+  canDelete,
+  creatableColumns,
+  mapRow,
+  MAX_ROWS_PER_OP,
+  resolvePairs,
+  routeFor,
+} from '../src/lib/rowOps.js'
 
 // ---------------------------------------------------------------------
 // The one API route
@@ -139,8 +157,16 @@ export default async function handler(req, res) {
     const decoded = await requireUser(req)
     const uid = decoded.uid
 
-    if (req.method === 'GET') return handleGet(req, res, uid)
-    if (req.method === 'POST') return handlePost(req, res, uid)
+    // AWAITED, not merely returned. `return somePromise` inside a `try`
+    // finishes the try block synchronously: the promise is handed back and
+    // its later rejection lands on whoever called this handler, NOT in the
+    // catch below. Every refusal raised deeper in -- a 403 on a row
+    // operation, the 409 that says the rows have moved, a bad request from
+    // Google -- would then reach the browser as an unhandled crash rather
+    // than as the sentence explaining it, and the client would report the
+    // API as being down.
+    if (req.method === 'GET') return await handleGet(req, res, uid)
+    if (req.method === 'POST') return await handlePost(req, res, uid)
 
     res.setHeader('Allow', 'GET, POST')
     return res.status(405).json({ error: 'Method not allowed' })
@@ -291,6 +317,13 @@ async function handleGet(req, res, uid) {
 async function handlePost(req, res, uid) {
   const body = req.body || {}
   const pageId = body.page || body.sheet
+
+  // Whole-row work is a different request with a different permission, so
+  // it forks before any of the cell handling below. `op` is absent on every
+  // request the browser sent before row operations existed, which is what
+  // keeps this a pure addition rather than a change to the write path.
+  if (body.op) return handleRowOp(req, res, uid, pageId, body)
+
   const { ref, tab, row, column, value } = body
 
   // A fill drag sends many rows of ONE column. One column, because the
@@ -362,6 +395,278 @@ async function handlePost(req, res, uid) {
         ? await updateCells(source.sheetId, tabName, column, cells)
         : await updateCell(source.sheetId, tabName, row, column, value)
     )
+}
+
+// ---------------------------------------------------------------------
+// Whole-row operations
+// ---------------------------------------------------------------------
+// Deleting rows, and sending them to another tab. Both decompose into
+// exactly two permissions -- ADD on the tab a row lands on, DELETE on the
+// tab it leaves -- which is the point of modelling them that way (see
+// src/lib/rowOps.js): a move cannot be granted by accident to somebody who
+// was only meant to copy.
+//
+// Rows are never CREATED here. A record is entered where records are
+// entered; a dashboard's business is what happens to it afterwards.
+//
+// Everything here re-derives its answer from stored config, exactly as the
+// read path does. The browser's idea of what it may do decides which
+// buttons it draws and nothing else.
+
+/** The refs a page may touch at all, and this user's rights on one of them. */
+async function rowOpContext(uid, pageId, refs) {
+  const access = await getAccess(uid, pageId)
+  if (!access.canView) {
+    const err = new Error('No access to this page')
+    err.statusCode = 403
+    throw err
+  }
+
+  const page = await getPage(pageId)
+  if (!page) {
+    // Deliberately not offered on unmigrated v2 pages. Those address data
+    // by bare tab name with no source behind it, and a delete is not the
+    // operation to run through a compatibility path that cannot say which
+    // spreadsheet it is pointing at.
+    const err = new Error('Row operations need a migrated page')
+    err.statusCode = 400
+    throw err
+  }
+
+  const sources = await getSources(page.sourceIds)
+  const allowed = allowedRefs(page, sources)
+  for (const ref of refs) {
+    if (!allowed.has(ref)) {
+      const err = new Error('That tab is not configured for this page')
+      err.statusCode = 400
+      throw err
+    }
+  }
+
+  return { access, page, sources }
+}
+
+/** The spreadsheet and tab behind a ref, or a 400 saying it has gone. */
+function sheetFor(sources, ref) {
+  const { sourceId, tab } = parseRef(ref)
+  const source = sources[sourceId]
+  if (!source?.sheetId) {
+    const err = new Error('That spreadsheet is no longer connected')
+    err.statusCode = 400
+    throw err
+  }
+  return { sheetId: source.sheetId, tab }
+}
+
+const forbid = (message) => {
+  const err = new Error(message)
+  err.statusCode = 403
+  return err
+}
+
+/**
+ * Reads a tab fresh and refuses unless every row is still what was read.
+ *
+ * The whole set or none of it. Skipping the rows that moved and deleting
+ * the rest is the outcome hardest to notice afterwards -- some of what was
+ * ticked is gone, some is not, and nothing says which was which.
+ */
+async function verifyRows(sheetId, tab, wanted) {
+  const sheet = await fetchSheetRows(sheetId, tab, { fresh: true })
+  const stale = staleRows(wanted, sheet.rows)
+  if (stale.length > 0) {
+    const err = new Error(
+      `${stale.length === 1 ? 'A row has' : `${stale.length} rows have`} changed in the sheet since this page ` +
+        'was loaded. Refresh and try again.'
+    )
+    err.statusCode = 409
+    throw err
+  }
+  return sheet
+}
+
+/**
+ * The table a transfer was launched from, and the route it defines.
+ *
+ * Read from the STORED page, never from the request. The browser says
+ * which widget it is looking at; everything about what that widget may do
+ * -- whether it copies, whether it moves, where to, and which column
+ * becomes which -- is read back out of the document an admin saved.
+ *
+ * That is the same rule the read path follows for refs, and it is what
+ * makes the mapping an admin's decision rather than a suggestion: a
+ * crafted request cannot name its own pairs any more than it can name its
+ * own destination.
+ */
+function transferRoute(page, body, ref, target, move) {
+  const widgetId = String(body.widget || '')
+  const widget = (page.widgets || []).find((w) => w?.id === widgetId)
+
+  if (!widget || widget.type !== 'table' || widget.tab !== ref) {
+    const err = new Error('That table is not on this page')
+    err.statusCode = 400
+    throw err
+  }
+  if (!widget[move ? 'canMoveRows' : 'canCopyRows']) {
+    throw forbid(`This table does not ${move ? 'move' : 'copy'} rows`)
+  }
+
+  const route = routeFor(widget, target)
+  if (!(widget.copyTargets || []).some((entry) => (typeof entry === 'string' ? entry : entry?.ref) === target)) {
+    const err = new Error('That tab is not a destination for this table')
+    err.statusCode = 400
+    throw err
+  }
+  return route
+}
+
+/** [{ row, fp }] out of a request body, validated. */
+function rowRefsFrom(body) {
+  const list = Array.isArray(body.rows) ? body.rows : []
+  const out = []
+  for (const entry of list) {
+    const row = Number(entry?.row)
+    if (!Number.isInteger(row) || row < 2) {
+      const err = new Error('That row cannot be used')
+      err.statusCode = 400
+      throw err
+    }
+    out.push({ row, fp: String(entry?.fp || '') })
+  }
+  return out
+}
+
+function requireSome(rows) {
+  if (rows.length === 0) {
+    const err = new Error('No rows were given')
+    err.statusCode = 400
+    throw err
+  }
+  if (rows.length > MAX_ROWS_PER_OP) {
+    const err = new Error(`That is more than ${MAX_ROWS_PER_OP} rows in one go`)
+    err.statusCode = 400
+    throw err
+  }
+}
+
+async function handleRowOp(req, res, uid, pageId, body) {
+  const op = String(body.op)
+  const ref = String(body.ref || '')
+  const target = String(body.target || '')
+
+  if (!pageId || !ref) return res.status(400).json({ error: 'Missing page or ref' })
+
+  const refs = op === 'copy' || op === 'move' ? [ref, target] : [ref]
+  if ((op === 'copy' || op === 'move') && !target) {
+    return res.status(400).json({ error: 'Missing the tab to send rows to' })
+  }
+
+  const { access, sources, page } = await rowOpContext(uid, pageId, refs.filter(Boolean))
+
+  if (op === 'delete') return deleteOp(res, access, sources, ref, body)
+  if (op === 'copy' || op === 'move') {
+    return copyOp(res, access, sources, page, ref, target, body, op === 'move')
+  }
+
+  return res.status(400).json({ error: `Unknown row operation "${op}"` })
+}
+
+/**
+ * The columns a row landing on this ref may carry.
+ *
+ * The same grant that governs editing that column afterwards. A copy that
+ * could land a column its author could not then correct would be a way
+ * round the column grants rather than a feature.
+ */
+function writableColumns(access, ref, headers) {
+  return creatableColumns(headers, access.editable?.[ref] || [], access.isAdmin)
+}
+
+async function deleteOp(res, access, sources, ref, body) {
+  if (!canDelete(access, ref, access.isAdmin)) throw forbid('You are not allowed to delete rows from this tab')
+
+  const { sheetId, tab } = sheetFor(sources, ref)
+  const wanted = rowRefsFrom(body)
+  requireSome(wanted)
+
+  await verifyRows(sheetId, tab, wanted)
+  return res.status(200).json(await deleteRows(sheetId, tab, wanted.map((w) => w.row)))
+}
+
+/**
+ * Sends rows to another tab, and on a move takes them off this one.
+ *
+ * Both halves are checked BEFORE either runs. A move whose delete is
+ * refused after its append has landed leaves the rows duplicated across two
+ * tabs, which is worse than either half failing on its own -- and is not
+ * something the person who pressed the button can see, because the tab they
+ * are looking at still shows what it showed.
+ *
+ * The values are read from the SOURCE SHEET rather than from the request:
+ * a copy is a statement about rows that exist, so letting the browser
+ * supply the contents would make it a create wearing a name that stops
+ * anybody reviewing it -- and would let a reader land values on the target
+ * that they could never have typed there.
+ *
+ * The MAPPING is read from the stored widget, not from the request. Where
+ * a value lands is an admin's decision about the sheet, and one a reader
+ * must not be able to re-point on the way past -- otherwise "what is in
+ * the Booking Ref column" stops having one answer and the person
+ * reconciling the month cannot tell a typo from a re-mapping.
+ *
+ * Both ends are then resolved against the real header rows, so a pair
+ * naming a column somebody has since deleted in Google is dropped rather
+ * than writing into nowhere. An empty mapping falls back to matching by
+ * name, which is what this did before routes existed.
+ *
+ * The column grants are checked on top of all of it: a route may not land
+ * a value in a column this person could not type into on the target.
+ */
+async function copyOp(res, access, sources, page, ref, target, body, move) {
+  if (!canAdd(access, target, access.isAdmin)) throw forbid('You are not allowed to add rows to that tab')
+  if (move && !canDelete(access, ref, access.isAdmin)) {
+    throw forbid('You are not allowed to remove rows from this tab, so they can only be copied')
+  }
+  if (ref === target) {
+    const err = new Error('Those are the same tab — use Duplicate')
+    err.statusCode = 400
+    throw err
+  }
+
+  const from = sheetFor(sources, ref)
+  const to = sheetFor(sources, target)
+  const wanted = rowRefsFrom(body)
+  requireSome(wanted)
+
+  const sheet = await verifyRows(from.sheetId, from.tab, wanted)
+  const byNumber = new Map(sheet.rows.map((r) => [r._row, r]))
+
+  // Resolved against the grants on the TARGET, which is where the values
+  // are about to live and so whose column grants govern them. The pairs are
+  // narrowed to allowed destinations FIRST, so a pair aimed at a column
+  // this person may not write is dropped rather than the whole request
+  // refused -- the same choice `scrubRow` made, and for the same reason:
+  // the record is still worth having and what is missing is visible in the
+  // column it is missing from.
+  const targetSheet = await fetchSheetRows(to.sheetId, to.tab, { fresh: true })
+  const allowed = new Set(writableColumns(access, target, targetSheet.headers))
+  const route = transferRoute(page, body, ref, target, move)
+  const { pairs } = resolvePairs(route.pairs, sheet.headers, targetSheet.headers)
+  const permitted = pairs.filter((p) => allowed.has(p.to))
+  if (permitted.length === 0) {
+    throw forbid('None of those columns can be written on that tab')
+  }
+
+  const rows = wanted.map(({ row }) => mapRow(byNumber.get(row), permitted))
+
+  const added = await appendRows(to.sheetId, to.tab, rows)
+  if (!move) return res.status(200).json({ ...added, moved: false })
+
+  // Re-verified rather than trusted: the append is a round trip, and the
+  // rows about to be deleted have to be the rows that were just read.
+  await verifyRows(from.sheetId, from.tab, wanted)
+  const removed = await deleteRows(from.sheetId, from.tab, wanted.map((w) => w.row))
+  return res.status(200).json({ ...added, ...removed, moved: true })
 }
 
 function splitList(value) {

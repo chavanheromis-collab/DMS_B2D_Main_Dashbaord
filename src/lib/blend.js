@@ -1,5 +1,6 @@
 import { aggregate, isBlank, normalizeKey, toNumber } from './dataUtils.js'
 import { testCondition } from './filterEngine.js'
+import { dataColumns } from './rowMeta.js'
 
 // Re-exported: the blend defines what a key match means, and callers have
 // long imported it from here. Imported as well as re-exported, because
@@ -103,7 +104,7 @@ function indexByKey(rows, keyColumn) {
 
 /** Which right-hand columns this blend brings across. */
 function incomingColumns(blend, rightHeaders) {
-  const available = (rightHeaders || []).filter((c) => c !== '_row')
+  const available = dataColumns(rightHeaders)
   const chosen = blend.columns?.length ? blend.columns : available
   // Ignore a column that was picked and later deleted from the sheet.
   return chosen.filter((c) => available.includes(c))

@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Eye, EyeOff, Layers, Move, Palette, Printer, Redo2, RefreshCw, RotateCcw, StickyNote, Undo2 } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, ChevronLeft, ChevronRight, ChevronUp, Eye, EyeOff, Layers, Move, Palette, Printer, Redo2, RefreshCw, RotateCcw, StickyNote, Undo2, X } from 'lucide-react'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSpace } from '../context/SpaceContext.jsx'
@@ -12,7 +12,8 @@ import { newNote } from '../lib/stickyNotes'
 import { usePageData, useLocalState } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, usePagePrefs, orderWidgets } from '../hooks/useUserPrefs'
-import { updateCell, updateCells, SheetsAuthError } from '../lib/sheetsApi'
+import { copyRowsTo, deleteRows, updateCell, updateCells, SheetsAuthError } from '../lib/sheetsApi'
+import { canAdd, copyRoutesOf, copyTargetsOf } from '../lib/rowOps'
 import {
   addAllPending,
   applyPendingByRef,
@@ -53,7 +54,7 @@ const WidgetsPanel = lazy(() => import('./admin/WidgetsPanel.jsx'))
 const ControlsPanel = lazy(() => import('./admin/ControlsPanel.jsx'))
 const PageSettings = lazy(() => import('./admin/PagesPanel.jsx').then((m) => ({ default: m.PageSettings })))
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
-import { buildLabelMap, collectTabRefs, mapTabFields, parseRef } from '../lib/refs'
+import { buildLabelMap, collectTabRefs, makeRef, mapTabFields, parseRef } from '../lib/refs'
 import { buildChoices } from '../lib/columnChoices'
 import { matchTargets } from '../lib/spin360'
 import {
@@ -78,7 +79,7 @@ import { DEFAULT_DESIGN, clampDesign, designClass, designVars, moveItem } from '
 import { mergeVisuals } from '../lib/chartVisuals'
 import { backgroundLayers, sidebarSurface, usesLightText } from '../lib/pageBackground'
 import { applyWidgetControls, initialControlValues } from '../lib/widgetControls'
-import { fixedValues, initialValues, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
+import { fixedValues, initialValues, kindNarrows, normalizeControls, optionRows, splitControls } from '../lib/pageControls'
 import { scopeFilter } from '../lib/userScope'
 import { stripUndefined } from '../lib/firestoreSafe'
 import WidgetControls from '../components/WidgetControls.jsx'
@@ -509,7 +510,26 @@ export default function Dashboard() {
   )
 
   // --- Ref -> label, once, for the whole page ----------------------------
-  const labelByRef = useMemo(() => buildLabelMap(neededRefs, sources), [neededRefs, sources])
+  //
+  // Every ref the page NAMES, which is not the same as every ref it reads.
+  // A table that can send rows to Bookings has to be able to say "Bookings"
+  // even though nothing on the page shows that tab -- and usually nothing
+  // does, because a destination worth having is one you are not already
+  // looking at. Left out, the label map has no entry, `refByLabel` has no
+  // way back, and the destination is silently dropped from the list.
+  //
+  // They are named but NOT fetched: `neededRefs` is still what gets read
+  // from Google, so this costs nothing per page load. The destination's
+  // columns come from its source document instead -- see `headersForRef`.
+  const namedRefs = useMemo(() => {
+    const set = new Set(neededRefs)
+    for (const widget of allowedWidgets) {
+      for (const ref of copyTargetsOf(widget)) set.add(ref)
+    }
+    return Array.from(set).filter(Boolean)
+  }, [neededRefs, allowedWidgets])
+
+  const labelByRef = useMemo(() => buildLabelMap(namedRefs, sources), [namedRefs, sources])
   const refByLabel = useMemo(
     () => Object.fromEntries(Object.entries(labelByRef).map(([ref, label]) => [label, ref])),
     [labelByRef]
@@ -737,16 +757,19 @@ export default function Dashboard() {
   )
 
   /**
-   * The rows each control reads its OPTIONS from: the page as everything
-   * ELSE has narrowed it.
+   * The rows each control reads its OPTIONS -- or its range -- from: the
+   * page as everything ELSE has narrowed it.
    *
    * Without this a Region of "West" still lists every DSE in the sheet, and
    * every name that does not sell in the west is a trap -- pick one and the
-   * dashboard empties with nothing to explain why. Computed in label space,
-   * because that is the space the control bar and the filter panel work in.
+   * dashboard empties with nothing to explain why. The same trap in its
+   * other shape is an Amount slider still ending at fifty lakh after a
+   * branch whose biggest order is two, where four fifths of the track
+   * filters to nothing. Computed in label space, because that is the space
+   * the control bar and the filter panel work in.
    *
-   * One pass per listing control over one tab, memoised on the filter state,
-   * so it costs nothing until something actually changes.
+   * One pass per narrowable control over one tab, memoised on the filter
+   * state, so it costs nothing until something actually changes.
    */
   // The controls in label space, on their own. Taken from `pageControls`
   // rather than from `view`, which also carries the widgets: a widget being
@@ -756,10 +779,13 @@ export default function Dashboard() {
 
   const optionRowsByControl = useMemo(() => {
     const { filters: viewFilters, buttons: viewButtons } = splitControls(viewControls)
-    const listing = viewFilters.filter((c) => ['select', 'multi', 'chips'].includes(c.kind))
+    // Which kinds read anything off the rows at all -- see kindNarrows.
+    // A text box and a stepper are skipped because there is nothing in them
+    // for the page to narrow, not because they are exempt.
+    const narrowable = viewFilters.filter((c) => kindNarrows(c.kind))
     const out = {}
 
-    for (const control of listing) {
+    for (const control of narrowable) {
       out[control.id] = optionRows(control, {
         // A control's own rule narrows what it OFFERS. Narrowing what it
         // filters instead would mean a control that changes the page while
@@ -1301,7 +1327,11 @@ export default function Dashboard() {
    * was triggered by the save or by somebody pressing refresh.
    */
   const refresh = useCallback(() => {
-    reload()
+    // Returned, so a caller that must not act until the table shows the
+    // truth can wait for it -- a row operation closes its dialog on this,
+    // and closing over the old rows reads as the operation not having run.
+    // Every existing caller ignores the value and is unaffected.
+    return reload()
       .then((fresh) => {
         if (fresh) setPending((current) => settlePending(current, fresh))
       })
@@ -1354,6 +1384,115 @@ export default function Dashboard() {
       }
     })
   }
+
+  /**
+   * A whole-row operation: add, duplicate, delete, copy, move.
+   *
+   * Deliberately NOT run through `runEdits`. That path exists to put a
+   * changed value on screen before the sheet has it, which works because
+   * the row is already there to lay the value over. These change which rows
+   * exist at all -- there is nothing to overlay a new row onto, and a
+   * deleted one would have to be hidden by a mechanism that then had to be
+   * told when to stop. So it waits for the write, then re-reads, and the
+   * table shows the truth a moment later rather than a guess immediately.
+   *
+   * It resolves to the server's own answer (which rows were added, and
+   * where) so the caller can say what happened, and it RE-THROWS so a
+   * refusal reaches the dialog that asked for it -- a delete refused
+   * because the rows have moved is the one message that must not be
+   * swallowed into a corner of the page.
+   */
+  const runRowOp = useCallback(
+    async (label, work) => {
+      const ref = refByLabel[label]
+      if (!ref) throw new Error('That tab is no longer on this page')
+      setSaving(true)
+      setEditError(null)
+      try {
+        const result = await work(await getIdToken(), ref)
+        // Awaited, unlike the reload after a cell edit: the caller closes a
+        // dialog on this resolving, and closing it over a table still
+        // showing the old rows reads as the operation not having run.
+        await refresh()
+        return result
+      } catch (e) {
+        setEditError(e.message)
+        throw e
+      } finally {
+        setSaving(false)
+      }
+    },
+    [refByLabel, getIdToken, refresh]
+  )
+
+  const handleDeleteRows = useCallback(
+    (label, rows) => runRowOp(label, (token, ref) => deleteRows(token, page.id, ref, rows)),
+    [runRowOp, page?.id]
+  )
+
+  const handleCopyRows = useCallback(
+    // `target` is already a ref -- see `copyTargetsFor`.
+    (label, target, rows, options) =>
+      runRowOp(label, (token, ref) => {
+        if (!target) throw new Error('Pick a tab to send them to')
+        return copyRowsTo(token, page.id, ref, target, rows, options)
+      }),
+    [runRowOp, page?.id]
+  )
+
+  /**
+   * A tab's columns, whether or not this page reads that tab.
+   *
+   * The loaded headers when there are some, and otherwise the list the
+   * source document keeps -- which is written on every read of that tab by
+   * anybody, and by the Sync button, precisely so a column list can be
+   * known without pulling the rows.
+   *
+   * That fallback is the whole reason a copy destination does not have to
+   * be on the page. Reading it here instead would mean fetching an entire
+   * spreadsheet tab on every page load, for a dialog somebody opens once a
+   * week.
+   */
+  const headersForRef = useCallback(
+    (ref) => {
+      const loaded = dataByRef[ref]?.headers
+      if (loaded?.length) return loaded
+      const { sourceId, tab } = parseRef(ref)
+      return sourcesById[sourceId]?.tabHeaders?.[tab] || []
+    },
+    [dataByRef, sourcesById]
+  )
+
+  /**
+   * The tabs a table may send rows to: the admin's list, narrowed to the
+   * ones this person may actually write to.
+   *
+   * The grant that governs a copy is `add` on the tab the rows LAND on, not
+   * on the one they leave -- which is what the server checks, so it is what
+   * has to be checked here or the button is a promise the server breaks.
+   * Filtering the destinations rather than hiding the whole action is the
+   * shape that matches: somebody who may write to one of three targets
+   * should be offered that one.
+   *
+   * Handed over as { ref, label } rather than as a label alone. Everything
+   * else a widget sees is in label space, and a destination cannot be: it
+   * is usually a tab with no widget on the page, so there is nothing for a
+   * label to be translated back through. The ref is what the server wants
+   * anyway -- carrying it directly removes a round trip that could only
+   * ever lose.
+   */
+  const copyTargetsFor = useCallback(
+    (widget) => {
+      const own = refByLabel[widget.tab] || widget.tab
+      return copyRoutesOf(widget)
+        .filter((route) => route.ref !== own && canAdd(access, route.ref, isAdmin))
+        // The admin's column pairs travel with the destination, so the
+        // dialog opens on the route rather than on a blank mapping the
+        // reader has to rebuild every time.
+        .map((route) => ({ ref: route.ref, label: labelFor(route.ref), pairs: route.pairs }))
+    },
+    [access, isAdmin, labelFor, refByLabel]
+  )
 
   /**
    * The one path every write takes: show it, send it, then catch up.
@@ -1412,20 +1551,58 @@ export default function Dashboard() {
       : `${shown.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')} rows`
   }, [view, rowsByLabel, rawRowsByLabel])
 
+  /**
+   * Every tab this page's spreadsheets offer, whether or not it is loaded.
+   *
+   * The on-page editors used to be handed only the tabs the page was
+   * READING, which made them a strictly worse copy of the same panels in
+   * the admin screen: a picker that cannot offer a tab nothing on the page
+   * happens to show. It bit hardest on copy destinations, where the tab
+   * worth sending rows to is precisely the one you are not already looking
+   * at -- there was no way to choose it without leaving for /admin.
+   *
+   * This is the same list the admin screen builds and the same list the
+   * API enforces (every tab of every source the page declares), so a picker
+   * here cannot offer something that would be refused.
+   */
+  const pageSources = useMemo(
+    () => sources.filter((s) => (page?.sourceIds || []).includes(s.id)),
+    [sources, page]
+  )
+
+  const allTabOptions = useMemo(
+    () =>
+      pageSources.flatMap((s) =>
+        (s.tabs || []).map((tab) => ({ value: makeRef(s.id, tab), label: labelFor(makeRef(s.id, tab)) }))
+      ),
+    [pageSources, labelFor]
+  )
+
+  // Loaded headers where there are any -- they include the calculated
+  // columns, which the stored list cannot -- and the source's own list for
+  // every other tab.
+  const allTabHeaders = useMemo(() => {
+    const out = {}
+    for (const s of pageSources) {
+      for (const [tab, headers] of Object.entries(s.tabHeaders || {})) out[makeRef(s.id, tab)] = headers
+    }
+    return { ...out, ...tabColumns }
+  }, [pageSources, tabColumns])
+
   // Everything the admin forms need to name a tab and list its columns.
   // The page already knows all of it; the panels only ever asked the admin
   // screen for it because that is where they used to live.
   const adminCtx = useMemo(
     () => ({
-      tabOptions: Object.keys(tabColumns).map((ref) => ({ value: ref, label: labelFor(ref) })),
-      tabHeaders: tabColumns,
-      sources: [],
+      tabOptions: allTabOptions,
+      tabHeaders: allTabHeaders,
+      sources: pageSources,
       labelFor,
       // The same value pickers the admin panel has: every condition written
       // on the page gets the column's real values instead of a blank box.
       valuesFor: (ref, column) => valuesForRef(sourcesById, ref, column),
     }),
-    [tabColumns, labelFor, sourcesById]
+    [allTabOptions, allTabHeaders, pageSources, labelFor, sourcesById]
   )
 
   /**
@@ -1482,6 +1659,43 @@ export default function Dashboard() {
             onControlEdit={saveControlEdit}
             />
     ) : null
+
+  /**
+   * A write that did not land, where it cannot be missed.
+   *
+   * It used to be a banner in the page header. That was honest while a save
+   * blocked the screen until it finished -- you were looking at the top of
+   * the page because you had just pressed something there. It stopped being
+   * honest the moment saves went to the background: the failure now arrives
+   * while somebody is three thousand pixels down a table, or behind the
+   * detail drawer, and a banner they have scrolled past is an alert that
+   * was never given.
+   *
+   * So it is fixed, it is above the drawer, and it waits to be dismissed
+   * rather than fading. The value has already been taken back off the
+   * screen by then -- see runEdits -- so this is the only thing that says
+   * the edit is gone.
+   */
+  const editAlert = editError ? (
+    <div
+      role="alert"
+      className="fixed inset-x-0 bottom-4 z-[60] mx-auto flex w-fit max-w-[92vw] items-start gap-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 shadow-2xl"
+    >
+      <AlertTriangle size={15} className="mt-0.5 shrink-0 text-rose-500" />
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-rose-700">That change was not saved</p>
+        <p className="break-words text-[11px] leading-snug text-rose-600">{editError}</p>
+      </div>
+      <button
+        onClick={() => setEditError(null)}
+        className="ml-1 shrink-0 rounded p-1 text-rose-400 hover:bg-white hover:text-rose-700"
+        title="Dismiss"
+        aria-label="Dismiss"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  ) : null
 
   // An observer on a one-pixel sentinel rather than a scroll listener: the
   // browser answers "is this on screen" without waking React on every frame
@@ -2106,6 +2320,22 @@ export default function Dashboard() {
                             }
                             onEditCell={handleEditCell}
                             onEditCells={handleEditCells}
+                            // Whole-row work. `rowGrants` is what this
+                            // person may do to rows on THIS tab -- a copy's
+                            // own permission lives on its TARGET, so that
+                            // one is applied to the destination list
+                            // instead. Either way the server checks it
+                            // again for itself, so hiding a button is a
+                            // courtesy rather than the boundary.
+                            rowGrants={isAdmin ? ['add', 'delete'] : access?.rowOps?.[refByLabel[widget.tab]] || []}
+                            isAdmin={isAdmin}
+                            copyTargets={copyTargetsFor(widget)}
+                            onDeleteRows={handleDeleteRows}
+                            onCopyRows={handleCopyRows}
+                            // By REF, because a destination need not be on
+                            // the page and so has no label space to be
+                            // looked up in.
+                            headersFor={headersForRef}
                             saving={saving}
                             dateOrder={dateOrder}
                             canExport={canExport}
@@ -2533,12 +2763,6 @@ export default function Dashboard() {
               onClear={() => setCrossFilters((c) => c.filter((x) => x.pinned))}
             />
 
-            {editError && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">
-                {editError}
-              </div>
-            )}
-
             {editing && isAdmin && (
               <div className="no-print page-chrome page-chrome-surface flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-2.5 py-2">
                 {/* Sixteen names tell you nothing about the difference
@@ -2862,6 +3086,10 @@ export default function Dashboard() {
         />
       )}
       </AppShell>
+
+      {/* Outside the shell, over everything, including the detail drawer --
+          which is exactly where a failed save is most likely to arrive. */}
+      {editAlert}
     </>
   )
 }

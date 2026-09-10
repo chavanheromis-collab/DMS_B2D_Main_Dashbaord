@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import {
+  clearReport,
   clearRulesOf,
   clearedNote,
   columnsToClear,
@@ -11,6 +12,7 @@ import {
   newClearRule,
   ruleIsComplete,
   ruleProblem,
+  skippedNote,
 } from './clearRules.js'
 
 const COLS = ['Status', 'Delivery Date', 'Finance', 'Handover By', 'Remark']
@@ -112,6 +114,99 @@ test('a column the reader may not edit is skipped, not attempted', () => {
 test('with no grant at all, nothing is cleared', () => {
   const got = columnsToClear(widget([CANCELLED]), ROW, { column: 'Status', value: 'Cancelled' })
   assert.deepEqual(got, [])
+})
+
+// ---------------------------------------------------------------------
+// ...and it is never skipped in silence
+// ---------------------------------------------------------------------
+
+test('a column the rule could not touch is reported, not swallowed', () => {
+  // Three fields go, a fourth stays, and the reader is told the record has
+  // been tidied up. The only person who can see that the rule half ran is
+  // the one who cannot do anything about it.
+  const { clear, skipped } = clearReport(widget([CANCELLED]), ROW, {
+    column: 'Status',
+    value: 'Cancelled',
+    editable: ['Status', 'Finance'],
+  })
+  assert.deepEqual(clear, ['Finance'])
+  assert.deepEqual(skipped, ['Delivery Date', 'Handover By'])
+})
+
+test('a rule that ran in full has nothing to report', () => {
+  const { clear, skipped } = clearReport(widget([CANCELLED]), ROW, {
+    column: 'Status',
+    value: 'Cancelled',
+    editable: GRANTED,
+  })
+  assert.deepEqual(clear, ['Delivery Date', 'Finance', 'Handover By'])
+  assert.deepEqual(skipped, [])
+})
+
+test('the harmless skips stay quiet', () => {
+  // A cell that was already empty had nothing to lose, and the cell just
+  // typed into was never a candidate. Reporting either would train people
+  // to ignore the line that matters.
+  const row = { ...ROW, 'Delivery Date': '', 'Handover By': '' }
+  const { skipped } = clearReport(widget([{ ...CANCELLED, clear: ['Delivery Date', 'Handover By', 'Status'] }]), row, {
+    column: 'Status',
+    value: 'Cancelled',
+    editable: GRANTED,
+  })
+  assert.deepEqual(skipped, [])
+})
+
+test('a forbidden column that was empty anyway is not worth mentioning', () => {
+  // Both reasons to skip at once. Nothing was lost, so there is nothing to
+  // tell anybody -- and a warning about a field that was already blank is
+  // how a warning stops being read.
+  const row = { ...ROW, 'Delivery Date': '', 'Handover By': '   ' }
+  const { clear, skipped } = clearReport(widget([CANCELLED]), row, {
+    column: 'Status',
+    value: 'Cancelled',
+    editable: ['Status'],
+  })
+  assert.deepEqual(clear, [])
+  assert.deepEqual(skipped, ['Finance'], 'only the one that actually still holds something')
+})
+
+test('a column is reported once, however many rules wanted it', () => {
+  const twice = { ...CANCELLED, id: 'r2', clear: ['Handover By'] }
+  const { skipped } = clearReport(widget([CANCELLED, twice]), ROW, {
+    column: 'Status',
+    value: 'Cancelled',
+    editable: ['Status'],
+  })
+  assert.deepEqual(skipped, ['Delivery Date', 'Finance', 'Handover By'])
+})
+
+test('a rule that did not fire reports nothing it would have skipped', () => {
+  const { skipped } = clearReport(widget([CANCELLED]), ROW, {
+    column: 'Status',
+    value: 'Delivered',
+    editable: [],
+  })
+  assert.deepEqual(skipped, [])
+})
+
+test('the note names the reason, not just the column', () => {
+  // "Delivery Date was not cleared" invites the reader to try again;
+  // "you cannot edit it" tells them who to ask.
+  assert.equal(skippedNote(['Finance']), 'Finance still applies — you cannot edit it')
+  assert.equal(
+    skippedNote(['Delivery Date', 'Finance']),
+    'Delivery Date and Finance still apply — you cannot edit them'
+  )
+  assert.equal(skippedNote([]), '')
+  assert.equal(skippedNote(null), '')
+})
+
+test('the two views cannot drift, because there is one computation', () => {
+  const options = { column: 'Status', value: 'Cancelled', editable: ['Status', 'Finance'] }
+  assert.deepEqual(
+    columnsToClear(widget([CANCELLED]), ROW, options),
+    clearReport(widget([CANCELLED]), ROW, options).clear
+  )
 })
 
 test('a cell that is already empty is left alone', () => {
@@ -450,11 +545,11 @@ const TABLE = read('src/components/widgets/TableWidget.jsx')
 const PANEL = read('src/pages/admin/WidgetsPanel.jsx')
 
 test('the table asks what to clear on every edit, with the reader grant and the date order', () => {
-  const call = TABLE.slice(TABLE.indexOf('const also = columnsToClear('))
+  const call = TABLE.slice(TABLE.indexOf('clearReport(widget, row, {'))
   const body = call.slice(0, call.indexOf('})') + 2)
   assert.match(body, /editable: editableColumns/, 'a rule must not clear what this reader cannot write')
   assert.match(body, /dateOrder/, 'a date rule read in the wrong order matches the wrong rows')
-  assert.match(body, /\n\s*changes,/, 'the whole set of changes, judged together')
+  assert.match(body, /\n\s*changes: wanted,/, 'the whole set of changes, judged together')
 })
 
 test('a rule that clears a column being written wins over the value', () => {
@@ -463,7 +558,7 @@ test('a rule that clears a column being written wins over the value', () => {
   // entries, and a visible flicker between them.
   const start = TABLE.indexOf('function editPlan(')
   const body = TABLE.slice(start, TABLE.indexOf('\n  }\n', start))
-  assert.match(body, /const plan = new Map\(Object\.entries\(changes\)\)/)
+  assert.match(body, /const plan = new Map\(Object\.entries\(wanted\)\)/)
   assert.match(body, /for \(const target of also\) plan\.set\(target, ''\)/)
 })
 
@@ -478,9 +573,46 @@ test('the row form and the cell editor commit down the same path', () => {
 })
 
 test('the cleared fields are announced and wait to be dismissed', () => {
-  assert.match(TABLE, /setNotice\(`Row \$\{row\._row\}: \$\{clearedNote\(also\)\}`\)/)
+  const start = TABLE.indexOf('function say(row, also, skipped, kept, bad, lead)')
+  const body = TABLE.slice(start, TABLE.indexOf('\n  }\n', start))
+  assert.match(body, /if \(also\.length > 0\) parts\.push\(clearedNote\(also\)\)/)
   assert.match(TABLE, /\{notice &&/, 'several cells emptying themselves is not a silent event')
   assert.match(TABLE, /onClick=\{\(\) => setNotice\(null\)\}/)
+})
+
+test('what a rule could NOT do is said in the same breath', () => {
+  // A rule that tidied three fields and could not touch a fourth has to
+  // say so with them, or the reader is told the record is consistent when
+  // it is not -- and the only person who can see that it half ran is the
+  // one who cannot do anything about it.
+  const start = TABLE.indexOf('function say(row, also, skipped, kept, bad, lead)')
+  const body = TABLE.slice(start, TABLE.indexOf('\n  }\n', start))
+  assert.match(body, /if \(skipped\.length > 0\) parts\.push\(skippedNote\(skipped\)\)/)
+  assert.match(body, /if \(kept\.length > 0\) parts\.push\(keptNote\(kept\)\)/, 'and a required field held back')
+  assert.match(
+    body,
+    /blocked: skipped\.length > 0 \|\| kept\.length > 0 \|\| bad\.length > 0/,
+    'and reads as a refusal, not as news'
+  )
+  // Both callers go through it, so neither can grow its own idea of what
+  // is worth mentioning.
+  assert.match(TABLE, /say\(row, also, skipped, kept, bad\)/, 'a typed edit, or a form saved')
+  assert.match(
+    TABLE,
+    /say\(\s*null,\s*\[\.\.\.cleared\],\s*\[\.\.\.blocked\],\s*\[\.\.\.held\],\s*\[\.\.\.refused\.values\(\)\],\s*filledNote\(/,
+    'and a drag'
+  )
+  assert.match(TABLE, /notice\.blocked \? 'border-rose-200/, 'a colour somebody reads before the words')
+
+  // The plan has to ASK. Handing `say` an empty list it never filled is
+  // the same silence, one step further back -- and it still reads as a
+  // call that reports skips.
+  assert.match(TABLE, /const \{ clear: also, skipped, kept \} = clearReport\(widget, row, \{/)
+  const fill = TABLE.indexOf('async function commitFill(')
+  const fillBody = TABLE.slice(fill, TABLE.indexOf('\n  }\n', fill))
+  assert.match(fillBody, /const \{ also, skipped, kept, bad, plan \} = editPlan\(/, 'the drag asks too')
+  assert.match(fillBody, /for \(const target of skipped\) blocked\.add\(target\)/, 'and keeps the answer')
+  assert.match(fillBody, /for \(const target of kept\) held\.add\(target\)/)
 })
 
 test('the edit and its cascade are one request per column, not one per cell', () => {
@@ -506,7 +638,7 @@ test('nothing short-circuits the clearing before it happens', () => {
   const plan = body.indexOf('editPlan(row, real)')
   assert.ok(plan >= 0, 'the plan is still built')
   assert.ok(plan < body.indexOf('await sendPlan('), 'and built before anything is written')
-  assert.match(body, /if \(also\.length > 0\) setNotice/, 'and said out loud after')
+  assert.match(body, /say\(row, also, skipped, kept, bad\)/, 'and said out loud after')
 })
 
 test('a field that has not moved is not written, and fires no rule', () => {

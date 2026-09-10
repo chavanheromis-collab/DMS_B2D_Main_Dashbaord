@@ -1,7 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Download, Filter, GripVertical, Rows3, Search, StickyNote, X } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  Download,
+  Filter,
+  GripVertical,
+  LayoutGrid,
+  Rows3,
+  Search,
+  StickyNote,
+  Table as TableIcon,
+  X,
+} from 'lucide-react'
 import { badgeColor, badgeStyle } from '../../lib/dataUtils'
 import ExportButton from '../ExportButton.jsx'
+import RowActionsBar from '../RowActionsBar.jsx'
+import CardGrid from './CardGrid.jsx'
+import { cardViewEnabled, viewModeOf } from '../../lib/cardView.js'
+import {
+  NO_SELECTION,
+  headerState,
+  isSelected,
+  pruneSelection,
+  rowRefs,
+  selectRange,
+  selectedRows,
+  toggleAll,
+  toggleRow,
+} from '../../lib/tableSelection.js'
+import { availableActions, canMove as moveAllowed, hasRowActions } from '../../lib/rowOps.js'
 import { fetchDownloadMeta, getDownloadActions, triggerDownload } from '../../lib/downloadActions.js'
 import RowDetailPanel from '../RowDetailPanel.jsx'
 import ColumnFilterMenu from '../ColumnFilterMenu.jsx'
@@ -10,9 +37,20 @@ import RowNotePopover from '../RowNotePopover.jsx'
 import { useRowNoteActions, useRowNotes } from '../../hooks/useRowNotes'
 import { countLabel, latestSummary, noteIdFor, notesEnabled, remarkCount, rowKeyOf } from '../../lib/rowNotes'
 import { isStrayValue, optionsForCell } from '../../lib/columnChoices'
-import { clearedNote, columnsToClear } from '../../lib/clearRules'
+import { clearReport, clearedNote, skippedNote } from '../../lib/clearRules'
 import { liveRow } from '../../lib/openRow'
 import { canFill, fillRange, fillTargets, filledNote, inFillRange } from '../../lib/fillDown'
+import { emptiedRequired, keptNote, requiredColumnsOf, withoutEmptied } from '../../lib/requiredColumns'
+import {
+  fromDateInputValue,
+  htmlInputType,
+  inputMode,
+  inputTypeFor,
+  invalidChanges,
+  invalidNote,
+  toDateInput,
+  withoutInvalid,
+} from '../../lib/inputRules'
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
@@ -89,11 +127,33 @@ function NoteButton({ row, scope, keyColumn, notes, open, onOpen }) {
  * by looking away, so there is nothing to send while the typing is going
  * on. What was needed was simply for the letters to stop costing a table.
  */
-function CellEditor({ initial, onCommit, onCancel }) {
+function CellEditor({ initial, onCommit, onCancel, type = 'text', dateOrder = 'DMY' }) {
   const [text, setText] = useState(initial ?? '')
+
+  // The picker speaks ISO and the sheet speaks the page's own order. It
+  // also commits on CHANGE rather than on blur: picking a date closes the
+  // picker and blurs in one motion, and reading the box back then would
+  // save the day before the one just clicked -- the same race a dropdown
+  // has, and the same answer.
+  if (type === 'date') {
+    return (
+      <input
+        autoFocus
+        type="date"
+        value={toDateInput(text, dateOrder)}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => onCommit(fromDateInputValue(e.target.value, dateOrder))}
+        onKeyDown={(e) => e.key === 'Escape' && onCancel()}
+        className="w-36 rounded border border-indigo-300 px-1.5 py-0.5 text-sm"
+      />
+    )
+  }
+
   return (
     <input
       autoFocus
+      type={htmlInputType(type)}
+      inputMode={inputMode(type)}
       value={text}
       onClick={(e) => e.stopPropagation()}
       onChange={(e) => setText(e.target.value)}
@@ -102,7 +162,9 @@ function CellEditor({ initial, onCommit, onCancel }) {
         if (e.key === 'Enter') onCommit(text)
         if (e.key === 'Escape') onCancel()
       }}
-      className="w-36 rounded border border-indigo-300 px-1.5 py-0.5 text-sm"
+      className={`rounded border border-indigo-300 px-1.5 py-0.5 text-sm ${
+        type === 'textarea' ? 'w-56' : 'w-36'
+      }`}
     />
   )
 }
@@ -125,6 +187,18 @@ export default function TableWidget({
   onSaveColumnOrder,
   noteScope = '',
   columnChoices = {},
+  // --- whole rows ------------------------------------------------------
+  // What this person may do to rows on this tab ('add' / 'delete'), the
+  // tabs rows may be sent to -- already narrowed to the ones they may write
+  // to -- and the two writes themselves. All absent on a table an admin has
+  // switched none of it on for, which is every table that existed before
+  // row operations did.
+  rowGrants = [],
+  copyTargets = [],
+  headersFor,
+  isAdmin = false,
+  onDeleteRows,
+  onCopyRows,
 }) {
   const defaultSorts = useMemo(
     () => (widget.sortBy ? [{ column: widget.sortBy, dir: widget.sortDir || 'asc' }] : []),
@@ -139,6 +213,12 @@ export default function TableWidget({
   const [dragCol, setDragCol] = useState(null)
   const [overCol, setOverCol] = useState(null)
   const [dense, setDense] = useState(false)
+  // Which arrangement of the same rows is on screen. The admin's choice is
+  // the one it opens in; switching is a reader's own convenience, like
+  // `dense` -- nothing about the data, the filters or the selection
+  // changes with it, which is exactly why it can be a toggle rather than a
+  // second widget.
+  const [view, setView] = useState(() => viewModeOf(widget))
   // What was on screen when a panel was opened -- NOT what it shows.
   //
   // Saving a cell reloads the tab, and the reload rebuilds every row from
@@ -164,6 +244,11 @@ export default function TableWidget({
   const [menuRect, setMenuRect] = useState(null)
   // { row, rect } -- the row whose note is open, and the button it hangs off.
   const [openNote, setOpenNote] = useState(null)
+  // Ticked rows, held by SHEET ROW NUMBER -- see lib/tableSelection.js for
+  // why not by index and why it is pruned against what is on screen.
+  const [selection, setSelection] = useState(NO_SELECTION)
+  // The last row ticked, so shift-click has a span to work from.
+  const [anchorRow, setAnchorRow] = useState(null)
 
   // --- remarks ---------------------------------------------------------
   // Off unless an admin switched it on for this table, and then one listener
@@ -192,6 +277,11 @@ export default function TableWidget({
     setSorts(defaultSorts)
   }, [defaultSorts])
 
+  const adminView = viewModeOf(widget)
+  useEffect(() => {
+    setView(adminView)
+  }, [adminView])
+
   const columns = useMemo(() => {
     if (!order) return adminColumns
     const kept = order.filter((c) => adminColumns.includes(c))
@@ -200,6 +290,23 @@ export default function TableWidget({
   }, [order, adminColumns])
 
   const badgeCols = widget.badgeColumns || []
+
+  // --- whole-row actions ------------------------------------------------
+  // Three separate people have to agree before a button exists: the admin
+  // switched it on for this table, this reader holds the grant on this tab,
+  // and -- for a copy -- there is somewhere to send rows to. See
+  // lib/rowOps.js. The server checks all of it again for itself, so hiding
+  // a button is a courtesy rather than the boundary.
+  const rowActionContext = useMemo(
+    () => ({ access: { rowOps: { [widget.tab]: rowGrants } }, ref: widget.tab, isAdmin, targets: copyTargets }),
+    [widget.tab, rowGrants, isAdmin, copyTargets]
+  )
+  const rowActions = useMemo(
+    () => availableActions(widget, rowActionContext),
+    [widget, rowActionContext]
+  )
+  const canMoveOut = moveAllowed(widget, rowActionContext)
+  const selectable = hasRowActions(widget, rowActionContext)
 
   // The three rows a panel may be open on, as they are NOW.
   const detailRow = useMemo(() => liveRow(rows, openDetail), [rows, openDetail])
@@ -265,6 +372,28 @@ export default function TableWidget({
     })
     return out
   }, [searched, sorts])
+
+  // --- the selection ----------------------------------------------------
+  // Below `sorted` on purpose: every one of these reads it, and `sorted` is
+  // a `const` -- reaching it from above is a temporal dead zone, which the
+  // project's own tdz test refuses.
+
+  // A row that has been filtered, searched or reloaded away must leave the
+  // selection with it -- otherwise "Delete 4 rows" is three rows nobody can
+  // look at before agreeing to it, plus one they can.
+  useEffect(() => {
+    setSelection((current) => pruneSelection(current, sorted))
+  }, [sorted])
+
+  const chosenRows = useMemo(() => selectedRows(selection, sorted), [selection, sorted])
+
+  /** A tick, or a shift-tick that takes in everything between. */
+  function tickRow(row, shiftKey) {
+    setSelection((current) =>
+      shiftKey && anchorRow ? selectRange(current, sorted, anchorRow, row) : toggleRow(current, row)
+    )
+    setAnchorRow(row)
+  }
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize))
   const safePage = Math.min(page, pageCount - 1)
@@ -333,14 +462,31 @@ export default function TableWidget({
    * -- two writes and a visible flicker between them.
    */
   function editPlan(row, changes) {
-    const also = columnsToClear(widget, row, {
-      changes,
+    // A required field is never emptied, by anybody, by any route: not by
+    // typing a blank into it, not by dragging a blank down a column, not
+    // by a clearing rule. Refused HERE, at the one place every write is
+    // planned, rather than at each of the three -- a rule enforced in two
+    // of three places is a rule that holds until somebody uses the third.
+    const emptied = emptiedRequired(widget, row, changes, editableColumns)
+    const allowed = withoutEmptied(changes, emptied)
+
+    // A value that is not what the column takes -- a letter in an amount, a
+    // date in the past on a field that cannot be -- is refused here for the
+    // same reason: this is the one place a write is planned, so a rule
+    // enforced anywhere else would hold until somebody used another route.
+    const bad = invalidChanges(widget, allowed, dateOrder)
+    const wanted = withoutInvalid(allowed, bad.map((p) => p.column))
+
+    const { clear: also, skipped, kept } = clearReport(widget, row, {
+      changes: wanted,
       editable: editableColumns,
       dateOrder,
     })
-    const plan = new Map(Object.entries(changes))
+    const plan = new Map(Object.entries(wanted))
     for (const target of also) plan.set(target, '')
-    return { also, plan }
+    // Both ways a required field survived something: the edit that tried to
+    // blank it, and the rule that wanted to clear it.
+    return { also, skipped, bad, kept: [...new Set([...emptied, ...kept])], plan }
   }
 
   /**
@@ -375,9 +521,31 @@ export default function TableWidget({
       Object.entries(changes || {}).filter(([col, next]) => next !== (row[col] ?? ''))
     )
     if (Object.keys(real).length === 0) return
-    const { also, plan } = editPlan(row, real)
+    const { also, skipped, kept, bad, plan } = editPlan(row, real)
     await sendPlan(row, plan)
-    if (also.length > 0) setNotice(`Row ${row._row}: ${clearedNote(also)}`)
+    say(row, also, skipped, kept, bad)
+  }
+
+  /**
+   * What happened without being asked for, and what could not happen.
+   *
+   * Both or neither: a rule that tidied three fields and could not touch a
+   * fourth has to say so in the same breath, or the reader is told the
+   * record is consistent when it is not.
+   */
+  function say(row, also, skipped, kept, bad, lead) {
+    const parts = lead ? [lead] : []
+    if (also.length > 0) parts.push(clearedNote(also))
+    if (skipped.length > 0) parts.push(skippedNote(skipped))
+    if (kept.length > 0) parts.push(keptNote(kept))
+    if (bad.length > 0) parts.push(`Not saved — ${invalidNote(bad)}`)
+    if (parts.length === 0) return
+    setNotice({
+      text: row ? `Row ${row._row}: ${parts.join(' · ')}` : parts.join(' · '),
+      // Amber is "this happened". Rose is "this did not, and you need to
+      // know" -- a colour somebody reads before the words.
+      blocked: skipped.length > 0 || kept.length > 0 || bad.length > 0,
+    })
   }
 
   /**
@@ -422,9 +590,17 @@ export default function TableWidget({
     // rule nobody can rely on.
     const byColumn = new Map()
     const cleared = new Set()
+    const blocked = new Set()
+    const held = new Set()
+    const refused = new Map()
     for (const { row, value } of writes) {
-      const { also, plan } = editPlan(row, { [span.column]: value })
+      const { also, skipped, kept, bad, plan } = editPlan(row, { [span.column]: value })
       for (const target of also) cleared.add(target)
+      for (const target of skipped) blocked.add(target)
+      for (const target of kept) held.add(target)
+      // One drag, one column, one value -- so the same complaint on four
+      // hundred rows is one complaint, not four hundred.
+      for (const problem of bad) refused.set(problem.column, problem)
       for (const [column, next] of plan) {
         if (!byColumn.has(column)) byColumn.set(column, [])
         byColumn.get(column).push({ row: row._row, value: next })
@@ -432,11 +608,24 @@ export default function TableWidget({
     }
     const batches = [...byColumn].map(([column, cells]) => ({ column, cells }))
 
+    // Dragging a blank down a required column plans nothing at all. Saying
+    // "filled 12 rows" over a request that wrote none of them is the
+    // silence this whole path exists to avoid.
+    if (batches.length === 0) {
+      say(null, [], [], [...held], [...refused.values()])
+      return
+    }
+
     await onEditCells(widget.tab, batches)
 
-    const parts = [filledNote(span.column, writes.length, capped)]
-    if (cleared.size > 0) parts.push(clearedNote([...cleared]))
-    setNotice(parts.join(' · '))
+    say(
+      null,
+      [...cleared],
+      [...blocked],
+      [...held],
+      [...refused.values()],
+      filledNote(span.column, writes.length, capped)
+    )
   }
 
   // The span is followed on the DOCUMENT, not on the cells: the pointer
@@ -616,6 +805,36 @@ export default function TableWidget({
               <X size={11} /> Reset
             </button>
           )}
+          {/* Two arrangements of the identical rows, and only where an
+              admin has offered the second one. A grid compares forty
+              records on one number; a card reads one record whole. Which
+              of those somebody needs changes hour to hour, so once the
+              card view exists, choosing between them belongs to whoever is
+              reading rather than to the panel. */}
+          {cardViewEnabled(widget) && (
+          <div className="flex overflow-hidden rounded-lg border border-slate-200">
+            <button
+              onClick={() => setView('table')}
+              title="Table view"
+              aria-label="Table view"
+              aria-pressed={view === 'table'}
+              className={`px-2 py-1 ${view === 'table' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:bg-slate-50'}`}
+            >
+              <TableIcon size={12} />
+            </button>
+            <button
+              onClick={() => setView('cards')}
+              title="Card view"
+              aria-label="Card view"
+              aria-pressed={view === 'cards'}
+              className={`border-l border-slate-200 px-2 py-1 ${
+                view === 'cards' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:bg-slate-50'
+              }`}
+            >
+              <LayoutGrid size={12} />
+            </button>
+          </div>
+          )}
           <button
             onClick={() => setDense((d) => !d)}
             className={`rounded-lg border px-2 py-1 text-xs ${
@@ -686,6 +905,43 @@ export default function TableWidget({
         </p>
       ) : (
         <>
+          {/* --- what can be done with the ticked rows -------------------
+              Its own band directly above the grid, the way the page's
+              controls sit above the canvas. It was under the table, which
+              was wrong twice over: on a tall table the buttons were a
+              scroll away from the rows they act on, and on a short one they
+              sat between the grid and the paging row, where nothing else
+              in this app puts an action.
+
+              Above also means it pushes the grid down rather than covering
+              it, so the last row is never hidden behind the thing that is
+              about to delete it. */}
+          {selectable && (
+            <RowActionsBar
+              rows={chosenRows}
+              actions={rowActions}
+              canMove={canMoveOut}
+              targets={copyTargets}
+              headersFor={headersFor || (() => [])}
+              columns={columns}
+              sourceHeaders={tabHeaders || []}
+              sourceLabel={widget.tab}
+              busy={saving}
+              onClear={() => {
+                setSelection(NO_SELECTION)
+                setAnchorRow(null)
+              }}
+              onDelete={() => onDeleteRows(widget.tab, rowRefs(chosenRows))}
+              // `target` is a REF, not a label -- see copyTargetsFor in
+              // pages/Dashboard.jsx. The widget's own id goes with it so the
+              // server can read the column mapping out of the stored page
+              // rather than taking one from the browser.
+              onCopy={(target, options) =>
+                onCopyRows(widget.tab, target, rowRefs(chosenRows), { ...options, widget: widget.id })
+              }
+            />
+          )}
+
           <div
             className={`rounded-lg border border-slate-100 ${
               // In `auto` the card has no bounded height, so the grid must
@@ -694,9 +950,48 @@ export default function TableWidget({
               heightMode === 'auto' ? 'overflow-x-auto' : 'min-h-0 flex-1 overflow-auto'
             }`}
           >
+            {view === 'cards' ? (
+              <CardGrid
+                widget={widget}
+                // The SAME rows the table would draw: already filtered,
+                // searched, sorted and paged. A card view that fetched or
+                // filtered differently would be a second widget wearing
+                // this one's settings.
+                rows={pageRows}
+                columns={columns}
+                badgeCols={badgeCols}
+                selectable={selectable}
+                selection={selection}
+                onTick={tickRow}
+                onOpen={widget.rowDetail ? setOpenDetail : undefined}
+                dateOrder={dateOrder}
+              />
+            ) : (
             <table className="w-full min-w-max text-sm">
               <thead className="sticky top-0 z-10 bg-gradient-to-b from-slate-50 to-slate-50/95 backdrop-blur">
                 <tr className="border-b border-slate-200 text-left text-slate-500">
+                  {selectable && (
+                    <th className="w-8 px-2 py-2">
+                      {/* Three states, not two. With some of the visible
+                          rows ticked a plain checkbox reads as "off", and
+                          pressing it appears to do nothing because it
+                          selects everything -- including what was already
+                          selected. See headerState. */}
+                      <input
+                        type="checkbox"
+                        aria-label="Select every row the filters have left"
+                        title={`Select all ${sorted.length} rows the filters have left`}
+                        checked={headerState(selection, sorted) === 'all'}
+                        ref={(el) => {
+                          if (el) el.indeterminate = headerState(selection, sorted) === 'mixed'
+                        }}
+                        onChange={() => {
+                          setSelection((current) => toggleAll(current, sorted))
+                          setAnchorRow(null)
+                        }}
+                      />
+                    </th>
+                  )}
                   {showNotes && <th className="w-10 px-2 py-2" aria-label="Remarks" />}
                   {hasDownloadColumn && (
                     <th className="whitespace-nowrap px-2 py-2 font-medium text-slate-500">Files</th>
@@ -771,8 +1066,27 @@ export default function TableWidget({
                     onClick={() => widget.rowDetail && setOpenDetail(row)}
                     className={`relative border-b border-slate-50 transition-colors hover:bg-indigo-50/40 ${
                       widget.rowDetail ? 'cursor-pointer' : ''
-                    } ${detailRow?._row === row._row ? 'bg-indigo-50' : ''}`}
+                    } ${detailRow?._row === row._row ? 'bg-indigo-50' : ''} ${
+                      isSelected(selection, row) ? 'bg-indigo-50/70' : ''
+                    }`}
                   >
+                    {selectable && (
+                      <td
+                        className="px-2 py-2 align-middle"
+                        // The row opens a detail panel on click; the tick
+                        // must not also do that, or selecting four rows
+                        // opens and closes four panels on the way.
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`Select row ${row._row}`}
+                          checked={isSelected(selection, row)}
+                          onChange={(e) => tickRow(row, e.nativeEvent.shiftKey)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </td>
+                    )}
                     {showNotes && (
                       <td className="px-2 py-2 align-middle">
                         <NoteButton
@@ -903,6 +1217,8 @@ export default function TableWidget({
                               initial={draft}
                               onCommit={(text) => commitEdit(row, col, text)}
                               onCancel={() => setEditing(null)}
+                              type={inputTypeFor(widget, col)}
+                              dateOrder={dateOrder}
                             />
                           ) : asBadge ? (
                             <span
@@ -954,7 +1270,12 @@ export default function TableWidget({
                 {pageRows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={columns.length + (hasDownloadColumn ? 1 : 0) + (showNotes ? 1 : 0) || 1}
+                      colSpan={
+                        columns.length +
+                          (hasDownloadColumn ? 1 : 0) +
+                          (showNotes ? 1 : 0) +
+                          (selectable ? 1 : 0) || 1
+                      }
                       className="py-10 text-center text-slate-300"
                     >
                       No rows match the current filters
@@ -963,6 +1284,7 @@ export default function TableWidget({
                 )}
               </tbody>
             </table>
+            )}
           </div>
 
           <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
@@ -1028,11 +1350,21 @@ export default function TableWidget({
           fading -- an edit that quietly emptied three fields, or a drag
           that filled forty rows, is one nobody can check afterwards. */}
       {notice && (
-        <div className="mt-1 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5">
-          <span className="text-[11px] leading-snug text-amber-800">{notice}</span>
+        <div
+          className={`mt-1 flex items-start gap-2 rounded-lg border px-2.5 py-1.5 ${
+            notice.blocked ? 'border-rose-200 bg-rose-50' : 'border-amber-200 bg-amber-50'
+          }`}
+        >
+          <span
+            className={`text-[11px] leading-snug ${notice.blocked ? 'text-rose-700' : 'text-amber-800'}`}
+          >
+            {notice.text}
+          </span>
           <button
             onClick={() => setNotice(null)}
-            className="ml-auto shrink-0 rounded p-0.5 text-amber-500 hover:bg-white hover:text-amber-700"
+            className={`ml-auto shrink-0 rounded p-0.5 hover:bg-white ${
+              notice.blocked ? 'text-rose-400 hover:text-rose-700' : 'text-amber-500 hover:text-amber-700'
+            }`}
             title="Dismiss"
           >
             <X size={12} />
@@ -1082,6 +1414,10 @@ export default function TableWidget({
           detailRow ? remarkCount(notes[noteIdFor(noteScope, detailRow, noteKeyColumn)]) : 0
         }
         onSaveRow={writeRow}
+        // The admin's own rules travel with it: which fields cannot be left
+        // empty is a property of the TABLE, not of the reader.
+        widget={widget}
+        dateOrder={dateOrder}
         onClose={() => setOpenDetail(null)}
         saving={saving}
       />

@@ -1,4 +1,5 @@
 import { uid } from './config.js'
+import { isDatePreset } from './datePresets.js'
 import { bucketedValues, groupKey, groupSortKey, shownValue } from './dataUtils.js'
 import { applyFilters, filterIsActive } from './filterEngine.js'
 import { DEFAULT_REDUCER, byKey, sortsByColumn } from './groupSort.js'
@@ -277,8 +278,124 @@ function optionGroups(options, control, rows, dateOrder) {
   return out
 }
 
+// ---------------------------------------------------------------------
+// Which controls can be narrowed to what the page shows
+// ---------------------------------------------------------------------
+// Two shapes, one switch. A LISTING control reads a set of values off the
+// rows and offers them; a RANGE control reads two numbers off the rows and
+// puts them at the ends of a track. Narrowing looks different in each --
+// values drop off a list, ends move on a slider -- but to the admin setting
+// it they are the same sentence: offer me what is actually there.
+//
+// Everything absent from these two lists reads nothing from the rows at
+// all, and so has nothing to narrow: a text box, a condition button, and
+// the two sliders whose stops the admin types out themselves (`stepper`,
+// `dateslider`). Offering the switch on those would be offering a switch
+// that does nothing, which is worse than not offering it.
+
+/** Kinds that offer a list of values read from the rows. */
+export const LISTING_KINDS = ['select', 'multi', 'chips']
+
+/** Kinds whose ends -- the track, or the pair of boxes -- come from the rows. */
+export const RANGE_KINDS = ['slider', 'threshold', 'number', 'date']
+
+export const NARROWABLE_KINDS = [...LISTING_KINDS, ...RANGE_KINDS]
+
+/** Does this kind offer a list of values, rather than a span? */
+export const kindLists = (kind) => LISTING_KINDS.includes(kind)
+
+/** Is "narrow to what the page shows" a real setting on this kind? */
+export const kindNarrows = (kind) => NARROWABLE_KINDS.includes(kind)
+
+// ---------------------------------------------------------------------
+// ...and narrowed by HOW MUCH of the page
+// ---------------------------------------------------------------------
+// On or off turned out to be two answers to a question with three, and the
+// missing one is the one a report actually wants.
+//
+// Everything that narrows a page is not the same KIND of thing. The other
+// controls and the condition buttons are what somebody deliberately SET:
+// they stay put, they are visible, and a list that follows them is a list
+// that follows the reader's own decisions. A clicked chart segment and a
+// word in the search box are something else -- a glance, taken back a
+// second later. When those narrow the dropdowns too, the lists move while
+// you are exploring: click a bar to see what is in it and the Salesman
+// dropdown quietly loses forty names, so the next thing you want to pick is
+// not there and nothing says why.
+//
+// So the middle setting: follow the deliberate filters, ignore the glances.
+
+export const NARROW_SOURCES = [
+  {
+    value: 'page',
+    label: 'Narrow its values to what the page shows',
+    hint: 'Everything counts — the other controls, the buttons, a clicked chart segment and the search box.',
+    rangeHint: 'The ends follow everything — the other controls, the buttons, a clicked chart segment and the search box.',
+  },
+  {
+    value: 'controls',
+    label: 'Narrow by the other controls and buttons only',
+    hint: 'Follows what somebody actually set. A clicked chart segment or a word in the search box leaves this list alone.',
+    rangeHint: 'Follows what somebody actually set. A clicked chart segment or a word in the search box leaves these ends alone.',
+  },
+  {
+    value: 'none',
+    label: 'Not narrowed — the whole tab',
+    hint: 'Keeps offering every value in the column. Right for the one meant to be picked FIRST, and for a reference list where the empty entries are the point.',
+    rangeHint: 'Keeps the range of the whole tab. Right for a control measuring against the full sheet rather than the current view.',
+  },
+]
+
 /**
- * The rows a control should read its OPTIONS from.
+ * Which of the three this control is on.
+ *
+ * `independent` is the old spelling and still readable, so every page saved
+ * before there was a middle setting keeps behaving exactly as it did: the
+ * flag set meant "never narrow" and still does, and its absence meant "narrow
+ * to the page" and still does. Nothing is rewritten until an admin saves the
+ * Controls panel.
+ */
+export function narrowSourceOf(control) {
+  const asked = control?.narrowBy
+  if (asked === 'page' || asked === 'controls' || asked === 'none') return asked
+  return control?.independent ? 'none' : 'page'
+}
+
+/**
+ * The patch that puts a control on one of them.
+ *
+ * `independent` is written alongside, in sync, on purpose. It is what every
+ * older reader of this document looks at -- and what this code itself falls
+ * back to -- so leaving it stale would mean a rollback, or anything not yet
+ * taught the new field, silently disagreeing about a control the admin has
+ * just set. "Only other controls" reads as narrowed to those, which is the
+ * closer of the two old answers.
+ */
+export function narrowPatch(value) {
+  const narrowBy = NARROW_SOURCES.some((s) => s.value === value) ? value : 'page'
+  return { narrowBy, independent: narrowBy === 'none' }
+}
+
+/**
+ * What is actually narrowing this control, kind included.
+ *
+ * Both halves of the question, so nothing has to remember that the stored
+ * flag is the negative one: a kind with nothing to narrow is never narrowed
+ * however the setting reads.
+ */
+export function narrowingOf(control) {
+  return kindNarrows(control?.kind) ? narrowSourceOf(control) : 'none'
+}
+
+/** The wording for the setting a control is on, in the shape that kind takes. */
+export function narrowHint(control) {
+  const source = NARROW_SOURCES.find((s) => s.value === narrowSourceOf(control))
+  if (!source) return ''
+  return kindLists(control?.kind) ? source.hint : source.rangeHint
+}
+
+/**
+ * The rows a control should read its OPTIONS -- or its range -- from.
  *
  * Everything the page is filtered by, except this control itself. A Region
  * of "West" should leave the DSE list showing only DSEs who sell in the
@@ -286,13 +403,27 @@ function optionGroups(options, control, rows, dateOrder) {
  * the dashboard. But it must not narrow ITS OWN list, or picking West would
  * leave "West" as the only region on offer and no way back.
  *
- * `independent` opts a control out: some lists are a reference (every branch
- * we have, whether or not it sold anything this month) and shrinking them
- * hides the zeroes that matter.
+ * How much of the page counts is the admin's to say -- see NARROW_SOURCES.
+ * On `page` it is meant literally: the other dropdowns, the condition
+ * BUTTONS, a cross-filter from a clicked chart segment and the search box
+ * all count, so a button reading "Pending only" narrows the DSE list to the
+ * DSEs who have something pending exactly as a dropdown would. On
+ * `controls` the last two are dropped and only what somebody deliberately
+ * set is left. On `none` nothing narrows it at all: some lists are a
+ * reference (every branch we have, whether or not it sold anything this
+ * month) and shrinking them hides the zeroes that matter.
  */
-export function optionRows(control, { rows, filters, ...rest }) {
-  if (!control || control.independent) return rows
-  return applyFilters(rows, { ...rest, filters: (filters || []).filter((f) => f.id !== control.id) })
+export function optionRows(control, { rows, filters, crossFilters, search, ...rest }) {
+  const source = control ? narrowSourceOf(control) : 'none'
+  if (source === 'none') return rows
+
+  // Its own filter is always left out, whichever setting it is on: narrowing
+  // a control by itself leaves it offering only what is already picked, and
+  // no way to change your mind.
+  const others = (filters || []).filter((f) => f.id !== control.id)
+  const glances = source === 'page' ? { crossFilters, search } : { crossFilters: [], search: '' }
+
+  return applyFilters(rows, { ...rest, ...glances, filters: others })
 }
 
 /**
@@ -610,6 +741,22 @@ export function initialValues(controls, { includeFixed = true } = {}) {
       continue
     }
     if (control.defaultValue === undefined || control.defaultValue === null || control.defaultValue === '') continue
+
+    // A date control's default is a named PERIOD, and it is stored in the
+    // shape the control actually carries rather than as a bare string. That
+    // is what lets a page OPEN on "this month to date" -- and, as a fixed
+    // control, stay on it -- with the month working itself out each time
+    // rather than being the month somebody set it in.
+    //
+    // Anything else is skipped rather than passed through. A typed date
+    // could never have worked here (the engine reads `from`/`to` off an
+    // object, and a string has neither), so this refuses exactly what was
+    // already a no-op.
+    if (control.kind === 'date') {
+      if (isDatePreset(control.defaultValue)) values[control.id] = { preset: control.defaultValue }
+      continue
+    }
+
     if (control.kind === 'multi' || control.kind === 'chips') {
       values[control.id] = String(control.defaultValue)
         .split(',')

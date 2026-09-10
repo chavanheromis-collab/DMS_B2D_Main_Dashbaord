@@ -8,6 +8,8 @@ import {
   startOfDay,
   endOfDay,
 } from './dataUtils.js'
+import { dateValueIsSet, dateWindow } from './datePresets.js'
+import { isMetaColumn } from './rowMeta.js'
 
 // ---------------------------------------------------------------------
 // How filtering works across a multi-tab page
@@ -247,7 +249,13 @@ export function filterIsActive(filter, value) {
     case 'multi':
     case 'chips':
       return Array.isArray(value) && value.length > 0
+    // A date range can also be carrying a named period and no boxes at
+    // all -- "This month to date" is set, and `from`/`to` are empty until
+    // it is resolved. Reading only the boxes would call that inactive: the
+    // rows would be filtered by it while the bar showed nothing on, and
+    // Reset would have nothing to clear.
     case 'date':
+      return dateValueIsSet(value)
     case 'number':
     case 'slider':
     case 'stepper':
@@ -314,8 +322,10 @@ function matchesFilterValue(row, column, filter, value, dateOrder) {
     case 'date': {
       const d = toDate(cell, dateOrder)
       if (!d) return false
-      const from = fromDateInput(value.from)
-      const to = fromDateInput(value.to)
+      // Resolved HERE, every time the filter runs, rather than when it was
+      // picked. That is what makes "This month to date" mean this month in
+      // a saved view opened next quarter -- see lib/datePresets.js.
+      const { from, to } = dateWindow(value, { fyStart: filter.fyStart })
       if (from && d < startOfDay(from)) return false
       if (to && d > endOfDay(to)) return false
       return true
@@ -571,7 +581,10 @@ function matchesSearch(row, query) {
   const q = query.trim().toLowerCase()
   if (!q) return true
   for (const [k, v] of Object.entries(row)) {
-    if (k === '_row') continue
+    // The row's address and its fingerprint are not text anybody searched
+    // for. A hash is eight hex characters, and "a1" would match a great
+    // many of them.
+    if (isMetaColumn(k)) continue
     if (String(v ?? '').toLowerCase().includes(q)) return true
   }
   return false

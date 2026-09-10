@@ -2,6 +2,14 @@ import { useId, useMemo, useState } from 'react'
 import { Bookmark, ChevronRight, Copy, Link as LinkIcon, Lock, Plus, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, SLIDER_FILTER_KINDS, uid } from '../../lib/config'
 import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUtils'
+import {
+  DATE_PRESETS,
+  DEFAULT_FY_START,
+  MONTH_NAMES,
+  describeRange,
+  isDatePreset,
+  resolveDatePreset,
+} from '../../lib/datePresets'
 import { controlCoverage } from '../../lib/filterEngine'
 import { DEFAULT_REDUCER, OPTION_SORTS, SORT_REDUCERS, sortsByColumn } from '../../lib/groupSort'
 import {
@@ -27,7 +35,12 @@ import {
   menuWidthFor,
   isButton,
   kindMeta,
+  kindNarrows,
   kindNeedsColumn,
+  narrowHint,
+  narrowPatch,
+  narrowSourceOf,
+  NARROW_SOURCES,
 } from '../../lib/pageControls'
 import {
   Btn,
@@ -236,6 +249,28 @@ function conditionColumns(control) {
 function ValueBox({ value, onChange, choices, control }) {
   const listId = useId()
   const list = Array.isArray(choices) && choices.length > 0 ? choices : null
+
+  // A date control's default is a PERIOD, not a date. "Opens on this month
+  // to date" is the default worth having, and it is still right next month;
+  // a typed date is a default that is wrong the day after it is set. Fixed
+  // controls get the same box, which is where this earns most of its keep:
+  // "this page is always the current financial year", forever, unattended.
+  if (control?.kind === 'date') {
+    const chosenPreset = isDatePreset(value) ? value : ''
+    const today = chosenPreset
+      ? describeRange(resolveDatePreset(chosenPreset, { fyStart: control.fyStart }))
+      : ''
+    return (
+      <>
+        <Select
+          value={chosenPreset}
+          onChange={onChange}
+          options={[{ value: '', label: '— no period —' }, ...DATE_PRESETS]}
+        />
+        {today && <p className="mt-1 text-[10px] text-slate-400">Today that is {today}.</p>}
+      </>
+    )
+  }
   const takesMany = takesManyValues(control)
   const chosen = takesMany ? defaultList(control) : [String(value ?? '').trim()].filter(Boolean)
 
@@ -494,14 +529,47 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         />
                       </Field>
                     )}
-                    {['select', 'multi', 'chips'].includes(control.kind) && (
-                      <div className="pb-1.5">
-                        <Toggle
-                          checked={!control.independent}
-                          onChange={(v) => set({ independent: !v })}
-                          label="Narrow its values to what the page shows"
+                    {/* One setting over both shapes a control can take --
+                        see NARROWABLE_KINDS in lib/pageControls.js. A list
+                        drops the values nothing on the page has any more; a
+                        range pulls its ends in to the numbers or dates that
+                        are actually there.
+
+                        Three answers rather than two, because not everything
+                        that narrows a page is the same kind of thing -- the
+                        middle one follows the controls and buttons somebody
+                        SET and ignores a clicked chart segment or a word in
+                        the search box. See NARROW_SOURCES.
+
+                        Absent on the kinds that read nothing from the rows
+                        -- a text box, a button, and the two sliders whose
+                        stops the admin types out here. A setting that does
+                        nothing is worse than no setting. */}
+                    {kindNarrows(control.kind) && (
+                      <Field label="Narrowing" className="w-72" hint={narrowHint(control)}>
+                        <Select
+                          value={narrowSourceOf(control)}
+                          onChange={(v) => set(narrowPatch(v))}
+                          options={NARROW_SOURCES}
                         />
-                      </div>
+                      </Field>
+                    )}
+                    {/* Only the financial-year periods read this, but they
+                        are the ones a dealership actually runs on -- and
+                        April is right for India and wrong for most other
+                        places, so it is asked rather than assumed. */}
+                    {control.kind === 'date' && (
+                      <Field
+                        label="Financial year starts"
+                        className="w-40"
+                        hint="Used by the three financial-year periods."
+                      >
+                        <Select
+                          value={String(control.fyStart || DEFAULT_FY_START)}
+                          onChange={(v) => set({ fyStart: Number(v) })}
+                          options={MONTH_NAMES.map((label, i) => ({ value: String(i + 1), label }))}
+                        />
+                      </Field>
                     )}
                     {/* The separator only matters once joining is actually on. */}
                     {['select', 'multi', 'chips'].includes(control.kind) &&

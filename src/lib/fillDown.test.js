@@ -254,7 +254,7 @@ test('a fill fires the same clearing rules a typed edit does', () => {
   assert.match(body, /editPlan\(row, \{ \[span\.column\]: value \}\)/)
   const plan = TABLE.slice(TABLE.indexOf('function editPlan('))
   const planBody = plan.slice(0, plan.indexOf('\n  }\n'))
-  assert.match(planBody, /columnsToClear\(widget, row, \{/)
+  assert.match(planBody, /clearReport\(widget, row, \{/)
   assert.match(planBody, /editable: editableColumns/, 'and still only where this reader may write')
   assert.match(planBody, /dateOrder/)
 })

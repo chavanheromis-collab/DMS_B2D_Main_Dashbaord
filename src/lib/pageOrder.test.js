@@ -238,6 +238,22 @@ test('grouping still separates the groups, and keeps ungrouped first', () => {
   assert.equal(ids(groups[1].pages), 'b c')
 })
 
+test('the GROUPS keep the order their pages arrived in', () => {
+  // Not only the pages inside them. Sorting the groups by name would
+  // reorder the sidebar's own sections -- an admin drags a page into
+  // Service expecting Service to stay where it is, and the whole nav
+  // rearranges itself alphabetically instead.
+  const mixed = [
+    { id: 'a', group: 'Service' },
+    { id: 'b', group: 'Sales' },
+    { id: 'c', group: 'Accounts' },
+  ]
+  assert.deepEqual(
+    groupPages(mixed).map((g) => g.group),
+    ['Service', 'Sales', 'Accounts']
+  )
+})
+
 test('nothing between the order and the screen sorts pages again', () => {
   // Belt and braces on the above: the sidebar must not grow its own idea
   // of the order later.

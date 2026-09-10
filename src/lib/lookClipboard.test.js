@@ -134,6 +134,11 @@ test('every widget renders the element the look is applied to', () => {
     // to the body and placed against the row it was opened from, so a card
     // around it would be a card floating in the middle of the screen.
     'FlowRowDetails.jsx',
+    // The table's other arrangement of its own rows. It is drawn where the
+    // grid would be, inside the table's card and reading that card's look,
+    // so one of its own would be a card in a card -- and the cards it
+    // draws are records, not widgets.
+    'CardGrid.jsx',
   ])
   const missing = []
   for (const file of fs.readdirSync(dir)) {

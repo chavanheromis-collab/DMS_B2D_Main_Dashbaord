@@ -11,6 +11,7 @@ import {
   inSpace,
   listSpaces,
   newSpaceId,
+  pagesBySpace,
   spaceContents,
   shareLink,
   spaceForPage,
@@ -403,4 +404,91 @@ test('and the admin panel hands that link over', () => {
   assert.ok(panel.includes('shareLink(window.location.origin, space.id)'))
   // A browser that refuses the clipboard still has to give the link up.
   assert.ok(panel.includes("window.prompt('Copy this link', link)"))
+})
+
+// ---------------------------------------------------------------------
+// Every dashboard at once, for the access panel
+// ---------------------------------------------------------------------
+// The sidebar shows ONE dashboard because navigating means being in one.
+// Users & access is the opposite job: a person's rights run across all of
+// them, so the same structure is unrolled rather than switched between.
+
+const SPACES = [
+  { id: DEFAULT_SPACE, name: 'Main dashboard', order: 0 },
+  { id: 'sp_b2d', name: 'DMS B2D Report', order: 1 },
+]
+
+const PAGES = [
+  { id: 'p1', name: 'Overview' },
+  { id: 'p2', name: 'Sales', space: 'sp_b2d' },
+  { id: 'p3', name: 'Service', space: 'sp_b2d' },
+]
+
+test('each dashboard comes back with the pages inside it', () => {
+  const out = pagesBySpace(SPACES, PAGES)
+  assert.deepEqual(
+    out.map((s) => [s.name, s.pages.map((p) => p.id)]),
+    [
+      ['Main dashboard', ['p1']],
+      ['DMS B2D Report', ['p2', 'p3']],
+    ]
+  )
+})
+
+test('a page that names no dashboard is in the default one', () => {
+  // Which is what every page said before dashboards existed, so nothing
+  // has to be migrated for this panel to show them.
+  assert.equal(pagesBySpace(SPACES, [{ id: 'p1' }])[0].id, DEFAULT_SPACE)
+})
+
+test('the dashboards come in the order the switcher offers them', () => {
+  const reversed = [
+    { id: 'sp_b2d', name: 'DMS B2D Report', order: 1 },
+    { id: DEFAULT_SPACE, name: 'Main dashboard', order: 0 },
+  ]
+  assert.deepEqual(
+    pagesBySpace(reversed, PAGES).map((s) => s.id),
+    listSpaces(reversed).map((s) => s.id)
+  )
+})
+
+test('a dashboard with no pages is left out', () => {
+  // There is nothing to grant in it, and a heading over nothing is a
+  // section somebody opens once and never again.
+  const out = pagesBySpace([...SPACES, { id: 'sp_empty', name: 'Empty', order: 2 }], PAGES)
+  assert.equal(out.some((s) => s.id === 'sp_empty'), false)
+})
+
+test('a page whose dashboard has been deleted is still shown, and marked', () => {
+  // It still exists and somebody still has to be able to grant it. Silently
+  // hiding a page is how a grant becomes impossible to make.
+  const out = pagesBySpace(SPACES, [...PAGES, { id: 'p9', name: 'Orphan', space: 'sp_gone' }])
+  const orphan = out.find((s) => s.id === 'sp_gone')
+  assert.ok(orphan, 'the page is not dropped')
+  assert.equal(orphan.missing, true)
+  assert.deepEqual(orphan.pages.map((p) => p.id), ['p9'])
+})
+
+test('the pages keep whatever order they arrived in', () => {
+  // Ordering is somebody else's job -- see lib/pageOrder.js -- and this
+  // deciding it again is the bug groupPages already had once.
+  const jumbled = [
+    { id: 'c', space: 'sp_b2d' },
+    { id: 'a', space: 'sp_b2d' },
+    { id: 'b', space: 'sp_b2d' },
+  ]
+  assert.deepEqual(pagesBySpace(SPACES, jumbled)[0].pages.map((p) => p.id), ['c', 'a', 'b'])
+})
+
+test('nothing at all is no dashboards, not one empty one', () => {
+  assert.deepEqual(pagesBySpace(SPACES, []), [])
+  assert.deepEqual(pagesBySpace([], []), [])
+})
+
+test('the access panel is handed every page on the account, not one dashboard', () => {
+  // A panel showing the pages of whichever dashboard an admin happened to
+  // have open would hide every grant that mattered on the others.
+  const admin = src('src/pages/Admin.jsx')
+  assert.ok(admin.includes('<UsersPanel pages={allPages}'))
+  assert.ok(!admin.includes('<UsersPanel pages={pages}'))
 })

@@ -120,13 +120,14 @@ test('the field a reply is signed with is the field the rule checks', () => {
 test('every request is answered for the person who made it', () => {
   // Not a new rule -- a regression guard on the oldest one in the file.
   assert.ok(sheetsApi.includes('await requireUser(req)'), 'the handler no longer identifies the caller')
-  // Counted, not merely present: there are two of them, one on the read
-  // and one on the write, and losing either leaves the other looking like
-  // proof that the check is still there.
+  // Counted, not merely present: there is one on each path into the
+  // handler -- the read, the cell write, and the whole-row operations --
+  // and losing any of them leaves the others looking like proof that the
+  // check is still there. A fourth path must add its own and this number.
   assert.equal(
     (sheetsApi.match(/if \(!access\.canView\)/g) || []).length,
-    2,
-    'one of the two page-access checks is gone'
+    3,
+    'one of the three page-access checks is gone'
   )
   for (const admin of ['listTabs', 'syncSource']) {
     const at = sheetsApi.indexOf(`action === '${admin}'`)

@@ -1,4 +1,5 @@
 import { GoogleAuth } from 'google-auth-library'
+import { FP, fingerprintValues } from '../../src/lib/rowFingerprint.js'
 
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -96,7 +97,17 @@ function parseValues(values) {
   })
 
   const rows = values.slice(1).map((row, i) => {
-    const obj = { _row: i + 2 } // 1-based sheet row number (header is row 1)
+    // Two keys the sheet did not put there. `_row` is the row's ADDRESS --
+    // what a write is aimed at -- and `_fp` is what it looked like when it
+    // was read, so a delete can refuse to fire at a row that has moved
+    // underneath the browser holding it. See src/lib/rowFingerprint.js;
+    // both are listed in src/lib/rowMeta.js so nothing offers them as a
+    // column.
+    //
+    // Hashed from the RAW array rather than from the object below, because
+    // the array is in the sheet's own order and the object's key order is a
+    // detail of how this loop happens to build it.
+    const obj = { _row: i + 2, [FP]: fingerprintValues(row) }
     headers.forEach((h, colIdx) => {
       obj[h] = row[colIdx] ?? ''
     })
@@ -105,10 +116,18 @@ function parseValues(values) {
   return { headers, rows }
 }
 
-/** Reads one whole tab and returns { headers, rows }. */
-export async function fetchSheetRows(sheetId, tabName) {
+/**
+ * Reads one whole tab and returns { headers, rows }.
+ *
+ * `fresh` skips the cache, and every destructive operation passes it. The
+ * fifteen seconds that make a burst of dashboard loads into one Google call
+ * are fifteen seconds in which somebody can insert a row in Google -- and a
+ * delete verified against a cached read is a delete verified against
+ * exactly the state that would hide the problem it is checking for.
+ */
+export async function fetchSheetRows(sheetId, tabName, { fresh = false } = {}) {
   const key = cacheKey(sheetId, tabName)
-  const hit = cache.get(key)
+  const hit = fresh ? null : cache.get(key)
   if (hit && hit.expires > Date.now()) return hit.data
 
   const range = encodeURIComponent(`${tabName}!A1:ZZ`)
@@ -180,10 +199,165 @@ export async function listTabs(sheetId) {
 // mistake or somebody probing, and either way it is not a spreadsheet edit.
 const MAX_BATCH_CELLS = 500
 
+// Whole rows are a heavier thing than cells and a rarer gesture. Past two
+// hundred, an add or a delete is not something somebody selected on screen.
+const MAX_BATCH_ROWS = 200
+
 const badRequest = (message) => {
   const err = new Error(message)
   err.statusCode = 400
   return err
+}
+
+// ---------------------------------------------------------------------
+// Whole rows
+// ---------------------------------------------------------------------
+// Everything above writes VALUES into cells that already exist. Adding and
+// removing rows changes the shape of the sheet, which the Sheets API treats
+// as a different kind of request -- `values.append` for one and a
+// `deleteDimension` batch for the other -- and which needs the tab's
+// numeric id rather than its name.
+
+/**
+ * The numeric ids of a spreadsheet's tabs, by title.
+ *
+ * Only `deleteDimension` needs these; everything else in this file
+ * addresses a tab by name through an A1 range. Not cached: it is one small
+ * request, it only happens on a delete, and a stale gid would aim a
+ * deletion at whichever tab now holds that id.
+ */
+export async function tabGids(sheetId) {
+  const data = await sheetsFetch(`/${sheetId}?fields=sheets.properties(sheetId,title)`)
+  const out = {}
+  for (const sheet of data.sheets || []) {
+    const props = sheet.properties || {}
+    if (props.title) out[props.title] = props.sheetId
+  }
+  return out
+}
+
+/**
+ * Turns objects keyed by column name into the arrays the sheet wants.
+ *
+ * The order comes from the TAB'S OWN header row, read here, never from the
+ * caller -- the same rule `updateCell` follows and for the same two
+ * reasons. A caller that chose the order could put a permitted value under
+ * a forbidden heading, and a browser holding this morning's column order
+ * would write every value one column left of where it belongs the moment
+ * somebody inserts a column in Google.
+ *
+ * A column the row says nothing about is written as an empty string rather
+ * than skipped: a short array leaves the cells beyond it untouched, which
+ * on an append is harmless and on any future in-place write would silently
+ * keep whatever was there before.
+ */
+function toRowArrays(headers, rows) {
+  return rows.map((row) => headers.map((h) => {
+    const value = row?.[h]
+    return value === undefined || value === null ? '' : String(value)
+  }))
+}
+
+/**
+ * Appends rows to the bottom of a tab.
+ *
+ * `INSERT_ROWS` rather than `OVERWRITE`: overwrite starts at the first
+ * empty row of the range, which on a sheet with a stray value parked below
+ * the data is not the bottom of the table -- it is on top of that value.
+ *
+ * Returns the row numbers Google actually gave them, read back out of the
+ * updated range, so the caller can say WHERE the rows went instead of
+ * "done". Nothing else can know: the browser cannot see the bottom of a
+ * sheet it has filtered, and two people appending at once each get rows
+ * they did not choose the position of.
+ */
+export async function appendRows(sheetId, tabName, rows) {
+  const list = Array.isArray(rows) ? rows : []
+  if (list.length === 0) throw badRequest('Nothing to add')
+  if (list.length > MAX_BATCH_ROWS) throw badRequest(`That is more than ${MAX_BATCH_ROWS} rows in one go`)
+
+  const sheet = await fetchSheetRows(sheetId, tabName, { fresh: true })
+  if (sheet.headers.length === 0) throw badRequest('That tab has no header row to add under')
+
+  const range = encodeURIComponent(`${tabName}!A1`)
+  const result = await sheetsFetch(
+    `/${sheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    { method: 'POST', body: JSON.stringify({ values: toRowArrays(sheet.headers, list) }) }
+  )
+  invalidateCache(sheetId, tabName)
+
+  return { added: list.length, rows: appendedRowNumbers(result, list.length) }
+}
+
+/** Which rows an append landed on, from the range Google says it wrote. */
+function appendedRowNumbers(result, count) {
+  const range = result?.updates?.updatedRange || ''
+  const first = Number(range.match(/![A-Z]+(\d+)/)?.[1])
+  if (!Number.isInteger(first)) return []
+  return Array.from({ length: count }, (_, i) => first + i)
+}
+
+/**
+ * Deletes rows, by sheet row number.
+ *
+ * Two things make this safe to point at a live sheet, and both are the
+ * whole of the function:
+ *
+ *   IT WORKS DOWNWARDS. Deleting row 5 moves row 9 to row 8, so a request
+ *   that deleted 5 and then 9 would take out what used to be row 10.
+ *   Sorted descending, every index is still valid when its turn comes.
+ *
+ *   IT GOES IN ONE BATCH. Contiguous runs are merged into single ranges and
+ *   the whole set is one `batchUpdate`, which Google applies atomically --
+ *   so a delete of forty rows cannot half-happen and leave a selection
+ *   nobody can reconstruct.
+ *
+ * The caller is expected to have verified fingerprints first; this does not
+ * re-check, because the check needs the tab as a whole and the caller has
+ * already read it.
+ */
+export async function deleteRows(sheetId, tabName, rowNumbers) {
+  const wanted = [...new Set((rowNumbers || []).map(Number))]
+  if (wanted.length === 0) throw badRequest('Nothing to delete')
+  if (wanted.length > MAX_BATCH_ROWS) throw badRequest(`That is more than ${MAX_BATCH_ROWS} rows in one go`)
+  for (const row of wanted) {
+    // Row 1 is the header. Deleting it renames every column at once and is
+    // the one row a deletion can never legitimately mean.
+    if (!Number.isInteger(row) || row < 2) throw badRequest('That row cannot be deleted')
+  }
+
+  const gid = (await tabGids(sheetId))[tabName]
+  if (gid === undefined) throw badRequest(`Tab "${tabName}" is no longer in this spreadsheet`)
+
+  const requests = mergeRuns(wanted).map(([start, end]) => ({
+    deleteDimension: {
+      // Zero-based and end-exclusive, against 1-based inclusive row
+      // numbers: row 5 alone is [4, 5).
+      range: { sheetId: gid, dimension: 'ROWS', startIndex: start - 1, endIndex: end },
+    },
+  }))
+
+  await sheetsFetch(`/${sheetId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests }) })
+  invalidateCache(sheetId, tabName)
+  return { deleted: wanted.length }
+}
+
+/**
+ * Row numbers as descending contiguous runs: [7,3,5,4] -> [[7,7],[3,5]].
+ *
+ * Descending so each deletion leaves the ones still to come at the indices
+ * they were found at, and merged so twenty adjacent rows are one range
+ * rather than twenty requests.
+ */
+export function mergeRuns(rowNumbers) {
+  const sorted = [...new Set(rowNumbers)].sort((a, b) => b - a)
+  const runs = []
+  for (const row of sorted) {
+    const last = runs[runs.length - 1]
+    if (last && last[0] === row + 1) last[0] = row
+    else runs.push([row, row])
+  }
+  return runs
 }
 
 /**

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { isPieChart, operatorMeta } from '../../lib/config'
 import { PIE3D_DEFAULTS } from '../../lib/pie3d'
 import { chromeIsTrimmed } from '../../lib/widgetChrome'
-import { ChevronRight, Copy, Plus, Search, X } from 'lucide-react'
+import { ArrowRight, ChevronRight, Copy, Plus, Search, X } from 'lucide-react'
 import {
   KPI_PALETTE,
   AGGREGATIONS,
@@ -21,6 +21,7 @@ import {
   widthUnitsLabel,
 } from '../../lib/config'
 import { looksLikeDateColumn } from '../../lib/dataUtils'
+import { CARD_SIZES, VIEW_MODES, cardTitleColumn, cardViewEnabled, viewModeOf } from '../../lib/cardView'
 import { DEFAULT_PIE_OPTIONS, PIE_LABEL_STYLES, PIE_PERCENT_BASES } from '../../lib/pieData'
 import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
 import { hasCustomStyle } from '../../lib/widgetStyle'
@@ -38,6 +39,24 @@ import { isDriveUrl, safeImageUrl } from '../../lib/imageUrl'
 import { blankChoice, choiceProblem } from '../../lib/columnChoices'
 import { newClearRule, ruleProblem } from '../../lib/clearRules'
 import { FILL_LIMIT, fillColumnsOf } from '../../lib/fillDown'
+import { REQUIRED_COLUMNS, requiredColumnsOf } from '../../lib/requiredColumns'
+import {
+  ROW_OP_SWITCHES,
+  blankPair,
+  copyRoutesOf,
+  mappedCount,
+  resolvePairs,
+  routeNote,
+  sendsRows,
+} from '../../lib/rowOps'
+import {
+  INPUT_RULES,
+  INPUT_TYPES,
+  describeRule,
+  inputRuleProblem,
+  inputRulesOf,
+  newInputRule,
+} from '../../lib/inputRules'
 import {
   DEFAULT_SPIN,
   MAX_SIZE,
@@ -2269,7 +2288,612 @@ function ClearEditor({ widget, set, cols }) {
   )
 }
 
+/**
+ * What each column takes, and what counts as a sensible answer.
+ *
+ * Deliberately apart from Dropdowns, which answers a different question:
+ * that one says WHICH VALUES a column may hold, from a list on another tab.
+ * This says what KIND of thing it is and what shape it has to be in. A
+ * column can want both -- a status from a list, a phone number that is a
+ * phone number -- and folding them into one editor would mean the two had
+ * to be configured together or not at all.
+ */
+function InputRulesEditor({ widget, set, cols }) {
+  const list = widget[INPUT_RULES] || []
+  const ops = listOps(list, (next) => set({ [INPUT_RULES]: next }))
+  const named = list.map((r) => r.column).filter(Boolean)
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] leading-snug text-slate-400">
+        Every editable cell is a text box until you say otherwise. That is right for a remark and
+        wrong for everything else: a phone keypad never appears on a phone number, a date is typed in
+        whichever order the typist happens to think in, and an amount with letters in it is counted
+        by every chart that sums the column.
+      </p>
+
+      {!widget.editable && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-700">
+          <strong>Inline editing is off for this table</strong>, so nothing here will appear. Turn on
+          &ldquo;Allow inline editing&rdquo; under Rows.
+        </p>
+      )}
+
+      {list.map((rule, i) => {
+        const problem = inputRuleProblem(rule, cols)
+        // Two rules on one column is two answers to one question, and which
+        // wins is whichever happened to be added first.
+        const clash = rule.column && named.filter((c) => c === rule.column).length > 1
+        const type = rule.type || 'text'
+        return (
+          <div key={rule.id || i} className="rounded-lg border border-slate-200 bg-white p-2">
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label="Column" className="w-44">
+                <Select
+                  value={rule.column || ''}
+                  onChange={(v) => ops.update(rule.id, { column: v })}
+                  options={cols}
+                  placeholder="— pick —"
+                />
+              </Field>
+              <Field label="Takes" className="w-40" hint={INPUT_TYPES.find((t) => t.value === type)?.hint}>
+                <Select
+                  value={type}
+                  // The conditions belong to the TYPE, so changing it drops
+                  // the ones that no longer mean anything rather than
+                  // leaving a minimum length sitting on a date.
+                  onChange={(v) => ops.update(rule.id, { ...newInputRule(rule.id), column: rule.column, type: v })}
+                  options={INPUT_TYPES}
+                />
+              </Field>
+              <div className="ml-auto pb-1">
+                <RowControls
+                  onUp={() => ops.move(i, -1)}
+                  onDown={() => ops.move(i, 1)}
+                  onDelete={() => ops.remove(rule.id)}
+                  isFirst={i === 0}
+                  isLast={i === list.length - 1}
+                />
+              </div>
+            </div>
+
+            <div className="mt-1.5 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-1.5">
+              {type === 'number' && (
+                <>
+                  <Field label="At least" className="w-28">
+                    <TextInput type="number" value={rule.min ?? ''} onChange={(v) => ops.update(rule.id, { min: v })} />
+                  </Field>
+                  <Field label="At most" className="w-28">
+                    <TextInput type="number" value={rule.max ?? ''} onChange={(v) => ops.update(rule.id, { max: v })} />
+                  </Field>
+                  <div className="pb-1.5">
+                    <Toggle
+                      checked={Boolean(rule.integer)}
+                      onChange={(v) => ops.update(rule.id, { integer: v })}
+                      label="Whole numbers only"
+                    />
+                  </div>
+                </>
+              )}
+
+              {type === 'date' && (
+                <>
+                  <Field label="Not before" className="w-36">
+                    <TextInput type="date" value={rule.min ?? ''} onChange={(v) => ops.update(rule.id, { min: v })} />
+                  </Field>
+                  <Field label="Not after" className="w-36">
+                    <TextInput type="date" value={rule.max ?? ''} onChange={(v) => ops.update(rule.id, { max: v })} />
+                  </Field>
+                  <div className="flex flex-wrap gap-3 pb-1.5">
+                    <Toggle
+                      checked={Boolean(rule.noPast)}
+                      onChange={(v) => ops.update(rule.id, { noPast: v })}
+                      label="Not in the past"
+                    />
+                    <Toggle
+                      checked={Boolean(rule.noFuture)}
+                      onChange={(v) => ops.update(rule.id, { noFuture: v })}
+                      label="Not in the future"
+                    />
+                  </div>
+                </>
+              )}
+
+              {type === 'phone' && (
+                <>
+                  <Field label="At least (digits)" className="w-32" hint="7 unless you say otherwise">
+                    <TextInput
+                      type="number"
+                      value={rule.minDigits ?? ''}
+                      onChange={(v) => ops.update(rule.id, { minDigits: v })}
+                    />
+                  </Field>
+                  <Field label="At most (digits)" className="w-32">
+                    <TextInput
+                      type="number"
+                      value={rule.maxDigits ?? ''}
+                      onChange={(v) => ops.update(rule.id, { maxDigits: v })}
+                    />
+                  </Field>
+                </>
+              )}
+
+              {['text', 'textarea', 'email', 'url', 'time'].includes(type) && (
+                <>
+                  <Field label="At least (characters)" className="w-36">
+                    <TextInput
+                      type="number"
+                      value={rule.minLength ?? ''}
+                      onChange={(v) => ops.update(rule.id, { minLength: v })}
+                    />
+                  </Field>
+                  <Field label="At most (characters)" className="w-36">
+                    <TextInput
+                      type="number"
+                      value={rule.maxLength ?? ''}
+                      onChange={(v) => ops.update(rule.id, { maxLength: v })}
+                    />
+                  </Field>
+                </>
+              )}
+
+              {['text', 'textarea'].includes(type) && (
+                <>
+                  <Field label="Pattern" className="w-44" hint="A regular expression — optional">
+                    <TextInput
+                      value={rule.pattern ?? ''}
+                      onChange={(v) => ops.update(rule.id, { pattern: v })}
+                      placeholder="^[A-Z]{2}[0-9]{4}$"
+                    />
+                  </Field>
+                  {rule.pattern && (
+                    <Field label="Say instead" className="w-52" hint="What to tell somebody who does not match it">
+                      <TextInput
+                        value={rule.patternNote ?? ''}
+                        onChange={(v) => ops.update(rule.id, { patternNote: v })}
+                        placeholder="is not in the right format"
+                      />
+                    </Field>
+                  )}
+                </>
+              )}
+            </div>
+
+            {problem || clash ? (
+              <p className="mt-1 text-[11px] text-rose-600">
+                {problem || `Two rules name “${rule.column}” — only the first one runs.`}
+              </p>
+            ) : (
+              <p className="mt-1 text-[11px] text-slate-400">{describeRule(rule)}</p>
+            )}
+          </div>
+        )
+      })}
+
+      <Btn onClick={() => ops.add(newInputRule(uid('ir')))}>+ Field rule</Btn>
+    </div>
+  )
+}
+
+/**
+ * Which arrangement the table opens in, and what a card looks like.
+ *
+ * Only the DEFAULT is set here: whichever is chosen, a reader can switch
+ * between the two on the table itself. They are two arrangements of the
+ * identical rows -- same filters, same sort, same paging, same selection
+ * -- so which one is on screen is a preference about reading rather than a
+ * decision about the data, and preferences belong to whoever is reading.
+ */
+function ViewEditor({ widget, cols, set }) {
+  const on = cardViewEnabled(widget)
+  const mode = viewModeOf(widget)
+  const title = cardTitleColumn(widget, cols)
+
+  return (
+    <div className="space-y-2">
+      {/* Off until somebody turns it on. Cards want a heading worth
+          reading and a handful of fields worth stacking; a forty-column
+          register turned into cards is forty postage stamps saying "and 32
+          more". So it is a decision about a particular table rather than
+          something every table grows. */}
+      <div>
+        <Toggle
+          checked={on}
+          onChange={(v) => set({ cardView: v })}
+          label="Offer a card view of these rows"
+        />
+        <p className="ml-5 text-[10px] leading-snug text-slate-400">
+          Adds a table / cards switch to this table. Same rows, same filters, same sort, same selection — a
+          different arrangement of them.
+        </p>
+      </div>
+
+      {!on ? null : (
+      <>
+      <Field
+        label="Opens as"
+        className="w-56"
+        hint={VIEW_MODES.find((v) => v.value === mode)?.hint}
+      >
+        <Select value={mode} onChange={(v) => set({ viewMode: v })} options={VIEW_MODES} />
+      </Field>
+
+      <p className="text-[10px] leading-snug text-slate-400">
+        Only which one it OPENS in — whoever is reading can switch between the two whenever they like. A grid
+        compares forty records on one number, a card reads one record whole, and which of those somebody needs
+        changes hour to hour.
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2 md:grid-cols-3">
+        <Field label="Card heading" hint="The value that names each card.">
+          <Select
+            value={widget.cardTitle || ''}
+            onChange={(v) => set({ cardTitle: v })}
+            options={cols}
+            placeholder={`— ${title || 'first column'} —`}
+          />
+        </Field>
+
+        <Field label="Second line" hint="Who, under the what.">
+          <Select
+            value={widget.cardSubtitle ?? ''}
+            onChange={(v) => set({ cardSubtitle: v })}
+            options={cols}
+            placeholder="— the next column —"
+          />
+        </Field>
+
+        <Field label="Card size" hint="Width and least height.">
+          <Select
+            value={widget.cardSize || 'md'}
+            onChange={(v) => set({ cardSize: v })}
+            options={CARD_SIZES}
+          />
+        </Field>
+      </div>
+
+      <p className="text-[10px] leading-snug text-slate-400">
+        The colours look after themselves — twelve of them, cycled so no card matches the one beside it or the one
+        under it. Nothing to set up and nothing to keep in step. Cards show the columns you chose under{' '}
+        <strong>Columns</strong>, in that order, and say how many they are holding back; clicking one opens the
+        whole record.
+      </p>
+      </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Where a table may send rows, and how the columns line up.
+ *
+ * A destination used to be a tick against a tab name, and the columns were
+ * matched by name at write time. That works exactly when the two tabs were
+ * built by the same person on the same day. Everywhere else the quotation
+ * sheet says "Quotation No" and the booking sheet says "Booking Ref", and
+ * matching by name carried four columns out of eleven and dropped the rest
+ * without saying so.
+ *
+ * So a destination is a ROUTE: a tab, plus the pairs. Left empty it still
+ * matches by name -- which keeps every route configured before this
+ * behaving exactly as it did, and keeps two tabs that already agree from
+ * needing any setup at all.
+ *
+ * "Match by name" fills the pairs in from the names the two tabs share, so
+ * the common case is one press and then a few corrections rather than
+ * eleven dropdowns.
+ */
+function RoutesEditor({ widget, set, choices, labelFor, sourceHeaders, headersFor }) {
+  const routes = copyRoutesOf(widget)
+  const [picking, setPicking] = useState('')
+  const [open, setOpen] = useState('')
+
+  const write = (next) => set({ copyTargets: next })
+  const patch = (ref, pairs) => write(routes.map((r) => (r.ref === ref ? { ...r, pairs } : r)))
+
+  // Only tabs that are not already destinations. A tab listed twice would
+  // be two routes to one place, and which mapping applied would be
+  // whichever came first in an array nobody can see.
+  const available = choices.filter((ref) => !routes.some((r) => r.ref === ref))
+
+  function addTarget() {
+    if (!picking) return
+    write([...routes, { ref: picking, pairs: [] }])
+    // Opened straight away: adding a destination and mapping its columns is
+    // one job, and a route that closes itself the moment it exists asks the
+    // admin to find it again before they can finish.
+    setOpen(picking)
+    setPicking('')
+  }
+
+  return (
+    <div className="space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+      <p className="text-[11px] font-medium text-slate-500">
+        Tabs rows may be sent to <span className="font-normal text-slate-400">({routes.length} set up)</span>
+      </p>
+
+      {/* --- pick a destination ------------------------------------------ */}
+      {choices.length === 0 ? (
+        <p className="py-2 text-center text-[11px] text-slate-300">
+          This page draws on only one tab, so there is nowhere to send rows.
+        </p>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <Select
+            value={picking}
+            onChange={setPicking}
+            options={available.map((ref) => ({ value: ref, label: labelFor ? labelFor(ref) : ref }))}
+            placeholder={available.length ? '— pick a tab —' : 'every tab is already a destination'}
+            disabled={available.length === 0}
+            className="flex-1"
+          />
+          <Btn variant="accent" onClick={addTarget} disabled={!picking}>
+            <Plus size={12} /> Add
+          </Btn>
+        </div>
+      )}
+
+      {/* --- the routes, each with its own column mapping ---------------- */}
+      {routes.map((route) => {
+        const targetHeaders = headersFor(route.ref)
+        const resolved = resolvePairs(route.pairs, sourceHeaders, targetHeaders)
+        const expanded = open === route.ref
+        return (
+          <div key={route.ref} className="rounded-lg border border-slate-200 bg-white">
+            <div className="flex items-center gap-1.5 px-2 py-1.5">
+              <ArrowRight size={11} className="shrink-0 text-slate-300" />
+              <span className="min-w-0 flex-1 truncate text-[11px] font-medium" title={route.ref}>
+                {labelFor ? labelFor(route.ref) : route.ref}
+              </span>
+              <span className="shrink-0 text-[10px] text-slate-400">
+                {mappedCount(route.pairs) > 0 ? `${resolved.pairs.length} columns` : 'matched by name'}
+              </span>
+              <button
+                onClick={() => setOpen(expanded ? '' : route.ref)}
+                className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-indigo-600 hover:bg-indigo-50"
+              >
+                {expanded ? 'Hide' : 'Columns'}
+              </button>
+              <button
+                onClick={() => {
+                  write(routes.filter((r) => r.ref !== route.ref))
+                  if (expanded) setOpen('')
+                }}
+                className="shrink-0 rounded p-0.5 text-slate-300 hover:text-rose-500"
+                aria-label="Remove this destination"
+                title="Remove this destination"
+              >
+                <X size={12} />
+              </button>
+            </div>
+
+            {expanded && (
+              <PairsEditor
+                pairs={route.pairs}
+                sourceHeaders={sourceHeaders}
+                targetHeaders={targetHeaders}
+                sourceLabel={labelFor ? labelFor(widget.tab) : widget.tab}
+                targetLabel={labelFor ? labelFor(route.ref) : route.ref}
+                note={routeNote(resolved, { known: targetHeaders.length > 0 })}
+                onChange={(pairs) => patch(route.ref, pairs)}
+              />
+            )}
+          </div>
+        )
+      })}
+
+      <p className="text-[10px] leading-snug text-slate-400">
+        Map no columns and they are matched <strong>by name</strong>. Map them and only those pairs travel. The
+        mapping is <strong>yours alone</strong> — whoever sends the rows sees it and cannot change it, and the
+        server reads it from here rather than from their browser. Moving also needs Delete granted on this tab,
+        since that is the half it performs.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * The column pairs of one route, read as the destination reads them.
+ *
+ * DESTINATION ON THE LEFT, source on the right: "Booking Ref is filled from
+ * Quotation No". That is the direction the question is actually asked in --
+ * somebody setting this up is working down the target's columns deciding
+ * what goes in each, not down the source's wondering where each ends up.
+ * It is also the only orientation in which the left-hand column is a fixed
+ * list you can work through and tick off.
+ *
+ * The stored shape is unchanged (`from` is the source, `to` the target);
+ * only the reading order is flipped, because the model is about where a
+ * value travels and the form is about what fills a field.
+ */
+function PairsEditor({ pairs, sourceHeaders, targetHeaders, sourceLabel, targetLabel, note, onChange }) {
+  const known = targetHeaders.length > 0
+
+  const setPair = (i, next) => onChange(pairs.map((p, index) => (index === i ? { ...p, ...next } : p)))
+
+  /** The names the two tabs already share, as a starting point. */
+  function matchByName() {
+    const there = new Set(targetHeaders)
+    onChange(sourceHeaders.filter((c) => there.has(c)).map((c) => ({ from: c, to: c })))
+  }
+
+  return (
+    <div className="space-y-1 border-t border-slate-100 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-medium text-slate-400">Columns</span>
+        <div className="flex shrink-0 gap-2 text-[10px]">
+          <button onClick={matchByName} className="text-indigo-600 underline disabled:text-slate-300" disabled={!known}>
+            Match by name
+          </button>
+          {pairs.length > 0 && (
+            <button onClick={() => onChange([])} className="text-slate-400 underline">
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Which side is which, said once, above the rows. Two dropdowns of
+          column names look identical and are not interchangeable. */}
+      {pairs.length > 0 && (
+        <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-slate-300">
+          <span className="min-w-0 flex-1 truncate" title={targetLabel}>
+            {targetLabel} — column to fill
+          </span>
+          <span className="w-3 shrink-0" />
+          <span className="min-w-0 flex-1 truncate" title={sourceLabel}>
+            {sourceLabel} — value taken from
+          </span>
+          <span className="w-4 shrink-0" />
+        </div>
+      )}
+
+      {pairs.map((pair, i) => (
+        <div key={i} className="flex items-center gap-1">
+          <PairColumn
+            value={pair.to}
+            options={targetHeaders}
+            free={!known}
+            onChange={(v) => setPair(i, { to: v })}
+          />
+          <span className="w-3 shrink-0 text-center text-[10px] text-slate-300">←</span>
+          <PairColumn value={pair.from} options={sourceHeaders} onChange={(v) => setPair(i, { from: v })} />
+          <button
+            onClick={() => onChange(pairs.filter((_, index) => index !== i))}
+            className="w-4 shrink-0 rounded text-slate-300 hover:text-rose-500"
+            aria-label="Remove this pair"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+
+      <button
+        onClick={() => onChange([...pairs, blankPair()])}
+        className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-indigo-600 hover:bg-indigo-50"
+      >
+        <Plus size={10} /> Add column
+      </button>
+
+      <p className="text-[10px] text-slate-400">
+        {mappedCount(pairs) === 0 ? 'No columns mapped — they are matched by name.' : note}
+      </p>
+    </div>
+  )
+}
+
+function PairColumn({ value, options, onChange, free = false }) {
+  if (free) {
+    return (
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="type a column name"
+        className="min-w-0 flex-1 rounded border border-slate-200 px-1.5 py-1 text-[11px]"
+      />
+    )
+  }
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="min-w-0 flex-1 rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px]"
+    >
+      <option value="">— column —</option>
+      {/* A column the sheet no longer has stays visible, or the row would
+          silently repoint itself at whatever happens to be first. */}
+      {value && !options.includes(value) && <option value={value}>{value} (missing)</option>}
+      {options.map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/**
+ * Whole-row operations, per table.
+ *
+ * Two switches govern each of them and they belong to different people. An
+ * admin says whether this TABLE offers the action at all; the Users tab
+ * says whether a given reader holds the right on that tab. Both, always --
+ * a table with Delete switched on is not a table anybody can delete from,
+ * and a reader granted Delete cannot use it on a table that does not offer
+ * it. Admins are the exception, as they are everywhere: they hold every
+ * grant, so for them the switch here is the whole answer.
+ *
+ * Said explicitly under the switches, because the failure it prevents is an
+ * admin turning Delete on, seeing nothing appear for the person who asked
+ * for it, and concluding it does not work.
+ */
+function RowActionsEditor({ widget, set, tabOptions, labelFor, tabHeaders }) {
+  const sourceHeaders = tabHeaders?.[widget.tab] || []
+  const headersFor = (ref) => tabHeaders?.[ref] || []
+  // `tabOptions` is [{ value, label }] for a <Select>, not a list of refs
+  // -- reading it as refs put "[object Object]" in every row of the
+  // destination list and made none of them tickable.
+  //
+  // A table cannot send rows to the tab it is already on: that is not a
+  // copy, it is two of the same record.
+  const choices = (tabOptions || [])
+    .map((option) => (typeof option === 'string' ? option : option?.value))
+    .filter((ref) => ref && ref !== widget.tab)
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] leading-snug text-slate-400">
+        A cell edit changes a value; these change which records exist. They are switched on per table and granted
+        per person, and one of them cannot be undone — so each is off until somebody turns it on deliberately.
+      </p>
+
+      <div className="space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+        {ROW_OP_SWITCHES.map((action) => (
+          <div key={action.key}>
+            <Toggle
+              checked={Boolean(widget[action.key])}
+              onChange={(v) => set({ [action.key]: v })}
+              label={action.label}
+            />
+            <p className="ml-5 text-[10px] leading-snug text-slate-400">{action.hint}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Only once there is something to send -- copy and move share one
+          list of destinations, because they differ in what happens HERE
+          rather than in where the rows go. */}
+      {sendsRows(widget) && (
+        <RoutesEditor
+          widget={widget}
+          set={set}
+          choices={choices}
+          labelFor={labelFor}
+          sourceHeaders={sourceHeaders}
+          headersFor={headersFor}
+        />
+      )}
+
+      <p className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] leading-snug text-slate-500">
+        These switches only make an action possible in principle; each still needs a per-user grant in the{' '}
+        <strong>Users</strong> tab. <em>Delete rows</em> is granted on <strong>this</strong> tab — and{' '}
+        <em>Receive rows</em> on the <strong>destination</strong>, because that is where copied rows land. Admins
+        can always do all of it.
+      </p>
+
+      {widget.canDeleteRows && (
+        <p className="rounded-lg border border-rose-100 bg-rose-50/60 px-2 py-1.5 text-[10px] leading-snug text-rose-700">
+          Deleting removes rows from the spreadsheet itself and cannot be undone. The reader is shown the records
+          first and has to confirm, and the server refuses the whole operation if any of them has changed since the
+          page was loaded — but there is no way back once it runs.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function TableEditor({ widget, cols, set }) {
+  const { tabOptions, labelFor, tabHeaders } = useWorkspaceCtx()
   const selected = widget.columns?.length ? widget.columns : cols
   const [part, setPart] = useState('rows')
   function toggle(col) {
@@ -2284,6 +2908,18 @@ function TableEditor({ widget, cols, set }) {
         onPick={setPart}
         sections={[
           { key: 'rows', label: 'Rows', hint: 'Paging, height, sorting and inline editing' },
+          {
+            key: 'view',
+            label: 'View',
+            badge: cardViewEnabled(widget),
+            hint: 'Rows and columns, or a card per record',
+          },
+          {
+            key: 'actions',
+            label: 'Actions',
+            badge: ROW_OP_SWITCHES.filter((a) => widget[a.key]).length,
+            hint: 'Adding, duplicating, deleting and sending rows to another tab',
+          },
           { key: 'columns', label: 'Columns', badge: selected.length, hint: 'Which ones, and in what order' },
           { key: 'detail', label: 'Detail', badge: Boolean(widget.rowDetail), hint: 'The panel a clicked row opens' },
           {
@@ -2309,6 +2945,12 @@ function TableEditor({ widget, cols, set }) {
             label: 'Pills',
             badge: (widget.badgeColumns || []).length,
             hint: 'Columns shown as coloured pills',
+          },
+          {
+            key: 'fields',
+            label: 'Fields',
+            badge: inputRulesOf(widget).length,
+            hint: 'What each column takes — a number, a date, a phone — and what counts as valid',
           },
           {
             key: 'clearing',
@@ -2378,6 +3020,18 @@ function TableEditor({ widget, cols, set }) {
       </div>
       )}
 
+      {part === 'view' && <ViewEditor widget={widget} cols={cols} set={set} />}
+
+      {part === 'actions' && (
+        <RowActionsEditor
+          widget={widget}
+          set={set}
+          tabOptions={tabOptions}
+          labelFor={labelFor}
+          tabHeaders={tabHeaders}
+        />
+      )}
+
       {part === 'columns' && (
       <div>
         <div className="mb-1 flex items-center gap-3">
@@ -2423,6 +3077,43 @@ function TableEditor({ widget, cols, set }) {
         </p>
       )}
 
+      {/* --- Fields that cannot be left empty --------------------------- */}
+      {part === 'rows' && widget.editable && (
+        <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+          <p className="mb-1 text-[11px] font-medium text-slate-500">
+            Required <span className="font-normal text-slate-400">(cannot be left empty)</span>
+          </p>
+          <div className="grid max-h-32 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-slate-100 bg-white p-2 md:grid-cols-3">
+            {cols.map((col) => {
+              const on = requiredColumnsOf(widget).includes(col)
+              return (
+                <label key={col} className="flex items-center gap-1.5 text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => {
+                      const current = requiredColumnsOf(widget)
+                      set({
+                        [REQUIRED_COLUMNS]: on ? current.filter((c) => c !== col) : [...current, col],
+                      })
+                    }}
+                  />
+                  <span className="truncate" title={col}>
+                    {col}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+          <p className="mt-1 text-[10px] text-slate-400">
+            Marked with a red <strong>*</strong> on the detail form, which will not save while one is empty. It
+            binds only where somebody can actually fill it in — a person without that column granted is never
+            stopped by it — and it only ever refuses <em>emptying</em>: a clearing rule that names a required
+            column leaves it alone and says so, and Clear skips it.
+          </p>
+        </div>
+      )}
+
       {/* --- Drag to fill ----------------------------------------------
           Under Rows, and only once editing is on, for the same reason as
           the note above: it is the switch that makes the question mean
@@ -2466,6 +3157,9 @@ function TableEditor({ widget, cols, set }) {
 
       {/* --- Dropdowns -------------------------------------------------- */}
       {part === 'choices' && <ChoiceEditor widget={widget} set={set} cols={cols} />}
+
+      {/* --- What each column takes ------------------------------------- */}
+      {part === 'fields' && <InputRulesEditor widget={widget} set={set} cols={cols} />}
 
       {/* --- Fields that stop applying ---------------------------------- */}
       {part === 'clearing' && <ClearEditor widget={widget} set={set} cols={cols} />}

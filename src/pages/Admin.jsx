@@ -311,7 +311,14 @@ export default function Admin() {
             />
           )}
 
-          {section === 'users' && <UsersPanel pages={pages} tabHeaders={tabHeaders} labelFor={labelFor} />}
+          {/* ALL of them, not the space being administered. Access is
+              granted per page across the whole account -- somebody's rights
+              do not stop at the dashboard an admin happens to have open --
+              and a panel that showed one space's pages would quietly hide
+              every grant that mattered on the others. */}
+          {section === 'users' && (
+            <UsersPanel pages={allPages} tabHeaders={tabHeaders} labelFor={labelFor} />
+          )}
 
           {section === 'spaces' && <SpacesPanel pages={allPages} sources={allSources} />}
           {section === 'entrance' && <EntrancePanel />}

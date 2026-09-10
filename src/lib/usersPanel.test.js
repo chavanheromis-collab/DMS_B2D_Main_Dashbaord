@@ -156,8 +156,177 @@ test('granting a page takes one click, without opening anything', () => {
 })
 
 test('a switch with no visible label still has a spoken one', () => {
-  assert.ok(panel.includes('ariaLabel={`Can view ${page.name}`}'))
+  // And it speaks the name the SIDEBAR shows, which is the one the row is
+  // labelled with -- a switch announced as something other than the thing
+  // beside it is worse than one announced as nothing.
+  assert.ok(panel.includes('ariaLabel={`Can view ${navLabelFor(page)}`}'))
   assert.ok(ui.includes('aria-label={label ? undefined : ariaLabel}'))
+})
+
+// ---------------------------------------------------------------------
+// The pages, as the sidebar shows them
+// ---------------------------------------------------------------------
+
+test('the list is the sidebar’s structure, unrolled', () => {
+  // Dashboard, then the sections in it, then the pages, then each page's
+  // settings -- the same nesting the sidebar has, laid out end to end
+  // rather than switched between.
+  assert.ok(panel.includes('{pagesBySpace(spaces, pages).map((space) => ('))
+  assert.ok(panel.includes('<SpaceHeading'))
+  assert.ok(panel.includes('groupPages(space.pages).map(({ group, pages: inGroup }) =>'))
+  assert.ok(panel.includes('{inGroup.map((page) => ( <AccessCard'))
+})
+
+test('the dashboard heading names it, counts it, and folds it', () => {
+  const heading = panel.slice(panel.indexOf('function SpaceHeading('))
+  assert.ok(heading.includes('{space.name}'))
+  assert.ok(heading.includes('{granted}/{total}'))
+  assert.ok(heading.includes('aria-expanded={open}'))
+  assert.ok(heading.includes('onClick={onToggle}'))
+})
+
+test('the dashboard heading is WIRED to fold, per user and per dashboard', () => {
+  // Its own chevron and aria-expanded prove nothing about the call site:
+  // handed a constant, every dashboard is permanently open, and handed one
+  // key, folding one folds them all.
+  assert.ok(panel.includes('onToggle={() => toggleGroup(u.id, space.id)}'))
+  assert.ok(panel.includes('open={!shutGroups.includes(groupKey(u.id, space.id))}'))
+  // ...and the pages really are hidden when it is folded.
+  assert.ok(
+    panel.includes("className={ shutGroups.includes(groupKey(u.id, space.id)) ? 'hidden' : '' }")
+  )
+})
+
+test('a whole dashboard can be granted or taken away at once', () => {
+  assert.ok(panel.includes('onAll={(v) => setGroupPages(u.id, space.pages, v)}'))
+  const heading = panel.slice(panel.indexOf('function SpaceHeading('))
+  assert.ok(heading.includes('onClick={() => onAll(true)}'))
+  assert.ok(heading.includes('onClick={() => onAll(false)}'))
+  assert.ok(heading.includes('disabled={granted === total}'))
+  assert.ok(heading.includes('disabled={granted === 0}'))
+})
+
+test('a folded dashboard still says something inside it is unsaved', () => {
+  assert.ok(panel.includes('unsaved={space.pages.some((p) => unsavedCards.includes(`${u.id}:${p.id}`) )}'))
+  const heading = panel.slice(panel.indexOf('function SpaceHeading('))
+  assert.ok(heading.includes('{unsaved && ('))
+})
+
+test('a page whose dashboard was deleted is shown, and said to be odd', () => {
+  // It is still grantable. Hiding it would make the grant impossible.
+  const heading = panel.slice(panel.indexOf('function SpaceHeading('))
+  assert.ok(heading.includes('{space.missing && ('))
+  assert.ok(heading.includes('deleted dashboard'))
+})
+
+test('the panel asks for every dashboard, not the one being administered', () => {
+  assert.ok(panel.includes('const { spaces } = useSpace()'))
+  assert.ok(panel.includes("import { pagesBySpace } from '../../lib/spaces'"))
+})
+
+test('the access list is grouped by the SAME function the sidebar groups by', () => {
+  // Two ideas about which pages belong together is how the list somebody
+  // is granting access to stops being the list they will see. There is one
+  // grouper, and both callers use it.
+  assert.ok(panel.includes('groupPages(space.pages).map(({ group, pages: inGroup }) =>'))
+  assert.ok(panel.includes("import { accessId, groupPages, navLabelFor } from '../../lib/workspace'"))
+  const sidebar = read('components/Sidebar.jsx')
+  assert.ok(sidebar.includes('groupPages(filtered)'))
+})
+
+test('a group is headed by its own title, and says how much of it they have', () => {
+  // The question this panel is open to answer, at the level somebody
+  // actually thinks about access: a whole section at a time.
+  assert.ok(panel.includes('<span className="truncate">{group}</span>'))
+  assert.ok(
+    panel.includes('const grantedHere = inGroup.filter( (p) => accessMap[accessId(u.id, p.id)]?.canView ).length')
+  )
+  assert.ok(panel.includes('{grantedHere}/{inGroup.length}'))
+})
+
+test('ungrouped pages have no heading, exactly as in the sidebar', () => {
+  // A heading over the pages that have no group would be a group that does
+  // not exist -- and it is the one thing the sidebar does not draw.
+  assert.ok(panel.includes('{group && ('))
+  assert.ok(panel.includes("key={group || '__ungrouped__'}"))
+})
+
+test('every page in a group still gets its card', () => {
+  // Grouping that dropped a page would take away the only way to grant it,
+  // and the page would simply not be there to notice.
+  assert.ok(panel.includes('{inGroup.map((page) => ( <AccessCard'))
+})
+
+test('a section folds, and its pages fold with it', () => {
+  // Three levels, the way somebody thinks about it: the sidebar section,
+  // the pages in it, then the settings of each page.
+  assert.ok(panel.includes('onClick={() => toggleGroup(u.id, sectionKey)}'))
+  assert.ok(panel.includes('aria-expanded={shown}'))
+  assert.ok(panel.includes('const shown = !group || !shutGroups.includes(groupKey(u.id, sectionKey))'))
+  // Keyed by dashboard too: two of them may both have a "Reports" section.
+  assert.ok(panel.includes('const sectionKey = `${space.id}/${group}`'))
+})
+
+test('folds are remembered per user, not per group name', () => {
+  // Two people's lists would otherwise share one set of folds, and opening
+  // a section on one row would open it on every other.
+  assert.ok(panel.includes('const groupKey = (uid, group) => `${uid}:${group}`'))
+})
+
+test('a section nobody has touched is open', () => {
+  // CLOSED is what is remembered. The one thing this panel must never do
+  // is make an access setting invisible to the person looking for it, and
+  // a default that folds everything does exactly that.
+  assert.ok(panel.includes('const [shutGroups, setShutGroups] = useState([])'))
+  assert.ok(!panel.includes('const [openGroups'))
+})
+
+test('ungrouped pages cannot be folded away by their section', () => {
+  // There would be no section heading left to unfold them from. The
+  // DASHBOARD above them still folds, and that heading is always drawn.
+  assert.ok(panel.includes('const shown = !group ||'))
+})
+
+test('a whole section can be granted or taken away at once', () => {
+  // "Give them the DMS B2D Report" is the sentence people say. Page by
+  // page is how the second one gets missed the day a third is added.
+  assert.ok(panel.includes('function setGroupPages(uid, inGroup, canView) { inGroup.forEach((page) => saveAccess(uid, page.id, { canView })) }'))
+  assert.ok(panel.includes('onClick={() => setGroupPages(u.id, inGroup, true)}'))
+  assert.ok(panel.includes('onClick={() => setGroupPages(u.id, inGroup, false)}'))
+  // ...and the button says nothing to do when there is nothing to do.
+  assert.ok(panel.includes('disabled={grantedHere === inGroup.length}'))
+  assert.ok(panel.includes('disabled={grantedHere === 0}'))
+})
+
+test('a folded section still says that something inside it is unsaved', () => {
+  // The card puts its marker on the summary line precisely so collapsing
+  // the CARD cannot hide it. Folding the section would hide that line, so
+  // the same fact has to survive one level up.
+  assert.ok(panel.includes('onDirty={(d) => markUnsaved(u.id, page.id, d)}'))
+  assert.ok(panel.includes('const unsavedHere = inGroup.some((p) => unsavedCards.includes(`${u.id}:${p.id}`) )'))
+  const heading = panel.slice(panel.indexOf('{unsavedHere && ('), panel.indexOf('setGroupPages(u.id, inGroup, true)'))
+  assert.ok(heading.includes('unsaved'))
+})
+
+test('the card reports its unsaved state, rather than the list guessing at it', () => {
+  // "Unsaved" is the difference between what the card is SHOWING and what
+  // is stored, and only the card knows what it is showing.
+  const card = panel.slice(panel.indexOf('function AccessCard('))
+  assert.ok(card.includes('onDirty?.(dirty)'))
+  assert.ok(card.includes('return () => onDirty?.(false)'))
+})
+
+test('a page is named the way the sidebar names it', () => {
+  // The LABEL, specifically. `ariaLabel={`Can view ${navLabelFor(page)}`}`
+  // contains the same characters, so an assertion that the name appears
+  // anywhere is satisfied by the spoken label while the visible one says
+  // something else.
+  assert.ok(panel.includes('{navLabelFor(page)} </span>'))
+  // ...with the real name kept alongside where the two differ, so the row
+  // can still be matched to the Pages panel.
+  assert.ok(panel.includes('{navLabelFor(page) !== page.name && ('))
+  const sidebar = read('components/Sidebar.jsx')
+  assert.ok(sidebar.includes('const label = navLabelFor(page)'))
 })
 
 test('the line says what the page grants without being opened', () => {

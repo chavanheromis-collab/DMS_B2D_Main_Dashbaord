@@ -61,6 +61,7 @@ export async function requireUser(req) {
  *     canView: boolean,
  *     editable:     { [ref]: string[] },   // per-ref editable columns
  *     downloadable: { [ref]: string[] },
+ *     rowOps:       { [ref]: string[] },   // 'add' / 'delete' -- whole rows
  *     hiddenWidgets: string[],
  *   }
  *
@@ -89,5 +90,12 @@ export async function getAccess(uid, page) {
 
   const downloadable = accessDoc?.downloadable || {}
 
-  return { isAdmin, isActive, canView, editable, downloadable }
+  // Whole-row rights, which are NOT derivable from the column grants above.
+  // "May write the Status column" says nothing about whether this person may
+  // throw the record away, so an absent `rowOps` means none rather than "the
+  // same as editing" -- and every account that existed before row operations
+  // did has exactly the rights today that it had yesterday.
+  const rowOps = accessDoc?.rowOps || {}
+
+  return { isAdmin, isActive, canView, editable, downloadable, rowOps }
 }

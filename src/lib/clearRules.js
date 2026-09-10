@@ -37,6 +37,7 @@
 import { testCondition } from './filterEngine.js'
 import { isBlank } from './dataUtils.js'
 import { operatorMeta } from './config.js'
+import { isRequired } from './requiredColumns.js'
 
 export function newClearRule(id) {
   return { id, column: '', operator: 'equals', value: '', value2: '', clear: [] }
@@ -83,13 +84,32 @@ export function hasClearRules(widget) {
  * list that is already empty, forbidden, or the cell that was just typed
  * into.
  */
-export function columnsToClear(
+export function columnsToClear(widget, row, options) {
+  return clearReport(widget, row, options).clear
+}
+
+/**
+ * The same answer, with what it could NOT do.
+ *
+ * A rule that names a column this reader may not write is skipped -- it has
+ * to be, because the server would refuse it and a refusal halfway through a
+ * cascade leaves a row nobody can explain. But skipping it in SILENCE is
+ * the part that was wrong: the reader is told the record has been tidied
+ * up, three fields go, a fourth stays, and the only person who can see that
+ * the rule half ran is the one who cannot do anything about it.
+ *
+ * So the skip is reported. Not the harmless ones -- a cell that was already
+ * empty had nothing to lose, and the cell just typed into was never a
+ * candidate -- only the ones where the rule wanted to act and was not
+ * allowed to, which is the case somebody has to hear about.
+ */
+export function clearReport(
   widget,
   row,
   { column, value, changes, editable = [], dateOrder = 'DMY' } = {}
 ) {
   const rules = clearRulesOf(widget)
-  if (rules.length === 0 || !row) return []
+  if (rules.length === 0 || !row) return { clear: [], skipped: [], kept: [] }
 
   // One cell or a whole form saved at once -- the same question either
   // way. A form is not several independent edits: three fields saved
@@ -105,6 +125,8 @@ export function columnsToClear(
   const after = editedColumns.length > 0 ? { ...row, ...edited } : row
 
   const out = []
+  const skipped = []
+  const kept = []
   for (const rule of rules) {
     if (!testCondition(after, rule, dateOrder)) continue
     // A value that is an ACTION rather than a state: "Return to PDI" is
@@ -119,12 +141,27 @@ export function columnsToClear(
       // A cell just typed into is never cleared -- unless this rule exists
       // precisely to clear it.
       if (!target || (editedColumns.includes(target) && target !== selfClears)) continue
-      if (!editable.includes(target)) continue
+      if (!editable.includes(target)) {
+        // Named by the rule, not writable by this reader. Nothing is
+        // attempted, and it is said out loud rather than left to be
+        // noticed -- or not.
+        if (!isBlank(after[target]) && !skipped.includes(target)) skipped.push(target)
+        continue
+      }
+      // The one place the two rules an admin can write disagree: this one
+      // says the field no longer applies, and the other says it can never
+      // be empty. Required wins, because it is the stricter promise and
+      // the only one a reader can see being broken -- and it is reported,
+      // so nobody has to work out which rule won.
+      if (isRequired(widget, target, editable)) {
+        if (!isBlank(after[target]) && !kept.includes(target)) kept.push(target)
+        continue
+      }
       if (isBlank(after[target])) continue
       if (!out.includes(target)) out.push(target)
     }
   }
-  return out
+  return { clear: out, skipped, kept }
 }
 
 /**
@@ -157,6 +194,20 @@ export function ruleProblem(rule, cols = []) {
     return `“${rule.column}” triggers this rule, so it is never cleared by it.`
   }
   return null
+}
+
+/**
+ * What could not be done, in words somebody can act on.
+ *
+ * Deliberately names the reason. "Delivery Date was not cleared" invites
+ * the reader to try again; "you cannot edit it" tells them who to ask.
+ */
+export function skippedNote(columns) {
+  const list = (columns || []).filter(Boolean)
+  if (list.length === 0) return ''
+  if (list.length === 1) return `${list[0]} still applies — you cannot edit it`
+  const last = list[list.length - 1]
+  return `${list.slice(0, -1).join(', ')} and ${last} still apply — you cannot edit them`
 }
 
 /** What to tell somebody afterwards, in their own words. */

@@ -281,7 +281,7 @@ test('the detail form offers the list the cells offer', () => {
   const panel = read('src/components/RowDetailPanel.jsx')
   // The branch, not just the call inside it: a list built in a branch
   // nothing reaches is a list nobody sees.
-  assert.ok(panel.includes('{choices ? ('), 'the form takes free text where the table does not')
+  assert.ok(panel.includes('choices ? ('), 'the form takes free text where the table does not')
   assert.ok(panel.includes('optionsForCell(choices, value)'), 'the list is not the column’s')
   assert.ok(panel.includes('<option value="">—</option>'), 'a field that can never be emptied once it is set')
   assert.ok(panel.includes('isStrayValue(choices, value)'), 'a value not on the list passes without a word')
@@ -299,12 +299,13 @@ test('...and only where the field can be edited at all', () => {
 })
 
 test('a choice is saved as the choice, not as whatever was there before', () => {
-  // Reading it back off `draft` would race the state update: the field
-  // would save the value BEFORE the one just picked. The same reason the
-  // table's own cells pass it in.
+  // The value is passed in where the caller has it. There is no shared
+  // "what is being typed" left for a second field to race against: the box
+  // is always the box, and each one writes its own column into the draft.
   const panel = read('src/components/RowDetailPanel.jsx')
   assert.ok(panel.includes('commit(col, e.target.value)'))
-  assert.ok(panel.includes('draftField(current, col, next === undefined ? draft : next)'))
+  assert.ok(panel.includes('draftField(current, col, next)'))
+  assert.ok(!panel.includes('const [draft'), 'one field’s draft must not stand in for another’s')
 })
 
 test('the form has a way to open the row’s remarks', () => {
@@ -367,7 +368,7 @@ test('the form colours its menu by the rule the form already uses', () => {
   // a second idea about which values are worth a colour.
   const panel = read('src/components/RowDetailPanel.jsx')
   assert.ok(panel.includes('String(option).length <= 24 ? badgeStyle(option) : undefined'), 'the options are plain')
-  assert.ok(panel.includes('style={short ? badgeStyle(draft) : undefined}'), 'only the open menu is coloured')
+  assert.ok(panel.includes('style={short ? badgeStyle(value) : undefined}'), 'the closed box is coloured too')
   // ...and the pill it already drew goes through the same helper, so the
   // two cannot drift.
   assert.ok(panel.includes('style={badgeStyle(value)}'))

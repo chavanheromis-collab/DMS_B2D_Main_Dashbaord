@@ -8,13 +8,16 @@ import {
   EyeOff,
   Filter,
   Inbox,
+  LayoutGrid,
   Search,
   Send,
   ShieldCheck,
   X,
 } from 'lucide-react'
 import { db } from '../../firebase'
-import { accessId } from '../../lib/workspace'
+import { accessId, groupPages, navLabelFor } from '../../lib/workspace'
+import { pagesBySpace } from '../../lib/spaces'
+import { useSpace } from '../../context/SpaceContext.jsx'
 import { DEFAULT_SCOPE, SCOPE_TOKENS, describeScope } from '../../lib/userScope'
 import { collectTabRefs } from '../../lib/refs'
 import { canReceiveMessages, canSendMessages } from '../../lib/messages'
@@ -23,6 +26,7 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import { stripUndefined } from '../../lib/firestoreSafe'
 import { Btn, Select, TextInput, Toggle, stableEqual, useWorkspaceCtx } from './ui.jsx'
+import { ROW_OP_GRANTS, ROW_OP_SWITCHES } from '../../lib/rowOps'
 
 /**
  * Who can see what, across every page in the workspace.
@@ -31,6 +35,7 @@ import { Btn, Select, TextInput, Toggle, stableEqual, useWorkspaceCtx } from './
  *   - hiddenWidgets: specific widgets on that page this user shouldn't see
  *   - editable:      { [ref]: [columns] } -- inline-edit rights
  *   - downloadable:  { [ref]: [columns] } -- row download rights
+ *   - rowOps:        { [ref]: ['add'|'delete'] } -- WHOLE-row rights
  *
  * All three are keyed by REF ("<sourceId>::MASTER") rather than a bare tab
  * name, because a page can now span several spreadsheets and two of them
@@ -85,6 +90,10 @@ const STATUS_TABS = [
 
 export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
   const { user: me } = useAuth()
+  // Every dashboard on the account, so the list can be laid out the way the
+  // sidebar nests it. Not the one being administered: a person's rights run
+  // across all of them at once.
+  const { spaces } = useSpace()
   const [users, setUsers] = useState([])
   // Who a bulk action applies to. Twelve people joining in the same week is
   // the normal shape of this job, and doing them one at a time is how the
@@ -97,6 +106,34 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
   // as twelve full cards is a wall nobody reads; one line each, and the one
   // being worked on opened.
   const [openPage, setOpenPage] = useState(null)
+  // Which sidebar sections are folded away, keyed by user AND group: two
+  // people's lists would otherwise share one set of folds, and opening a
+  // section on one row would open it on every other.
+  //
+  // CLOSED is what is remembered, not open. A section nobody has touched is
+  // therefore open, so a page can never be hidden by a default -- and the
+  // one thing this panel must never do is make an access setting invisible
+  // to the person looking for it.
+  const [shutGroups, setShutGroups] = useState([])
+  // Which page cards are holding unsaved work, so a folded section can say
+  // so on its heading. Reported UP by the cards rather than worked out
+  // here, because "unsaved" is the difference between what a card is
+  // showing and what is stored, and only the card knows what it is showing.
+  const [unsavedCards, setUnsavedCards] = useState([])
+  const markUnsaved = (uid, pageId, isDirty) =>
+    setUnsavedCards((all) => {
+      const key = `${uid}:${pageId}`
+      const had = all.includes(key)
+      if (isDirty === had) return all
+      return isDirty ? [...all, key] : all.filter((k) => k !== key)
+    })
+  const groupKey = (uid, group) => `${uid}:${group}`
+  const toggleGroup = (uid, group) =>
+    setShutGroups((all) =>
+      all.includes(groupKey(uid, group))
+        ? all.filter((k) => k !== groupKey(uid, group))
+        : [...all, groupKey(uid, group)]
+    )
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
 
@@ -181,6 +218,18 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
   }
 
   /**
+   * The same, for one section of the sidebar.
+   *
+   * "Give them the DMS B2D Report" is the sentence people actually say --
+   * they are handing over a part of the business, not two pages that happen
+   * to sit together. Doing it page by page is how the second one gets
+   * missed on the day a third is added.
+   */
+  function setGroupPages(uid, inGroup, canView) {
+    inGroup.forEach((page) => saveAccess(uid, page.id, { canView }))
+  }
+
+  /**
    * Copies another user's whole permission set. Onboarding someone into an
    * existing role is otherwise a dozen identical checkbox passes.
    */
@@ -192,6 +241,7 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
         hiddenWidgets: from?.hiddenWidgets || [],
         editable: from?.editable || {},
         downloadable: from?.downloadable || {},
+        rowOps: from?.rowOps || {},
         widgetOrder: from?.widgetOrder || {},
       })
     })
@@ -604,37 +654,164 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
                                 No pages exist yet — create one under “Pages”.
                               </p>
                             ) : (
-                              <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                                {pages.map((page) => (
-                                  <AccessCard
-                                    key={page.id}
-                                    open={openPage === `${u.id}:${page.id}`}
-                                    onToggleOpen={() =>
-                                      setOpenPage((cur) =>
-                                        cur === `${u.id}:${page.id}` ? null : `${u.id}:${page.id}`
-                                      )
-                                    }
-                                    page={page}
-                                    value={accessMap[accessId(u.id, page.id)]}
-                                    onSave={(next) => saveAccess(u.id, page.id, next)}
-                                    onApplyScopeToAll={(scope) => applyScopeEverywhere(u.id, scope)}
-                                    // Whose order could be copied onto this
-                                    // one. Admins included: theirs is usually
-                                    // the arrangement worth spreading.
-                                    tabs={Array.from(collectTabRefs(page.widgets || []))}
-                                    tabHeaders={tabHeaders}
-                                    labelFor={labelFor}
-                                    others={users
-                                      .filter((other) => other.id !== u.id)
-                                      .map((other) => ({
-                                        id: other.id,
-                                        label: `${other.name || other.email || other.id}${
-                                          other.role === 'admin' ? ' (admin)' : ''
-                                        }`,
-                                        order: accessMap[accessId(other.id, page.id)]?.widgetOrder || {},
-                                      }))
-                                      .filter((other) => Object.keys(other.order).length > 0)}
-                                  />
+                              /* The sidebar's own shape, laid out end to
+                                 end: the dashboard, the sections inside it,
+                                 the pages inside those, and then each
+                                 page's settings.
+
+                                 The sidebar shows ONE dashboard at a time
+                                 because navigating means being in one.
+                                 This is the opposite job -- a person's
+                                 rights run across all of them at once -- so
+                                 the same structure is unrolled rather than
+                                 switched between. */
+                              <div className="space-y-2">
+                                {pagesBySpace(spaces, pages).map((space) => (
+                                  <div
+                                    key={space.id}
+                                    className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                                  >
+                                    <SpaceHeading
+                                      space={space}
+                                      granted={
+                                        space.pages.filter((p) => accessMap[accessId(u.id, p.id)]?.canView)
+                                          .length
+                                      }
+                                      open={!shutGroups.includes(groupKey(u.id, space.id))}
+                                      onToggle={() => toggleGroup(u.id, space.id)}
+                                      onAll={(v) => setGroupPages(u.id, space.pages, v)}
+                                      unsaved={space.pages.some((p) =>
+                                        unsavedCards.includes(`${u.id}:${p.id}`)
+                                      )}
+                                    />
+
+                                    <div
+                                      className={
+                                        shutGroups.includes(groupKey(u.id, space.id)) ? 'hidden' : ''
+                                      }
+                                    >
+                                {groupPages(space.pages).map(({ group, pages: inGroup }) => {
+                                  const grantedHere = inGroup.filter(
+                                    (p) => accessMap[accessId(u.id, p.id)]?.canView
+                                  ).length
+                                  // Ungrouped pages have no section to fold,
+                                  // so they are always shown -- there would
+                                  // be no heading left to unfold them from.
+                                  // Keyed by SPACE as well: two dashboards
+                                  // may both have a "Reports" section, and
+                                  // folding one must not fold the other.
+                                  const sectionKey = `${space.id}/${group}`
+                                  const shown = !group || !shutGroups.includes(groupKey(u.id, sectionKey))
+                                  const unsavedHere = inGroup.some((p) =>
+                                    unsavedCards.includes(`${u.id}:${p.id}`)
+                                  )
+                                  return (
+                                    <div key={group || '__ungrouped__'}>
+                                      {group && (
+                                        <div className="flex items-center gap-1 border-b border-slate-100 bg-slate-50/70 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleGroup(u.id, sectionKey)}
+                                            aria-expanded={shown}
+                                            className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-slate-600"
+                                          >
+                                            <ChevronDown
+                                              size={12}
+                                              className={`shrink-0 transition-transform ${shown ? '' : '-rotate-90'}`}
+                                            />
+                                            <span className="truncate">{group}</span>
+                                            {/* How much of this group they
+                                                have, which is the question
+                                                this panel is open to
+                                                answer -- and the reason the
+                                                count sits on the heading
+                                                rather than inside it, where
+                                                folding it away would take
+                                                the answer with it. */}
+                                            <span
+                                              className={`font-normal normal-case ${
+                                                grantedHere === 0 ? 'text-slate-300' : 'text-indigo-500'
+                                              }`}
+                                            >
+                                              {grantedHere}/{inGroup.length}
+                                            </span>
+                                          </button>
+
+                                          {/* Folded or not, the section says
+                                              that something inside it is
+                                              waiting to be saved. */}
+                                          {unsavedHere && (
+                                            <span className="shrink-0 rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] font-semibold normal-case text-white">
+                                              unsaved
+                                            </span>
+                                          )}
+
+                                          {/* "Give them the DMS B2D Report"
+                                              is the sentence people say.
+                                              Doing it page by page is how
+                                              the second one gets missed the
+                                              day a third is added. */}
+                                          <button
+                                            type="button"
+                                            onClick={() => setGroupPages(u.id, inGroup, true)}
+                                            disabled={grantedHere === inGroup.length}
+                                            className="shrink-0 rounded px-1.5 py-0.5 font-normal normal-case text-indigo-500 hover:bg-white disabled:text-slate-300 disabled:hover:bg-transparent"
+                                            title={`Grant every page in ${group}`}
+                                          >
+                                            all
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setGroupPages(u.id, inGroup, false)}
+                                            disabled={grantedHere === 0}
+                                            className="shrink-0 rounded px-1.5 py-0.5 font-normal normal-case text-slate-400 hover:bg-white hover:text-rose-500 disabled:text-slate-300 disabled:hover:bg-transparent"
+                                            title={`Take every page in ${group} away`}
+                                          >
+                                            none
+                                          </button>
+                                        </div>
+                                      )}
+                                      <div className={`divide-y divide-slate-100 ${shown ? '' : 'hidden'}`}>
+                                        {inGroup.map((page) => (
+                                          <AccessCard
+                                            key={page.id}
+                                            open={openPage === `${u.id}:${page.id}`}
+                                            onToggleOpen={() =>
+                                              setOpenPage((cur) =>
+                                                cur === `${u.id}:${page.id}` ? null : `${u.id}:${page.id}`
+                                              )
+                                            }
+                                            page={page}
+                                            value={accessMap[accessId(u.id, page.id)]}
+                                            onSave={(next) => saveAccess(u.id, page.id, next)}
+                                            onApplyScopeToAll={(scope) => applyScopeEverywhere(u.id, scope)}
+                                            // Whose order could be copied onto
+                                            // this one. Admins included:
+                                            // theirs is usually the
+                                            // arrangement worth spreading.
+                                            tabs={Array.from(collectTabRefs(page.widgets || []))}
+                                            tabHeaders={tabHeaders}
+                                            labelFor={labelFor}
+                                            onDirty={(d) => markUnsaved(u.id, page.id, d)}
+                                            others={users
+                                              .filter((other) => other.id !== u.id)
+                                              .map((other) => ({
+                                                id: other.id,
+                                                label: `${other.name || other.email || other.id}${
+                                                  other.role === 'admin' ? ' (admin)' : ''
+                                                }`,
+                                                order:
+                                                  accessMap[accessId(other.id, page.id)]?.widgetOrder || {},
+                                              }))
+                                              .filter((other) => Object.keys(other.order).length > 0)}
+                                          />
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                                    </div>
+                                  </div>
                                 ))}
                               </div>
                             )}
@@ -766,12 +943,94 @@ function ScopeEditor({ tabs, tabHeaders, scope, onChange, labelFor, onApplyAll }
   )
 }
 
-function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs = [], open = true, onToggleOpen }) {
+/**
+ * A dashboard, as a heading over the pages inside it.
+ *
+ * The sidebar's top level. It is a HEADING and not a switcher: the point
+ * here is to see somebody's rights across every dashboard at once, which
+ * is exactly what switching between them prevents.
+ */
+function SpaceHeading({ space, granted, open, onToggle, onAll, unsaved }) {
+  const total = space.pages.length
+  return (
+    <div className="flex items-center gap-1.5 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-2.5 py-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+      >
+        <ChevronDown size={13} className={`shrink-0 text-slate-400 transition-transform ${open ? '' : '-rotate-90'}`} />
+        <LayoutGrid size={13} className="shrink-0 text-slate-400" />
+        <span className="truncate text-[12px] font-semibold text-ink">{space.name}</span>
+        {/* A page stamped with a dashboard whose document has gone. It is
+            still grantable, so it is shown -- and said to be odd, rather
+            than left looking like a dashboard nobody can find. */}
+        {space.missing && (
+          <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] text-amber-700">
+            deleted dashboard
+          </span>
+        )}
+        <span
+          className={`shrink-0 text-[10px] tabular-nums ${
+            granted === 0 ? 'text-slate-300' : 'text-indigo-500'
+          }`}
+        >
+          {granted}/{total}
+        </span>
+      </button>
+
+      {/* Folded or not, the dashboard says something inside it is waiting
+          to be saved -- the same rule the page card follows on its own
+          summary line. */}
+      {unsaved && (
+        <span className="shrink-0 rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+          unsaved
+        </span>
+      )}
+
+      <button
+        type="button"
+        onClick={() => onAll(true)}
+        disabled={granted === total}
+        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-indigo-600 hover:bg-indigo-50 disabled:text-slate-300 disabled:hover:bg-transparent"
+        title={`Grant every page in ${space.name}`}
+      >
+        all
+      </button>
+      <button
+        type="button"
+        onClick={() => onAll(false)}
+        disabled={granted === 0}
+        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:text-slate-300 disabled:hover:bg-transparent"
+        title={`Take every page in ${space.name} away`}
+      >
+        none
+      </button>
+    </div>
+  )
+}
+
+function AccessCard({
+  page,
+  value,
+  onSave,
+  onApplyScopeToAll,
+  others = [],
+  tabs = [],
+  open = true,
+  onToggleOpen,
+  onDirty,
+}) {
   const { tabHeaders, labelFor } = useWorkspaceCtx()
   const [canView, setCanView] = useState(false)
   const [hidden, setHidden] = useState([])
   const [editable, setEditable] = useState({})
   const [downloadable, setDownloadable] = useState({})
+  // Whole-row rights, kept apart from the column maps above because they
+  // are not columns: "may write Status" and "may throw the record away" are
+  // different questions and there is no column-shaped way to ask the second.
+  const [rowOps, setRowOps] = useState({})
   const [widgetOrder, setWidgetOrder] = useState({})
   const [scope, setScope] = useState(DEFAULT_SCOPE)
   const [openRef, setOpenRef] = useState('')
@@ -783,6 +1042,7 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
     setHidden(value?.hiddenWidgets || [])
     setEditable(value?.editable || {})
     setDownloadable(value?.downloadable || {})
+    setRowOps(value?.rowOps || {})
     setWidgetOrder(value?.widgetOrder || {})
     setScope(value?.scope || DEFAULT_SCOPE)
   }, [value])
@@ -801,9 +1061,24 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
     [widgets]
   )
 
-  const activeRefs = mode === 'editable' ? editableRefs : downloadRefs
-  const activeMap = mode === 'editable' ? editable : downloadable
-  const setActiveMap = mode === 'editable' ? setEditable : setDownloadable
+  // A table only offers row operations where an admin switched one on, so
+  // only those refs are worth granting -- offering every ref would imply a
+  // right no widget would ever honour.
+  const rowOpRefs = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          widgets
+            .filter((w) => w.type === 'table' && ROW_OP_SWITCHES.some((a) => w[a.key]))
+            .map((w) => w.tab)
+        )
+      ),
+    [widgets]
+  )
+
+  const activeRefs = mode === 'editable' ? editableRefs : mode === 'rowOps' ? rowOpRefs : downloadRefs
+  const activeMap = mode === 'editable' ? editable : mode === 'rowOps' ? rowOps : downloadable
+  const setActiveMap = mode === 'editable' ? setEditable : mode === 'rowOps' ? setRowOps : setDownloadable
 
   function toggleColumn(ref, col) {
     setActiveMap((m) => {
@@ -817,6 +1092,7 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
     !stableEqual(hidden, value?.hiddenWidgets || []) ||
     !stableEqual(editable, value?.editable || {}) ||
     !stableEqual(downloadable, value?.downloadable || {}) ||
+    !stableEqual(rowOps, value?.rowOps || {}) ||
     !stableEqual(widgetOrder, value?.widgetOrder || {}) ||
     !stableEqual(scope, value?.scope || DEFAULT_SCOPE)
 
@@ -828,6 +1104,16 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
   const downloadCount = Object.values(downloadable).reduce((n, cols) => n + (cols?.length || 0), 0)
   const limited = (scope?.conditions || []).some((c) => c?.column)
 
+  // ...and outside the card, because the section it sits in folds too. A
+  // marker on a line that has itself been folded away is the same bug one
+  // level up, and this panel already decided that one.
+  useEffect(() => {
+    onDirty?.(dirty)
+    return () => onDirty?.(false)
+    // `onDirty` is a fresh closure every render; depending on it would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty])
+
   return (
     <div className={open ? 'bg-slate-50/40' : ''}>
       {/* The summary line. The view switch lives here, so granting a page
@@ -837,7 +1123,7 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
           checked={canView}
           onChange={setCanView}
           label=""
-          ariaLabel={`Can view ${page.name}`}
+          ariaLabel={`Can view ${navLabelFor(page)}`}
         />
 
         <button
@@ -846,9 +1132,18 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
           <span className="shrink-0">{page.icon || '📊'}</span>
+          {/* The name as it appears in the SIDEBAR, because that is the name
+              this person will be looking for. Where the two differ the real
+              one is kept alongside, so an admin can still match the row to
+              the Pages panel. */}
           <span className={`truncate text-[13px] font-medium ${canView ? 'text-ink' : 'text-slate-400'}`}>
-            {page.name}
+            {navLabelFor(page)}
           </span>
+          {navLabelFor(page) !== page.name && (
+            <span className="shrink-0 truncate text-[10px] text-slate-300" title={page.name}>
+              {page.name}
+            </span>
+          )}
 
           {canView && (
             <span className="ml-auto flex shrink-0 items-center gap-1 text-[10px] text-slate-400">
@@ -993,7 +1288,7 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
         )}
       </div>
 
-      {(editableRefs.length > 0 || downloadRefs.length > 0) && (
+      {(editableRefs.length > 0 || downloadRefs.length > 0 || rowOpRefs.length > 0) && (
         <>
           <div className="mb-1.5 flex rounded-lg border border-slate-200 p-0.5 text-[11px]">
             {editableRefs.length > 0 && (
@@ -1018,6 +1313,17 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
                 Downloads they may use
               </button>
             )}
+            {rowOpRefs.length > 0 && (
+              <button
+                onClick={() => {
+                  setMode('rowOps')
+                  setOpenRef('')
+                }}
+                className={`flex-1 rounded px-2 py-1 ${mode === 'rowOps' ? 'bg-slate-100 font-medium text-ink' : 'text-slate-500'}`}
+              >
+                Whole rows
+              </button>
+            )}
           </div>
 
           <div className="mb-2 flex flex-wrap gap-1">
@@ -1040,7 +1346,41 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
             )}
           </div>
 
-          {openRef && (
+          {/* Two rights rather than a column list, because that is what
+              they are. Adding is governed by the COLUMN grants for what may
+              go in the new row (see lib/rowOps.js), so the only questions
+              here are whether this person may create records at all and
+              whether they may destroy them. */}
+          {openRef && mode === 'rowOps' && (
+            <div className="mb-2 space-y-1.5 rounded-lg border border-slate-100 p-2">
+              {ROW_OP_GRANTS.map((grant) => (
+                <label
+                  key={grant.value}
+                  className={`flex items-start gap-1.5 text-[11px] ${canView ? '' : 'opacity-40'}`}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={!canView}
+                    className="mt-0.5"
+                    checked={(rowOps[openRef] || []).includes(grant.value)}
+                    onChange={() => toggleColumn(openRef, grant.value)}
+                  />
+                  <span>
+                    <span className={grant.value === 'delete' ? 'font-medium text-rose-600' : 'font-medium'}>
+                      {grant.label}
+                    </span>
+                    <span className="block text-[10px] leading-snug text-slate-400">{grant.hint}</span>
+                  </span>
+                </label>
+              ))}
+              <p className="text-[10px] leading-snug text-slate-400">
+                A new row can only carry the columns this person may <em>edit</em> — the rest arrive blank — so
+                granting Add without any editable column creates empty records.
+              </p>
+            </div>
+          )}
+
+          {openRef && mode !== 'rowOps' && (
             <div className="mb-2 grid max-h-40 grid-cols-1 gap-1 overflow-y-auto rounded-lg border border-slate-100 p-2 md:grid-cols-2">
               {(tabHeaders[openRef] || []).map((col) => (
                 <label key={col} className={`flex items-center gap-1.5 text-[11px] ${canView ? '' : 'opacity-40'}`}>
@@ -1080,7 +1420,9 @@ function AccessCard({ page, value, onSave, onApplyScopeToAll, others = [], tabs 
         <Btn
           variant="primary"
           disabled={!dirty}
-          onClick={() => onSave({ canView, hiddenWidgets: hidden, editable, downloadable, widgetOrder, scope })}
+          onClick={() =>
+            onSave({ canView, hiddenWidgets: hidden, editable, downloadable, rowOps, widgetOrder, scope })
+          }
         >
           Save access
         </Btn>

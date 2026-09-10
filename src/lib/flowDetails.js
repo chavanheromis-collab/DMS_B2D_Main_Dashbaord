@@ -17,6 +17,8 @@
 // Nothing here reads a sheet, and nothing here draws.
 
 /** How many rows one window will list before it says "and N more". */
+import { dataColumns } from './rowMeta.js'
+
 export const DETAIL_MAX = 25
 
 /** The most columns worth putting in a window this size. */
@@ -52,7 +54,7 @@ export function detailColumns(flow, rows) {
   if (chosen.length === 0) return []
   const present = new Set()
   for (const row of rows || []) {
-    for (const key of Object.keys(row || {})) present.add(key)
+    for (const key of dataColumns(Object.keys(row || {}))) present.add(key)
   }
   return chosen.filter((c) => present.has(c)).slice(0, DETAIL_COLUMNS_MAX)
 }

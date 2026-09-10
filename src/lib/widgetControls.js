@@ -67,6 +67,48 @@ export function anyControlActive(controls, values) {
 }
 
 /**
+ * The smallest and largest number a column actually holds, or nulls when it
+ * holds none.
+ *
+ * Separate from `numericBounds` because the two are asked different
+ * questions. A slider must end up with a track it is possible to drag
+ * whatever the data says, so its bounds invent 0-100 out of an empty
+ * column; a LABEL saying what the page holds must not invent anything, and
+ * "0 - 100" over a column with no numbers in it is simply false.
+ */
+export function numericSpan(rows, column) {
+  let min = null
+  let max = null
+  for (const row of rows || []) {
+    const n = toNumber(row?.[column])
+    if (n === null) continue
+    if (min === null || n < min) min = n
+    if (max === null || n > max) max = n
+  }
+  return { min, max }
+}
+
+/**
+ * The same question about a date column: earliest and latest, or nulls.
+ *
+ * `dateOrder` is passed through rather than assumed, so 05/06/2024 is read
+ * the way the rest of the page reads it -- a span computed in the other
+ * order would put the earliest date after the latest one and say so on
+ * screen.
+ */
+export function dateSpan(rows, column, dateOrder = 'DMY') {
+  let min = null
+  let max = null
+  for (const row of rows || []) {
+    const d = toDate(row?.[column], dateOrder)
+    if (!d) continue
+    if (min === null || d < min) min = d
+    if (max === null || d > max) max = d
+  }
+  return { min, max }
+}
+
+/**
  * The numeric bounds for a slider, taken from the column's REAL values
  * unless the admin pinned them.
  *
@@ -81,15 +123,8 @@ export function numericBounds(rows, column, control = {}) {
     return { min: pinnedMin, max: pinnedMax }
   }
 
-  let lo = Infinity
-  let hi = -Infinity
-  for (const row of rows || []) {
-    const n = toNumber(row[column])
-    if (n === null) continue
-    if (n < lo) lo = n
-    if (n > hi) hi = n
-  }
-  if (lo === Infinity) return { min: 0, max: 100 }
+  const { min: lo, max: hi } = numericSpan(rows, column)
+  if (lo === null) return { min: 0, max: 100 }
 
   const min = pinnedMin !== null ? pinnedMin : Math.floor(lo)
   let max = pinnedMax !== null ? pinnedMax : Math.ceil(hi)
@@ -97,6 +132,38 @@ export function numericBounds(rows, column, control = {}) {
   // track that cannot be dragged.
   if (max <= min) max = min + 1
   return { min, max }
+}
+
+/**
+ * Those bounds, widened if need be to contain the value the control is
+ * holding right now.
+ *
+ * The moment a slider's ends started following the page, it inherited the
+ * failure the dropdowns solved long ago -- `controlOptions` keeps a
+ * SELECTED value on the list however far the page has narrowed, because a
+ * value that is still filtering has to stay reachable. A track has the same
+ * problem in its own shape: set the amount slider to fifty lakh, then pick
+ * a branch whose biggest order is two, and the track no longer contains its
+ * own handle. The filter is still applied, the page is still narrowed by
+ * it, and there is no longer any way to drag it back.
+ *
+ * So the track always reaches the value. Same rule, same reason: whatever
+ * narrowed a control must never take away the way back out of it.
+ *
+ * A two-handled slider holds `{ from, to }` and a threshold holds a bare
+ * number; both are read here so neither kind has to know about the other.
+ */
+export function boundsHolding(bounds, value) {
+  const held = value && typeof value === 'object' ? [value.from, value.to] : [value]
+
+  let { min, max } = bounds
+  for (const raw of held) {
+    const n = toNumber(raw)
+    if (n === null) continue
+    if (n < min) min = n
+    if (n > max) max = n
+  }
+  return min === bounds.min && max === bounds.max ? bounds : { min, max }
 }
 
 /** A sensible step so a slider has ~100 stops rather than 4 or 4 million. */

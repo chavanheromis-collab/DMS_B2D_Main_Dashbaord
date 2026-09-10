@@ -77,11 +77,16 @@ export function hasChanges(row, draft) {
  * clearing one that is not on screen would be a change nobody could see
  * before pressing Save.
  */
-export function clearedDraft(row, columns, editableColumns) {
+export function clearedDraft(row, columns, editableColumns, required = []) {
   const out = {}
   for (const column of columns || []) {
     if (!(editableColumns || []).includes(column)) continue
     if (String(row?.[column] ?? '') === '') continue
+    // A field that has to have something in it is not something Clear can
+    // take out. The alternative -- blank it and let Save refuse -- turns
+    // one press into a form nobody can save until they have retyped a
+    // value they never meant to lose.
+    if ((required || []).includes(column)) continue
     out[column] = ''
   }
   return out

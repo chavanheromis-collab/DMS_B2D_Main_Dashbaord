@@ -140,3 +140,44 @@ export async function updateCells(idToken, pageId, ref, columnName, cells) {
     body: JSON.stringify({ page: pageId, ref, column: columnName, cells }),
   })
 }
+
+// ---------------------------------------------------------------------
+// Whole rows
+// ---------------------------------------------------------------------
+// One endpoint, one `op`, because both operations are the same request with
+// a different verb and the same two permissions behind them (see
+// lib/rowOps.js). Separate routes would be separate places to forget a
+// check.
+//
+// Every destructive one sends `rows` as [{ row, fp }] -- the address AND
+// the fingerprint the server itself handed out with that row. The browser
+// never computes a fingerprint, only echoes one, so the two sides cannot
+// drift on how a value is spelled. See lib/rowFingerprint.js for why a row
+// number alone is not enough to delete by.
+
+function rowOp(idToken, body) {
+  return apiFetch(idToken, '/api/sheets', { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** Removes rows, for good. Refused entirely if any of them has moved. */
+export async function deleteRows(idToken, pageId, ref, rows) {
+  return rowOp(idToken, { op: 'delete', page: pageId, ref, rows })
+}
+
+/**
+ * Sends rows to another tab, and on a move takes them off this one.
+ *
+ * Neither the values nor the MAPPING are sent. The values are read off the
+ * source sheet and the column pairs off the stored widget, so a copy is a
+ * statement about rows that exist, landing where an admin said they land.
+ * `widget` is the only new thing the browser contributes and it is an id,
+ * not a decision -- the server looks it up on the page and reads the route
+ * back out of it.
+ *
+ * Both halves are authorised before either runs: a move whose delete is
+ * refused after its append has landed would leave the rows on both tabs,
+ * which is worse than either half failing on its own.
+ */
+export async function copyRowsTo(idToken, pageId, ref, target, rows, { move = false, widget = '' } = {}) {
+  return rowOp(idToken, { op: move ? 'move' : 'copy', page: pageId, ref, target, rows, widget })
+}
