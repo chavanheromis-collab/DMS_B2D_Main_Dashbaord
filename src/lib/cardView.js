@@ -222,3 +222,34 @@ export function cardLines(row, fields) {
 export function zoomLines(row, fields) {
   return (fields || []).map((column) => ({ column, value: String(row?.[column] ?? '').trim() }))
 }
+
+// ---------------------------------------------------------------------
+// How big the zoom should be
+// ---------------------------------------------------------------------
+// A fixed panel is wrong at both ends. A record with three fields in a
+// 480px box is a small amount of text marooned in the middle of a lot of
+// nothing; a record with thirty is that same box scrolled four times, for
+// a window whose whole purpose was to show the record at once.
+//
+// So it follows the field count. Height already does -- the panel hugs
+// its content and caps at the viewport -- and this is the other axis: a
+// little narrower when there is little to say, wider and in two columns
+// when there is a lot, which is what turns four scrolls into one.
+
+export const ZOOM_SIZES = [
+  { upTo: 6, width: 380, columns: 1 },
+  { upTo: 16, width: 500, columns: 1 },
+  { upTo: Infinity, width: 680, columns: 2 },
+]
+
+/**
+ * The width and column count for a record with this many fields.
+ *
+ * Two columns only past the point where one would scroll: side by side is
+ * harder to read down, and it is worth it exactly when the alternative is
+ * not being able to see the record at once, which was the point.
+ */
+export function zoomSize(fieldCount) {
+  const n = Number.isFinite(fieldCount) ? Math.max(0, fieldCount) : 0
+  return ZOOM_SIZES.find((size) => n <= size.upTo) || ZOOM_SIZES[ZOOM_SIZES.length - 1]
+}

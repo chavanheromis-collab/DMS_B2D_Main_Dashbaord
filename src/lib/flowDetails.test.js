@@ -5,7 +5,8 @@ import path from 'node:path'
 
 import {
   DEFAULT_DETAILS,
-  DETAIL_COLUMNS_MAX,
+  detailSize,
+  detailWidth,
   DETAIL_MAX,
   canShowDetails,
   detailColumns,
@@ -73,10 +74,46 @@ test('a hop to another tab shows what it can rather than a panel of blanks', () 
   assert.equal(detailsFor({ rows: service }, flow({ detailColumns: [] })).mismatched, false)
 })
 
-test('a window is not a table, so the column list is capped', () => {
+test('every column the admin ticked is shown', () => {
+  // There used to be a cap of eight here, which meant somebody could tick
+  // eleven columns, see eight, and have nothing on screen say where the
+  // other three went. The window grows instead.
   const many = Array.from({ length: 20 }, (_, i) => `C${i}`)
   const row = Object.fromEntries(many.map((c) => [c, 'x']))
-  assert.equal(detailColumns(flow({ detailColumns: many }), [row]).length, DETAIL_COLUMNS_MAX)
+  assert.equal(detailColumns(flow({ detailColumns: many }), [row]).length, 20)
+})
+
+test('the window is sized by what it is about to hold', () => {
+  // The cap and the fixed 320x300 were one decision: eight was the most
+  // that fitted. Sizing it to the content is what lets the cap go.
+  assert.equal(detailWidth(2), 320)
+  assert.equal(detailWidth(5), 400)
+  assert.equal(detailWidth(11), 480)
+  // It only ever widens with the count.
+  let last = 0
+  for (const n of [0, 3, 4, 6, 7, 30]) {
+    assert.ok(detailWidth(n) >= last, `${n} narrowed`)
+    last = detailWidth(n)
+  }
+
+  // Each listed row is a STACK of label/value lines, so the columns make
+  // it tall and the rows make it long.
+  const oneCol = detailSize({ columns: 1, rows: 5 })
+  const sixCol = detailSize({ columns: 6, rows: 5 })
+  assert.ok(sixCol.height > oneCol.height, 'more columns must be taller')
+  assert.ok(detailSize({ columns: 3, rows: 8 }).height > detailSize({ columns: 3, rows: 2 }).height)
+
+  // Bounded at both ends: an empty branch is not a sliver, and a big one
+  // is not taller than a laptop screen.
+  assert.equal(detailSize({ columns: 0, rows: 0 }).height, 150)
+  assert.equal(detailSize({ columns: 20, rows: 25 }).height, 440)
+
+  // Nonsense lands on something drawable rather than NaN.
+  for (const bad of [NaN, -3, undefined, null]) {
+    const size = detailSize({ columns: bad, rows: bad })
+    assert.ok(Number.isFinite(size.width) && Number.isFinite(size.height))
+  }
+  assert.ok(Number.isFinite(detailSize().height))
 })
 
 // --- which rows ----------------------------------------------------------
@@ -212,6 +249,40 @@ test('it closes on Escape and on a press anywhere else', () => {
   // Captured, so a click on another row's eye opens that one rather than
   // being swallowed by the close.
   assert.ok(popup.includes("removeEventListener('pointerdown', onDown, true)"), 'the listener outlives the window')
+})
+
+test('the window wears the branch’s own colour', () => {
+  // A white box floating over a coloured tree is a different object that
+  // happened to appear. Tinted, it reads as that row, opened.
+  const popup = read('components/widgets/FlowRowDetails.jsx')
+  assert.ok(popup.includes('flowNodeColor(node)'), 'it must ask for the same colour the row is drawn with')
+  assert.ok(popup.includes('backgroundColor: skin.ground'))
+  assert.ok(popup.includes('borderColor: skin.edge'))
+  // Full strength only on the rail: a saturated ground would fight every
+  // value printed on it, and the values are why the window is open.
+  assert.ok(popup.includes('rail: hue'))
+  assert.ok(popup.includes("ground: mixColor('#FFFFFF', hue, 0.06)"))
+  assert.equal(popup.includes('bg-white shadow-2xl'), false, 'nothing paints it white any more')
+})
+
+test('one definition of a node’s colour, so the two cannot disagree', () => {
+  // The row and the window it opens have to be the same hue. Two copies of
+  // the palette-by-depth expression is how they come to differ.
+  const widget = read('components/widgets/FlowWidget.jsx')
+  assert.ok(widget.includes('const color = flowNodeColor(node)'))
+  // The palette-by-depth fallback now lives only in `flowNodeColor`, so
+  // the widget has no reason to know the palette exists at all.
+  assert.equal(widget.includes('STAGE_PALETTE'), false)
+})
+
+test('a record is a card, not a line in a wall of grey', () => {
+  // Twenty label/value lines running together left no telling where one
+  // record ended and the next began.
+  const popup = read('components/widgets/FlowRowDetails.jsx')
+  assert.ok(popup.includes('rounded-lg border bg-white/75'))
+  // ...and it goes to two columns once one would be a long scroll.
+  assert.ok(popup.includes('data.columns.length > 8 && box.width >= 400 ? 2 : 1'))
+  assert.ok(popup.includes('minmax(0, 1fr)'))
 })
 
 test('the admin can choose the columns, and is told when they have not', () => {

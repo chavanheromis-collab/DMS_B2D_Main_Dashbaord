@@ -186,6 +186,49 @@ function rollupName(r) {
 }
 
 /** Columns the blend ADDS beyond the incoming ones: the count and roll-ups. */
+/**
+ * How many of these joined rows actually found something on the other side.
+ *
+ * A left join always hands back every left row, so a blend that matches
+ * NOTHING looks exactly like one that is working: the columns are there,
+ * the widget says "blended", and every value is blank. That is the hardest
+ * kind of wrong to notice, because there is nothing on screen that is
+ * visibly missing -- only values that were never filled in, which on a
+ * real sheet is an ordinary thing to see.
+ *
+ * The count comes from the "Match count" column the join already writes,
+ * so this measures what actually happened rather than re-deciding it.
+ */
+export function matchedCount(rows, blend) {
+  if (!blendIsReady(blend)) return null
+  const column = blendedColumnName(blend, 'Match count')
+  let matched = 0
+  for (const row of rows || []) {
+    if ((toNumber(row?.[column]) || 0) > 0) matched += 1
+  }
+  return matched
+}
+
+/**
+ * What to say about a join that has run, or '' when there is nothing to
+ * report.
+ *
+ * Silent when everything matched -- a working join needs no commentary.
+ * Loud when NOTHING did, because that is the case somebody has to be told
+ * about and the two usual causes are worth naming: the keys genuinely do
+ * not line up, or a filter has emptied the tab being joined to.
+ */
+export function matchNote(rows, blend) {
+  const matched = matchedCount(rows, blend)
+  if (matched === null) return ''
+  const total = (rows || []).length
+  if (total === 0) return ''
+  if (matched === 0) {
+    return 'nothing matched — check the two key columns, or a filter may have emptied the joined tab'
+  }
+  return matched === total ? '' : `${matched} of ${total} matched`
+}
+
 export function blendExtraColumns(blend) {
   if (!blend?.ref) return []
   const rollups = (blend.rollups || []).map(rollupName).filter(Boolean)

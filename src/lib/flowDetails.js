@@ -21,8 +21,59 @@ import { dataColumns } from './rowMeta.js'
 
 export const DETAIL_MAX = 25
 
-/** The most columns worth putting in a window this size. */
-export const DETAIL_COLUMNS_MAX = 8
+// ---------------------------------------------------------------------
+// How big the window is
+// ---------------------------------------------------------------------
+// The column list used to be cut off at eight, and the window was 320 by
+// 300 whatever it held. Those two were one decision: eight was the most
+// that fitted, so anything past it was dropped -- silently, and after an
+// admin had deliberately ticked it. "Show me these eleven columns" is not
+// an unreasonable thing to ask of a window whose whole purpose is showing
+// the columns you asked for.
+//
+// So the window is sized by what it is about to hold and the cap is gone.
+// Each listed row is a STACK of label/value lines, so it is the columns
+// that make a window tall and the rows that make it long -- which is why
+// height reads both and width reads only the columns, to keep the labels
+// off two lines.
+//
+// Everything is still bounded: the row count is capped as it always was,
+// and both dimensions stop well inside the viewport. A window is still not
+// a table -- it just no longer decides that for the admin.
+
+/** How wide the window is, for this many columns. */
+export function detailWidth(columns = 0) {
+  const n = Number.isFinite(columns) ? Math.max(0, columns) : 0
+  if (n <= 3) return 320
+  if (n <= 6) return 400
+  return 480
+}
+
+export const DETAIL_MIN_HEIGHT = 150
+export const DETAIL_MAX_HEIGHT = 440
+
+/**
+ * The window's size for the rows and columns it is about to draw.
+ *
+ * An estimate, not a measurement -- it is handed to `peekPlacement` before
+ * anything is rendered, so that placing the window against the edge of the
+ * screen can be decided in one pass rather than by drawing it, measuring
+ * it and moving it.
+ *
+ * Over-estimating is the safe direction: a window placed as though it were
+ * taller than it is sits a little higher than it needs to, which nobody
+ * notices. Under-estimating puts its bottom off the screen.
+ */
+export function detailSize({ columns = 0, rows = 0 } = {}) {
+  const cols = Number.isFinite(columns) ? Math.max(0, columns) : 0
+  const count = Number.isFinite(rows) ? Math.max(0, rows) : 0
+
+  const perRow = 12 + Math.max(1, cols) * 19
+  const chrome = 46 + 22 // the heading, and the "and N more" line
+  const height = Math.max(DETAIL_MIN_HEIGHT, Math.min(DETAIL_MAX_HEIGHT, chrome + count * perRow))
+
+  return { width: detailWidth(cols), height }
+}
 
 export const DEFAULT_DETAILS = {
   // Off by default. A button on every row of every existing flow, appearing
@@ -48,6 +99,10 @@ const clampInt = (value, lo, hi, fallback) => {
  *
  * Order is the admin's, not the sheet's: the list is read top to bottom and
  * whoever chose it put the identifying column first.
+ *
+ * ALL of them. There used to be a cap here, which meant an admin could tick
+ * eleven columns, see eight, and have nothing on screen say where the other
+ * three went. The window grows instead -- see `detailSize`.
  */
 export function detailColumns(flow, rows) {
   const chosen = (flow?.detailColumns || []).filter(Boolean)
@@ -56,7 +111,7 @@ export function detailColumns(flow, rows) {
   for (const row of rows || []) {
     for (const key of dataColumns(Object.keys(row || {}))) present.add(key)
   }
-  return chosen.filter((c) => present.has(c)).slice(0, DETAIL_COLUMNS_MAX)
+  return chosen.filter((c) => present.has(c))
 }
 
 /**

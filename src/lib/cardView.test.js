@@ -18,6 +18,7 @@ import {
   moreNote,
   viewModeOf,
   zoomLines,
+  zoomSize,
 } from './cardView.js'
 
 // ---------------------------------------------------------------------
@@ -240,12 +241,43 @@ test('the zoom is a popup, and it scrolls', () => {
   // everything below it jumps and the thing somebody was about to click
   // has moved.
   assert.match(grid, /onClick=\{\(\) => setZoomed\(row\)\}/)
-  assert.match(grid, /max-h-\[85vh\]/)
+  assert.match(grid, /max-h-\[88vh\]/)
   // The body scrolls and the heading does not, so a thirty-field record
   // never scrolls its own name away.
-  assert.match(grid, /min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto/)
-  assert.match(grid, /flex shrink-0 items-start gap-2 px-4 py-3/)
+  assert.match(grid, /grid min-h-0 flex-1 gap-x-5 overflow-y-auto/)
+  assert.match(grid, /relative flex shrink-0 items-start gap-2 border-b px-4 py-3/)
   assert.match(grid, /e\.key === 'Escape'/)
+})
+
+test('the zoom is sized by how much there is to show', () => {
+  // A record with three fields in a 480px box is a little text marooned in
+  // a lot of nothing; one with thirty is that box scrolled four times, for
+  // a window whose whole purpose was to show the record at once.
+  assert.equal(zoomSize(3).width, 380)
+  assert.equal(zoomSize(10).width, 500)
+  assert.equal(zoomSize(30).width, 680)
+
+  // Two columns only past the point where one would scroll: side by side
+  // is harder to read down, and it is worth it exactly when the
+  // alternative is not seeing the record at once.
+  assert.equal(zoomSize(6).columns, 1)
+  assert.equal(zoomSize(16).columns, 1)
+  assert.equal(zoomSize(17).columns, 2)
+
+  // It only ever grows with the count.
+  let last = 0
+  for (const n of [0, 5, 6, 7, 16, 17, 40]) {
+    assert.ok(zoomSize(n).width >= last, `${n} narrowed`)
+    last = zoomSize(n).width
+  }
+
+  // Nonsense lands on the smallest rather than off the end of the list.
+  for (const bad of [NaN, -5, undefined, null]) assert.equal(zoomSize(bad).width, 380)
+
+  // Height needs no rule -- the panel hugs its content and stops at the
+  // viewport -- and the width is capped so it fits a phone.
+  assert.match(grid, /width: `min\(\$\{width\}px, 92vw\)`/)
+  assert.match(grid, /repeat\(\$\{columns\}, minmax\(0, 1fr\)\)/)
 })
 
 test('the card is tinted, not just striped', () => {
@@ -255,10 +287,15 @@ test('the card is tinted, not just striped', () => {
   assert.match(grid, /backgroundColor: tone\.bg/)
   assert.match(grid, /borderColor: ticked \? tone\.accent : tone\.border/)
   assert.match(grid, /minHeight: cardMinHeight\(widget\)/)
-  // ...and the zoom wears the same colour, so it is visibly the object
-  // that was clicked rather than a white panel from nowhere.
-  assert.match(grid, /style=\{\{ backgroundColor: tone\.bg \}\}/)
+  // ...and the zoom wears the same colour THROUGHOUT, so it is visibly
+  // that card enlarged rather than a white panel that happened to open.
+  assert.match(grid, /backgroundColor: tone\.bg, borderColor: tone\.border,/)
   assert.match(grid, /cardTone\(rows\.findIndex\(\(r\) => r\._row === zoomRow\._row\)\)/)
+  // The heading and footer are lifted off that ground rather than being a
+  // second colour -- both stay the card's hue.
+  assert.equal((grid.match(/rgba\(255,255,255,0\.45\)/g) || []).length, 2)
+  // Nothing paints the panel white any more.
+  assert.equal(/overflow-hidden rounded-2xl border bg-white/.test(grid), false)
 })
 
 test('the colour is drawn from the position, with nothing configured', () => {

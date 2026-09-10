@@ -2,6 +2,7 @@ import { aggregate, bucketConditions, groupKey, isBlank, normalizeKey } from './
 import { DEFAULT_DETAILS } from './flowDetails.js'
 import { matchesConditions } from './filterEngine.js'
 import { DEFAULT_BLEND, blendIsReady, blendRows, blendedHeaders } from './blend.js'
+import { STAGE_PALETTE } from './config.js'
 
 // ---------------------------------------------------------------------
 // Flow -- a drill-down flowchart
@@ -1010,6 +1011,77 @@ export function flowTreeColumns(tree, headersByTab) {
   const base = headersByTab?.[tree?.tab] || []
   if (!blendIsReady(tree?.blend)) return base
   return blendedHeaders(base, headersByTab?.[tree.blend.ref] || [], tree.blend)
+}
+
+// ---------------------------------------------------------------------
+// A flow's blends, and the two things everything else gets for free
+// ---------------------------------------------------------------------
+// Every other widget's blend is performed by the PAGE, in ref space, and
+// the widget is handed the finished join. Two things follow from that and
+// neither reached a flow, because a flow performs its own join at render
+// time against the maps it was given:
+//
+//   THE OTHER TAB HAS TO BE FETCHED. `collectTabRefs` walks `tab` keys and
+//   a blend target is called `ref`, so nothing asked for it. The page read
+//   every tab the flow displays and not the one it joins to.
+//
+//   THE TARGET HAS TO BE IN THE SAME SPACE AS THE MAPS. Everything a
+//   widget sees is in LABEL space; `mapTabFields` rewrites every `tab`
+//   field on the way in and deliberately leaves `ref` alone, because other
+//   features use that name for things that must stay refs. So the flow's
+//   blend went on naming a ref while its rows were filed under labels.
+//
+// The failure was silent and total: the lookup missed, the right-hand
+// headers came back empty, and a join with no known columns brings across
+// no columns. The diagram worked, the blend said it was on, and not one
+// blended value ever appeared.
+
+/** Every tab this flow joins to, across all its trees. */
+export function flowBlendRefs(widget) {
+  const out = new Set()
+  for (const tree of flowTrees(widget)) {
+    if (blendIsReady(tree.blend)) out.add(tree.blend.ref)
+  }
+  return Array.from(out)
+}
+
+/**
+ * The flow with its blend targets rewritten by `mapFn`, exactly as
+ * `mapTabFields` rewrites its tabs.
+ *
+ * Applied on top of that, not instead of it -- this only knows about the
+ * one key that walk cannot safely take.
+ */
+export function mapFlowBlendRefs(widget, mapFn) {
+  const flow = widget?.flow
+  if (!flow) return widget
+
+  const move = (blend) => (blend?.ref ? { ...blend, ref: mapFn(blend.ref) } : blend)
+  return {
+    ...widget,
+    flow: {
+      ...flow,
+      // The pre-forest shape kept its blend here; `flowTrees` still reads
+      // it, so it still has to be moved.
+      blend: move(flow.blend),
+      trees: Array.isArray(flow.trees) ? flow.trees.map((t) => ({ ...t, blend: move(t.blend) })) : flow.trees,
+    },
+  }
+}
+
+/**
+ * The colour a node is drawn in.
+ *
+ * Its own if the admin gave it one, otherwise the palette by depth -- so
+ * every branch at the same level shares a hue and the eye can follow a
+ * level across the diagram.
+ *
+ * Here rather than inside the row that draws it, because the window the
+ * eye button opens has to be the SAME colour as the row it came from. Two
+ * copies of this expression is how those two come to disagree.
+ */
+export function flowNodeColor(node) {
+  return node?.color || STAGE_PALETTE[(node?.level || 0) % STAGE_PALETTE.length] || '#4F46E5'
 }
 
 /** Walks the built tree for one node, by path. */

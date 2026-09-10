@@ -9,6 +9,7 @@ import {
   cardTone,
   moreNote,
   zoomLines,
+  zoomSize,
 } from '../../lib/cardView'
 import { badgeStyle } from '../../lib/dataUtils'
 import { liveRow } from '../../lib/openRow'
@@ -213,22 +214,38 @@ function CardZoom({ row, widget, spec, tone, badgeCols, onOpenDetail, onClose })
   const heading = String(row[spec.title] ?? '').trim()
   const sub = spec.subtitle ? String(row[spec.subtitle] ?? '').trim() : ''
 
+  // Sized by how much there is to show -- see `zoomSize`. Height needs no
+  // rule: the panel hugs its content and stops at the viewport.
+  const { width, columns } = zoomSize(lines.length)
+
   return (
     <div
       className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
       onMouseDown={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-[480px] max-w-full flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
-        style={{ borderColor: tone.border }}
+        className="flex max-h-[88vh] flex-col overflow-hidden rounded-2xl border shadow-2xl"
+        style={{
+          // The card's own colour, carried through the whole panel rather
+          // than left as a stripe on a white box. The zoom is that card,
+          // enlarged; a white panel is a different object that happened to
+          // open. The tints are pale enough to read black text on -- that
+          // is what they were chosen for.
+          backgroundColor: tone.bg,
+          borderColor: tone.border,
+          width: `min(${width}px, 92vw)`,
+        }}
         // The backdrop closes on a press; the panel must not, or selecting
         // a value inside it and releasing outside shuts it.
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Fixed, so a thirty-field record never scrolls its own name
-            away -- and in the card's own colour, so the zoom is visibly
-            the same object that was clicked. */}
-        <div className="flex shrink-0 items-start gap-2 px-4 py-3" style={{ backgroundColor: tone.bg }}>
+            away. Slightly lifted off the body so the heading still reads
+            as a heading now that both are the same colour. */}
+        <div
+          className="relative flex shrink-0 items-start gap-2 border-b px-4 py-3"
+          style={{ borderColor: tone.border, backgroundColor: 'rgba(255,255,255,0.45)' }}
+        >
           <span className="absolute left-0 top-0 h-full w-1" style={{ backgroundColor: tone.accent }} />
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-base font-semibold leading-tight" style={{ color: tone.fg }}>
@@ -238,22 +255,33 @@ function CardZoom({ row, widget, spec, tone, badgeCols, onOpenDetail, onClose })
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-white/70 hover:text-slate-600"
+            className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-600"
             aria-label="Close"
           >
             <X size={16} />
           </button>
         </div>
 
-        <dl className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto px-4 py-1">
+        {/* One column while a record still fits, two once it would
+            otherwise scroll -- side by side is harder to read down, and it
+            is worth it exactly when the alternative is not seeing the
+            record at once. */}
+        <dl
+          className="grid min-h-0 flex-1 gap-x-5 overflow-y-auto px-4 py-2"
+          style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        >
           {lines.map(({ column, value }) => (
-            <div key={column} className="flex items-baseline gap-3 py-2">
-              <dt className="w-[38%] shrink-0 break-words text-[10px] font-medium uppercase tracking-wider text-slate-400">
+            <div
+              key={column}
+              className="flex items-baseline gap-3 border-b py-2 last:border-b-0"
+              style={{ borderColor: tone.border }}
+            >
+              <dt className="w-[38%] shrink-0 break-words text-[10px] font-medium uppercase tracking-wider text-slate-500">
                 {column}
               </dt>
-              <dd className="min-w-0 flex-1 break-words text-[13px] text-slate-700">
+              <dd className="min-w-0 flex-1 break-words text-[13px] text-slate-800">
                 {value === '' ? (
-                  <span className="text-slate-300">—</span>
+                  <span className="text-slate-400">—</span>
                 ) : badgeCols.includes(column) ? (
                   <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={badgeStyle(value)}>
                     {value}
@@ -264,13 +292,20 @@ function CardZoom({ row, widget, spec, tone, badgeCols, onOpenDetail, onClose })
               </dd>
             </div>
           ))}
+
+          {lines.length === 0 && (
+            <p className="py-6 text-center text-xs text-slate-400">This record has no other columns to show.</p>
+          )}
         </dl>
 
         {/* The zoom READS a record. Changing one is the detail panel's job,
             and only where an admin has turned that on -- two forms for the
             same record is two places for it to be edited differently. */}
         {widget.rowDetail && onOpenDetail && (
-          <div className="shrink-0 border-t border-slate-100 px-4 py-2.5 text-right">
+          <div
+            className="shrink-0 border-t px-4 py-2.5 text-right"
+            style={{ borderColor: tone.border, backgroundColor: 'rgba(255,255,255,0.45)' }}
+          >
             <button
               onClick={() => {
                 onOpenDetail(row)

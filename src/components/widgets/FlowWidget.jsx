@@ -29,6 +29,7 @@ import {
 import { formatNumber } from '../../lib/dataUtils.js'
 import { dataColumns } from '../../lib/rowMeta.js'
 import { canShowDetails } from '../../lib/flowDetails.js'
+import { matchNote } from '../../lib/blend.js'
 import {
   FULLSCREEN_EVENTS,
   exitFullscreen,
@@ -36,7 +37,6 @@ import {
   requestFullscreen,
   stillFullscreen,
 } from '../../lib/deviceFullscreen.js'
-import { STAGE_PALETTE } from '../../lib/config.js'
 import ExportButton from '../ExportButton.jsx'
 import FlowDiagram from './FlowDiagram.jsx'
 import FlowRowDetails from './FlowRowDetails.jsx'
@@ -50,6 +50,7 @@ import {
   flattenFlow,
   flowCrossFilter,
   flowNodeCanDrill,
+  flowNodeColor,
   flowNodeIsDrilled,
 } from '../../lib/flow.js'
 import {
@@ -898,14 +899,26 @@ function TreeSection({ built, node, flow, widget, showHeader, crossFilters, onTo
           <span className="rounded-full bg-slate-100 px-1.5 py-px text-[9px] uppercase tracking-wide text-slate-500">
             {built.tree.tab}
           </span>
-          {built.blended && (
-            <span
-              className="rounded-full bg-teal-50 px-1.5 py-px text-[9px] uppercase tracking-wide text-teal-600"
-              title={`Blended with ${built.tree.blend?.ref}`}
-            >
-              blended
-            </span>
-          )}
+          {/* A left join always hands back every left row, so a blend
+              that matched nothing looks exactly like one that is working:
+              the columns are there and every value is blank. The count is
+              what tells those two apart, and at zero it stops being a
+              badge and becomes a warning. */}
+          {built.blended &&
+            (() => {
+              const note = matchNote(built.root?.rows, built.tree.blend)
+              const broken = note.startsWith('nothing matched')
+              return (
+                <span
+                  className={`rounded-full px-1.5 py-px text-[9px] uppercase tracking-wide ${
+                    broken ? 'bg-rose-50 text-rose-600' : 'bg-teal-50 text-teal-600'
+                  }`}
+                  title={`Blended with ${built.tree.blend?.ref}${note ? ` — ${note}` : ''}`}
+                >
+                  blended{note ? ` · ${note}` : ''}
+                </span>
+              )
+            })()}
         </div>
       )}
 
@@ -934,7 +947,7 @@ function TreeSection({ built, node, flow, widget, showHeader, crossFilters, onTo
  */
 function FlowNode({ node, root, flow, widget, crossFilters, onToggle, onDrill, onFocus, onDetails, isRoot }) {
   const drilled = flowNodeIsDrilled(widget, node, crossFilters)
-  const color = node.color || STAGE_PALETTE[node.level % STAGE_PALETTE.length] || '#4F46E5'
+  const color = flowNodeColor(node)
   const share = flow.percentBase === 'root' ? node.shareOfRoot : node.share
   // `null` is not 0: it means this branch is not part of its parent and has
   // no share to show. Drawing a 0% bar would say something false.

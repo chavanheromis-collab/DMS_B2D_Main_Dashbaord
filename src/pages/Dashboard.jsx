@@ -72,6 +72,7 @@ import {
 } from '../lib/widgetNest'
 import { applyComputed, computedFor, computedHeaders } from '../lib/computed'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
+import { flowBlendRefs, mapFlowBlendRefs } from '../lib/flow'
 import { normalizeKey } from '../lib/dataUtils'
 import { canViewPage, canvasFor, canvasLabelFor, emptyPage, newPageId, sidebarPages, visibleWidgetsFor } from '../lib/workspace'
 import { styleClass, styleVars, withPageTheme } from '../lib/widgetStyle'
@@ -498,6 +499,11 @@ export default function Dashboard() {
     const set = collectTabRefs([allowedWidgets, filters, buttons])
     for (const w of allowedWidgets) {
       if (blendIsReady(w.blend)) set.add(w.blend.ref)
+      // A flow blends per TREE, and a blend target is called `ref` -- which
+      // `collectTabRefs` does not walk. Without this the page reads every
+      // tab a flow displays and not the one it joins to, so the join runs
+      // against nothing and brings across no columns.
+      if (w.type === 'flow') for (const ref of flowBlendRefs(w)) set.add(ref)
     }
     return Array.from(set).filter(Boolean)
   }, [allowedWidgets, filters, buttons])
@@ -2263,7 +2269,13 @@ export default function Dashboard() {
                         )}
                         {widget.type === 'flow' && (
                           <FlowWidget
-                            widget={widget}
+                            // `mapTabFields` put every `tab` into label
+                            // space and left `blend.ref` alone, because
+                            // other features need that key to stay a ref.
+                            // A flow joins at render time against the
+                            // label-keyed maps below, so its target has to
+                            // travel with them. See mapFlowBlendRefs.
+                            widget={mapFlowBlendRefs(widget, labelFor)}
                             // The whole map of tabs, unblended. A flow
                             // hops between tabs, so it cannot be handed
                             // one set of rows like every other widget --

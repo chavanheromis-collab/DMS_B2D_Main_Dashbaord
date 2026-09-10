@@ -259,6 +259,10 @@ test('a focused branch of one tree is the only thing that tree draws', () => {
 const FLOW_BLEND = { enabled: true, ref: 'b::Sales', leftKey: 'C', rightKey: 'C', type: 'left', multi: 'first' }
 const FLOW_HEADERS = { MASTER: ['C', 'Model'], 'b::Sales': ['C', 'Salesman'] }
 
+const { flowBlendRefs, mapFlowBlendRefs } = await import('./flow.js')
+const { blendRows, blendedHeaders, matchNote, matchedCount } = await import('./blend.js')
+const { mapTabFields } = await import('./refs.js')
+
 const editor = fs
   .readFileSync(path.join(path.resolve(import.meta.dirname, '..'), 'pages/admin/FlowEditor.jsx'), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, ' ')
@@ -315,6 +319,114 @@ test('the join is reached from a Blend tab, like every other widget', () => {
   // ...and the tree still says a join is in force, since that is what the
   // pickers below it are reflecting.
   assert.match(editor, /Joined with \{labelFor\(tree\.blend\.ref\)\}/)
+})
+
+test('the tab a flow joins to is one the page fetches', () => {
+  // `collectTabRefs` walks `tab` keys and a blend target is called `ref`,
+  // so nothing asked for it. The page read every tab the flow displays and
+  // not the one it joins to -- and a join against nothing brings across no
+  // columns, silently.
+  const widget = {
+    type: 'flow',
+    tab: 'a::MASTER',
+    flow: {
+      trees: [
+        { id: 't0', tab: 'a::MASTER', blend: FLOW_BLEND, levels: [] },
+        { id: 't1', tab: 'a::Other', levels: [] },
+      ],
+    },
+  }
+  assert.deepEqual(flowBlendRefs(widget), ['b::Sales'])
+  // Nothing to fetch where nothing is joined, and a half-filled blend is
+  // not a join.
+  assert.deepEqual(flowBlendRefs({ type: 'flow', tab: 'a::MASTER' }), [])
+  assert.deepEqual(
+    flowBlendRefs({ type: 'flow', tab: 'a::M', flow: { trees: [{ id: 't', tab: 'a::M', blend: { ref: 'b::S' } }] } }),
+    []
+  )
+})
+
+test('a flow’s blend target travels into label space with its tabs', () => {
+  // Everything a widget sees is in LABEL space, and `mapTabFields`
+  // deliberately leaves `ref` alone -- other features need that key to
+  // stay a ref. A flow joins at RENDER time against the label-keyed maps,
+  // so its target has to move too, or the lookup misses and the join
+  // brings across nothing at all.
+  const labelFor = (r) => ({ 'a::MASTER': 'MASTER', 'b::Sales': 'Sales' }[r] || r)
+  const widget = {
+    type: 'flow',
+    tab: 'a::MASTER',
+    flow: { trees: [{ id: 't0', tab: 'a::MASTER', blend: FLOW_BLEND, levels: [] }] },
+  }
+
+  const moved = mapFlowBlendRefs(mapTabFields(widget, labelFor), labelFor)
+  const tree = flowTrees(moved)[0]
+  assert.equal(tree.tab, 'MASTER')
+  assert.equal(tree.blend.ref, 'Sales', 'the target must be in the same space as the rows')
+
+  // Idempotent: mapping a label again is the same label, so it cannot
+  // matter how many times this runs.
+  assert.equal(mapFlowBlendRefs(moved, labelFor).flow.trees[0].blend.ref, 'Sales')
+
+  // The pre-forest shape kept its blend on the flow, and `flowTrees` still
+  // reads it, so that one moves as well.
+  const legacy = mapFlowBlendRefs({ flow: { blend: FLOW_BLEND, levels: [] } }, labelFor)
+  assert.equal(legacy.flow.blend.ref, 'Sales')
+
+  // A widget with no flow is handed straight back.
+  const plain = { type: 'kpi', tab: 'a::MASTER' }
+  assert.equal(mapFlowBlendRefs(plain, labelFor), plain)
+})
+
+test('an unknown right-hand tab brings across nothing, which is why both halves matter', () => {
+  // The failure was silent: the lookup missed, the right-hand headers came
+  // back empty, and a join with no known columns adds no columns. The
+  // diagram worked and the blend said it was on.
+  const withHeaders = blendedHeaders(['C', 'Model'], ['C', 'Salesman'], FLOW_BLEND)
+  const without = blendedHeaders(['C', 'Model'], [], FLOW_BLEND)
+  assert.ok(withHeaders.includes('Salesman'))
+  assert.equal(without.includes('Salesman'), false)
+})
+
+test('a join that matches nothing says so, instead of looking normal', () => {
+  // A left join always hands back every left row, so a blend matching
+  // NOTHING looks exactly like one that works: the columns are there, the
+  // widget says "blended", and every value is blank. On a real sheet an
+  // empty cell is an ordinary thing to see, so there is nothing visibly
+  // missing to notice.
+  const left = [{ _row: 2, C: '1', Model: 'X' }, { _row: 3, C: '2', Model: 'Y' }]
+  const heads = ['C', 'Salesman']
+
+  const all = blendRows(left, [{ _row: 2, C: '1', S: 1 }, { _row: 3, C: '2', S: 2 }], FLOW_BLEND, heads, 'DMY')
+  assert.equal(matchedCount(all, FLOW_BLEND), 2)
+  assert.equal(matchNote(all, FLOW_BLEND), '', 'a working join needs no commentary')
+
+  const some = blendRows(left, [{ _row: 2, C: '1', S: 1 }], FLOW_BLEND, heads, 'DMY')
+  assert.equal(matchNote(some, FLOW_BLEND), '1 of 2 matched')
+
+  // The case the user actually hits: names present, every value blank.
+  for (const right of [[], [{ _row: 2, C: '999', S: 1 }]]) {
+    const none = blendRows(left, right, FLOW_BLEND, heads, 'DMY')
+    assert.equal(matchedCount(none, FLOW_BLEND), 0)
+    assert.match(matchNote(none, FLOW_BLEND), /nothing matched/)
+    // ...and it names the two things that actually cause it.
+    assert.match(matchNote(none, FLOW_BLEND), /key columns/)
+    assert.match(matchNote(none, FLOW_BLEND), /filter/)
+  }
+
+  // Nothing to say about a tree with no rows at all -- that is a different
+  // problem and the flow already reports it.
+  assert.equal(matchNote([], FLOW_BLEND), '')
+  assert.equal(matchedCount([], { enabled: false }), null)
+})
+
+test('the flow shows the count, and turns it into a warning at zero', () => {
+  const widgetSrc = fs.readFileSync(
+    path.join(path.resolve(import.meta.dirname, '..'), 'components/widgets/FlowWidget.jsx'),
+    'utf8'
+  )
+  assert.ok(widgetSrc.includes('matchNote(built.root?.rows, built.tree.blend)'))
+  assert.ok(widgetSrc.includes("broken ? 'bg-rose-50 text-rose-600' : 'bg-teal-50 text-teal-600'"))
 })
 
 test('nothing routes a widget-level blend into a flow', () => {
