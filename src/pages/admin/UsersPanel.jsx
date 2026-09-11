@@ -3,6 +3,7 @@ import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore'
 import {
   ArrowUpDown,
   ChevronDown,
+  ClipboardPaste,
   Copy,
   Eye,
   EyeOff,
@@ -27,6 +28,13 @@ import ConditionBuilder from './ConditionBuilder.jsx'
 import { stripUndefined } from '../../lib/firestoreSafe'
 import { Btn, Select, TextInput, Toggle, stableEqual, useWorkspaceCtx } from './ui.jsx'
 import { ROW_OP_GRANTS, ROW_OP_SWITCHES } from '../../lib/rowOps'
+import {
+  copiedLabel,
+  copyAccess,
+  copiedAccess,
+  pasteInto,
+  pasteNote,
+} from '../../lib/accessClipboard'
 
 /**
  * Who can see what, across every page in the workspace.
@@ -101,6 +109,14 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
   const [picked, setPicked] = useState([])
   const [accessMap, setAccessMap] = useState({})
   const [accessError, setAccessError] = useState(null)
+  // The permission clipboard lives in a module, so that a copy survives
+  // collapsing one page's card and opening another's -- which is the
+  // whole job. React does not watch module state, though, so the label
+  // is mirrored here: without it, pressing Copy on one card would leave
+  // every OTHER card's Paste greyed out until something unrelated
+  // re-rendered it. Seeded from the clipboard so a copy also survives
+  // leaving this panel and coming back.
+  const [clipLabel, setClipLabel] = useState(copiedLabel)
   const [expanded, setExpanded] = useState(null)
   // Which page's detail is open, inside the open user. Twelve pages drawn
   // as twelve full cards is a wall nobody reads; one line each, and the one
@@ -783,6 +799,9 @@ export default function UsersPanel({ pages, tabHeaders, labelFor = (t) => t }) {
                                             }
                                             page={page}
                                             value={accessMap[accessId(u.id, page.id)]}
+                                            userName={u.name || u.email || ''}
+                                            clipLabel={clipLabel}
+                                            onCopied={setClipLabel}
                                             onSave={(next) => saveAccess(u.id, page.id, next)}
                                             onApplyScopeToAll={(scope) => applyScopeEverywhere(u.id, scope)}
                                             // Whose order could be copied onto
@@ -1011,8 +1030,29 @@ function SpaceHeading({ space, granted, open, onToggle, onAll, unsaved }) {
   )
 }
 
+/**
+ * Whether anything is on the permission clipboard, as REACT state.
+ *
+ * The clipboard itself is module state -- that is the right lifetime for
+ * it, and it is what lets a copy survive collapsing one card and opening
+ * another's. But module state is not something React watches: pressing
+ * Copy changes no component's state, so without this every OTHER card's
+ * Paste button would stay disabled until something unrelated happened to
+ * re-render it.
+ *
+ * So the panel keeps a label alongside, purely so the cards re-render.
+ * One source of truth for the CONTENT, one for the fact that there is
+ * some.
+ */
 function AccessCard({
   page,
+  // Whose permissions these are. Only so the paste button can say where
+  // what is on the clipboard came from -- "Paste from Ravi · Sales" is a
+  // deliberate action, "Paste" is a guess.
+  userName = '',
+  // What is on the clipboard, from the panel above -- see the note there.
+  clipLabel = '',
+  onCopied,
   value,
   onSave,
   onApplyScopeToAll,
@@ -1035,6 +1075,10 @@ function AccessCard({
   const [scope, setScope] = useState(DEFAULT_SCOPE)
   const [openRef, setOpenRef] = useState('')
   const [mode, setMode] = useState('editable')
+  // What the last paste left behind. Held until the next one, because a
+  // paste that quietly dropped half of itself is a permission set
+  // somebody believes they have applied.
+  const [pasted, setPasted] = useState('')
   const [ordering, setOrdering] = useState(false)
 
   useEffect(() => {
@@ -1192,7 +1236,67 @@ function AccessCard({
             className={`shrink-0 text-slate-300 transition-transform ${open ? 'rotate-180' : ''}`}
           />
         </button>
+
+        {/* Copy this page's whole permission set, and put it on another
+            page -- or on the same page for the next six people. Outside
+            the expander button, because a button inside a button is not a
+            button; and on the summary LINE, because the job is "make
+            these four match" and opening each card to do it is the work
+            this removes. */}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => {
+              copyAccess(
+                { canView, hiddenWidgets: hidden, editable, downloadable, rowOps, widgetOrder, scope },
+                { pageId: page.id, pageName: navLabelFor(page), userName }
+              )
+              onCopied?.(copiedLabel())
+            }}
+            className="rounded p-1 text-slate-300 hover:bg-white hover:text-indigo-600"
+            title="Copy these permissions"
+            aria-label={`Copy the permissions for ${navLabelFor(page)}`}
+          >
+            <Copy size={12} />
+          </button>
+          <button
+            type="button"
+            disabled={!clipLabel}
+            onClick={() => {
+              const { access, dropped } = pasteInto(copiedAccess(), page)
+              setCanView(access.canView)
+              setHidden(access.hiddenWidgets)
+              setEditable(access.editable)
+              setDownloadable(access.downloadable)
+              setRowOps(access.rowOps)
+              setWidgetOrder(access.widgetOrder)
+              setScope(access.scope)
+              setPasted(pasteNote(dropped, labelFor))
+              // A paste stages; it does not write. Save is inside the
+              // fold, so pasting onto a collapsed card would otherwise
+              // leave a change nobody can see or apply -- and rights are
+              // not something to write to the server on one click from a
+              // line that shows four words about the page.
+              if (!open) onToggleOpen?.()
+            }}
+            className="rounded p-1 text-slate-300 hover:bg-white hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-30"
+            title={clipLabel ? `Paste the permissions from ${clipLabel}` : 'Nothing copied yet'}
+            aria-label="Paste permissions"
+          >
+            <ClipboardPaste size={12} />
+          </button>
+        </div>
       </div>
+
+      {/* Said once, and only where something did not travel. Pasting onto
+          a different page cannot carry what is keyed by widget id, and a
+          grant for a tab this page does not read would be a tick against
+          something it cannot show. */}
+      {pasted && (
+        <p className="mx-2.5 mb-1.5 rounded-lg bg-amber-50 px-2 py-1 text-[10px] leading-snug text-amber-700">
+          {pasted}
+        </p>
+      )}
 
       {open && (
       <div className="border-t border-slate-100 px-3 pb-3 pt-2">
@@ -1420,9 +1524,10 @@ function AccessCard({
         <Btn
           variant="primary"
           disabled={!dirty}
-          onClick={() =>
+          onClick={() => {
             onSave({ canView, hiddenWidgets: hidden, editable, downloadable, rowOps, widgetOrder, scope })
-          }
+            setPasted('')
+          }}
         >
           Save access
         </Btn>

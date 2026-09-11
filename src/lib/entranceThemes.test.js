@@ -257,9 +257,12 @@ test('the admin picks a theme by looking at it', () => {
 
 test('the logo preview uses the theme actually chosen', () => {
   // A preview on a colour the entrance does not use answers the wrong
-  // question.
+  // question. Written once for both logos, so neither can be previewed
+  // against something the other one is standing on.
   assert.ok(panel.includes('style={{ background: themeOf(draft).bg }}'))
-  assert.ok(panel.includes('backdropClass({ value: draft.logoBackdrop || DEFAULT_BACKDROP })'))
+  assert.ok(panel.includes('const backdrop = draft[slot.backdrop] || DEFAULT_BACKDROP'))
+  assert.ok(panel.includes('backdropClass({ value: backdrop })'))
+  assert.ok(panel.includes('set({ [slot.backdrop]: b.value })'))
 })
 
 test('the admin is told what transparency costs, where the choice is made', () => {

@@ -5,9 +5,15 @@ import path from 'node:path'
 
 import {
   MAX_ROWS_PER_OP,
+  ROW_LIMIT,
+  ROW_LIMIT_CEILING,
   ROW_OPS,
   ROW_OP_SWITCHES,
+  offersRowOps,
+  rowLimitOf,
   availableActions,
+  clearNote,
+  clearPlan,
   canAdd,
   canDelete,
   canMove,
@@ -77,11 +83,24 @@ test('there are two grants, and both operations decompose into them', () => {
 
 test('nothing creates a row from nothing', () => {
   // A record is entered where records are entered. The only way a row
-  // arrives on a tab is by being sent there from another one.
+  // arrives on a tab is by being sent there from another one -- and
+  // clearing, which is the nearest thing to a blank row, makes one out of
+  // a row that already exists rather than adding a row to hold it.
   assert.deepEqual(
     ROW_OP_SWITCHES.map((a) => a.key),
-    ['canDeleteRows', 'canCopyRows', 'canMoveRows']
+    ['canDeleteRows', 'canClearRows', 'canCopyRows', 'canMoveRows']
   )
+})
+
+test('clearing is not a grant, and deliberately not one', () => {
+  // Emptying a cell is writing '' into it, which the column grants
+  // already govern. A "may clear" right would let an admin grant the
+  // blanking of a column its holder cannot write, which is not a thing
+  // anybody means.
+  const clear = ROW_OP_SWITCHES.find((a) => a.key === 'canClearRows')
+  assert.deepEqual(clear.needs, [])
+  assert.equal(clear.columns, true)
+  assert.equal(ROW_OPS.includes('clear'), false)
 })
 
 test('copy and move are switched on separately', () => {
@@ -391,6 +410,96 @@ test('a gesture has a size, past which it is not a gesture', () => {
   assert.equal(tooMany(MAX_ROWS_PER_OP + 1), true)
   assert.match(limitNote(500), /200 at a time/)
   assert.equal(limitNote(5), '')
+})
+
+// --- ...and the size is the admin's -------------------------------------
+// Because the right number is not the same twice. A master register wants
+// ten, so a slip with select-all cannot take the month out; a staging tab
+// emptied every Friday wants five hundred, where two hundred just means
+// doing it three times and losing count.
+
+test('a table with no number set behaves exactly as it always did', () => {
+  assert.equal(rowLimitOf({}), MAX_ROWS_PER_OP)
+  assert.equal(rowLimitOf(null), MAX_ROWS_PER_OP)
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: null }), MAX_ROWS_PER_OP)
+})
+
+test('the admin can lower it, which is the point of it being per table', () => {
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: 10 }), 10)
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: 1 }), 1)
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: '25' }), 25)
+})
+
+test('...and raise it, as far as the ceiling and not one row past', () => {
+  // The ceiling is not a preference. Above it the request itself is the
+  // risk: a move is two reads, an append and a delete, and one that runs
+  // out of time half way through has landed rows on the other tab and
+  // taken none off this one.
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: ROW_LIMIT_CEILING }), ROW_LIMIT_CEILING)
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: 50_000 }), ROW_LIMIT_CEILING)
+  assert.ok(ROW_LIMIT_CEILING > MAX_ROWS_PER_OP)
+})
+
+test('a document that says something impossible gets the default', () => {
+  // Clamped rather than validated, and clamped in the MODEL, so the page
+  // and the server are the same function of the same field rather than
+  // two readings that can drift.
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: 0 }), MAX_ROWS_PER_OP)
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: -5 }), MAX_ROWS_PER_OP)
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: 'lots' }), MAX_ROWS_PER_OP)
+  assert.equal(rowLimitOf({ [ROW_LIMIT]: 12.9 }), 12)
+})
+
+test('the warning quotes whatever this table allows', () => {
+  assert.equal(tooMany(11, 10), true)
+  assert.equal(tooMany(10, 10), false)
+  assert.match(limitNote(40, 10), /10 at a time is the most this table will do/)
+  assert.equal(limitNote(40, 500), '')
+})
+
+test('the cap is offered only where there is something to cap', () => {
+  assert.equal(offersRowOps({}), false)
+  assert.equal(offersRowOps({ canClearRows: true }), true)
+  assert.equal(offersRowOps({ canDeleteRows: true }), true)
+  assert.equal(offersRowOps({ editable: true }), false)
+})
+
+test('the reader is warned with the number that will refuse them', () => {
+  const bar = read('components/RowActionsBar.jsx')
+  assert.ok(bar.includes('const over = tooMany(n, limit)'))
+  assert.ok(bar.includes('{limitNote(n, limit)}'))
+  const table = read('components/widgets/TableWidget.jsx')
+  assert.ok(table.includes('limit={rowLimitOf(widget)}'))
+})
+
+test('every operation is held to the table it was launched from', () => {
+  // Including the delete, which used to have no reason to look the
+  // widget up and so was the one row operation not checked against its
+  // table's own switch.
+  assert.match(api, /requireSome\(wanted, rowLimitOf\(widget\)\)/)
+  assert.match(api, /requireSome\(wanted, rowLimitOf\(tableWidget\(page, body, ref\)\)\)/)
+  assert.match(api, /if \(!widget\.canDeleteRows\) throw forbid/)
+  assert.equal(/requireSome\(wanted\)/.test(api), false)
+
+  // The number itself comes off the stored widget, never out of the body.
+  assert.equal(/rowLimitOf\(body/.test(api), false)
+})
+
+test('the sheets layer backstops at the ceiling, not at the default', () => {
+  // Anything reaching it that got past a per-table cap is a bug or a
+  // crafted request, and either way it is the last thing between that and
+  // the spreadsheet.
+  assert.match(sheets, /const MAX_BATCH_ROWS = ROW_LIMIT_CEILING/)
+})
+
+test('the admin sets it where the switches are, and sees what was clamped', () => {
+  const panel = read('pages/admin/WidgetsPanel.jsx')
+  assert.ok(panel.includes('{offersRowOps(widget) && ('))
+  assert.ok(panel.includes('label="Most rows in one action"'))
+  assert.ok(panel.includes('set({ [ROW_LIMIT]: v === \'\' ? null : Number(v) })'))
+  // A number that was saved and is not the number being applied has to
+  // say so, or the ceiling is a silent disagreement with the form.
+  assert.ok(panel.includes('Saved as {widget[ROW_LIMIT]}, applied as {rowLimitOf(widget)}'))
 })
 
 // --- the meta keys -------------------------------------------------------
@@ -743,4 +852,198 @@ test('deletions go downwards, so the indices stay valid', () => {
 
 test('the header row cannot be deleted', () => {
   assert.match(sheets, /if \(!Number\.isInteger\(row\) \|\| row < 2\) throw badRequest\('That row cannot be deleted'\)/)
+})
+
+// ---------------------------------------------------------------------
+// Emptying rows in place
+// ---------------------------------------------------------------------
+// The operation that is not a smaller Delete. Nothing moves and nothing
+// is removed, so the interesting question is not what it does but what it
+// refuses to touch: columns this person may not write, and columns a
+// record is not allowed to be without.
+
+const clearable = { tab: 'T', editable: true, canClearRows: true }
+
+test('a clear empties what this person may write, and nothing else', () => {
+  const plan = clearPlan(clearable, ['Job', 'Status', 'Remarks'], { editable: ['Status', 'Remarks'] })
+  assert.deepEqual(plan.clear, ['Status', 'Remarks'])
+  assert.deepEqual(plan.locked, ['Job'])
+  assert.deepEqual(plan.kept, [])
+})
+
+test('an admin may empty every column, exactly as they may write every column', () => {
+  const plan = clearPlan(clearable, ['Job', 'Status'], { editable: [], isAdmin: true })
+  assert.deepEqual(plan.clear, ['Job', 'Status'])
+  assert.deepEqual(plan.locked, [])
+})
+
+test('a field a record must always have survives a clear', () => {
+  // The whole difference between clearing and deleting. A cleared row is
+  // still a row, and one that has lost the field identifying it is worse
+  // than one that is gone -- it still looks like a record. The detail
+  // form refuses to empty these one at a time; two hundred at once cannot
+  // be the way round it.
+  const widget = { ...clearable, requiredColumns: ['Job'] }
+  const plan = clearPlan(widget, ['Job', 'Status'], { editable: ['Job', 'Status'] })
+  assert.deepEqual(plan.clear, ['Status'])
+  assert.deepEqual(plan.kept, ['Job'])
+})
+
+test('...and it binds an admin too, because it is a rule about the record', () => {
+  const widget = { ...clearable, requiredColumns: ['Job'] }
+  assert.deepEqual(clearPlan(widget, ['Job', 'Status'], { isAdmin: true }).kept, ['Job'])
+})
+
+test('granted nothing here, there is nothing to empty', () => {
+  assert.deepEqual(clearPlan(clearable, ['A'], {}).clear, [])
+  assert.deepEqual(clearPlan(clearable, [], { editable: ['A'] }).clear, [])
+  // A grant for a column the tab no longer has is not a column.
+  assert.deepEqual(clearPlan(clearable, ['A'], { editable: ['A', 'Gone'] }).clear, ['A'])
+})
+
+test('the button does not appear when it would empty nothing', () => {
+  // One that appeared and then emptied nothing would be read as the
+  // operation having failed silently.
+  const widget = { tab: 'T', editable: true, canClearRows: true }
+  const context = (editable, columns = ['Job', 'Status']) => ({
+    access: { rowOps: { T: [] }, editable: { T: editable } },
+    ref: 'T',
+    columns,
+  })
+  assert.deepEqual(availableActions(widget, context(['Status'])), ['canClearRows'])
+  assert.deepEqual(availableActions(widget, context([])), [])
+  assert.deepEqual(availableActions(widget, context(['Status'], [])), [])
+  assert.deepEqual(availableActions(widget, { ...context([]), isAdmin: true }), ['canClearRows'])
+})
+
+test('a clear needs no row grant and no destination', () => {
+  // It touches one tab and adds nothing, so neither of the two grants has
+  // anything to say about it.
+  const widget = { tab: 'T', editable: true, canClearRows: true }
+  const held = { access: { rowOps: { T: [] }, editable: { T: ['A'] } }, ref: 'T', columns: ['A'], targets: [] }
+  assert.deepEqual(availableActions(widget, held), ['canClearRows'])
+  assert.equal(hasRowActions(widget, held), true)
+})
+
+test('the dialog says which columns, not how many', () => {
+  // "Empties 3 columns" is read as "empties the row" by anybody who has
+  // not counted the columns, and a row somebody believes is blank and is
+  // not is the failure this has to avoid.
+  const note = clearNote({ clear: ['Status', 'Remarks'], kept: [], locked: [] })
+  assert.ok(note.startsWith('Empties 2 columns'), note)
+  assert.ok(note.includes('Status, Remarks'), note)
+  assert.ok(clearNote({ clear: ['Status'] }).startsWith('Empties one column: Status.'))
+})
+
+test('...and says what it is leaving behind, and why', () => {
+  const note = clearNote({ clear: ['Remarks'], kept: ['Job'], locked: ['Amount', 'Cost'] })
+  assert.ok(note.includes('Job stays'), note)
+  assert.ok(note.includes('it cannot be left empty'), note)
+  assert.ok(note.includes('2 columns are not yours to edit'), note)
+
+  const many = clearNote({ clear: ['A'], kept: ['Job', 'Branch'], locked: ['X'] })
+  assert.ok(many.includes('Job and Branch stay'), many)
+  assert.ok(many.includes('they cannot be left empty'), many)
+  assert.ok(many.includes('1 column is not yours to edit'), many)
+})
+
+test('a long list is counted rather than recited', () => {
+  assert.ok(clearNote({ clear: ['A', 'B', 'C', 'D', 'E', 'F'] }).includes('A, B, C, D and 2 more'))
+})
+
+test('nothing to empty is said as such, not as a clear that did nothing', () => {
+  assert.equal(clearNote({ clear: [] }), 'There is nothing here that you can empty.')
+  assert.equal(clearNote(), 'There is nothing here that you can empty.')
+})
+
+test('the confirm button carries the count, like every other one', () => {
+  assert.equal(confirmLabel('clear', 43), 'Clear 43 rows')
+  assert.equal(confirmLabel('clear', 1), 'Clear 1 row')
+})
+
+// --- and how it is wired -------------------------------------------------
+
+test('the bar asks before it empties anything', () => {
+  const bar = read('components/RowActionsBar.jsx')
+  assert.ok(bar.includes("setAsking('clear')"))
+  assert.ok(bar.includes('function ConfirmClear('))
+  assert.ok(bar.includes('{clearNote(clearing)}'))
+  assert.ok(bar.includes('run(onClearRows)'))
+  // The X on the right clears the SELECTION, and is a different handler
+  // however alike the two are named.
+  assert.ok(bar.includes('aria-label="Clear the selection"'))
+  assert.ok(bar.includes('onClick={onClear} '))
+})
+
+test('the table works the columns out from the same model the server uses', () => {
+  const table = read('components/widgets/TableWidget.jsx')
+  assert.ok(table.includes('clearPlan(widget, tabHeaders || [], { editable: editableColumns, isAdmin })'))
+  assert.ok(table.includes('onClearRows(widget.tab, rowRefs(chosenRows), { widget: widget.id })'))
+})
+
+test('the browser says which rows, and nothing about which columns', () => {
+  // Sending the column list would make the grant a suggestion.
+  const client = read('lib/sheetsApi.js')
+  assert.match(client, /op: 'clear', page: pageId, ref, rows, widget/)
+})
+
+// --- the server ----------------------------------------------------------
+
+const clearOp = () => api.slice(api.indexOf('async function clearOp'), api.indexOf('async function copyOp'))
+
+test('a clear is refused unless the stored table offers it', () => {
+  // Read off the saved widget, like a transfer's route, so a crafted
+  // request cannot switch an operation on for a table whose admin left it
+  // off.
+  const body = clearOp()
+  assert.match(body, /const widget = tableWidget\(page, body, ref\)/)
+  assert.match(body, /if \(!widget\.canClearRows\) throw forbid/)
+  assert.match(body, /if \(!widget\.editable\) throw forbid/)
+})
+
+test('a clear derives its columns from the grants, never from the request', () => {
+  const body = clearOp()
+  assert.match(body, /clearPlan\(widget, sheet\.headers, \{/)
+  assert.match(body, /editable: access\.editable\?\.\[ref\] \|\| \[\]/)
+  assert.match(body, /if \(clear\.length === 0\) throw forbid/)
+  // Only the rows come out of the body.
+  assert.match(body, /wanted\.map\(\(w\) => w\.row\)/)
+})
+
+test('a clear proves the rows are still the rows, exactly as a delete does', () => {
+  // Clearing the wrong rows is as bad as deleting the right number of
+  // wrong ones, and it cannot be undone either.
+  const body = clearOp()
+  assert.match(body, /await verifyRows\(sheetId, tab, wanted\)/)
+  assert.match(body, /requireSome\(wanted, rowLimitOf\(widget\)\)/)
+})
+
+test('the sheet is cleared, not overwritten with empty strings', () => {
+  // They look the same in the cell and are not the same thing: a written
+  // '' is a value, and it turns "is this blank" -- in a formula, in a
+  // filter, in the next COUNTA somebody writes -- into a question with
+  // the wrong answer.
+  const at = sheets.indexOf('export async function clearRows')
+  const body = sheets.slice(at, sheets.indexOf('export function ascendingRuns', at))
+  assert.match(body, /values:batchClear/)
+  assert.equal(/valueInputOption/.test(body), false)
+  // Columns are found in the sheet's own header row, never by an index
+  // from the caller.
+  assert.match(body, /sheet\.headers\.indexOf\(name\)/)
+  assert.match(body, /row < 2\) throw badRequest\('That row cannot be cleared'\)/)
+  // Rows and columns each collapse into runs, and the ranges are the
+  // rectangles they make.
+  assert.match(body, /for \(const \[rowStart, rowEnd\] of ascendingRuns\(wanted\)\)/)
+  assert.match(body, /for \(const \[colStart, colEnd\] of ascendingRuns\(indexes\)\)/)
+})
+
+test('a clear moves nothing, so its runs read the way a range does', () => {
+  // `mergeRuns` goes downwards because a delete shifts what is below it.
+  // Nothing shifts here, so these are ascending -- and the two must not
+  // be confused, which is why they are separate functions rather than one
+  // with a flag.
+  const at = sheets.indexOf('export function ascendingRuns')
+  const body = sheets.slice(at, sheets.indexOf('export function mergeRuns', at))
+  assert.match(body, /sort\(\(a, b\) => a - b\)/)
+  assert.match(body, /last\[1\] === n - 1/)
 })

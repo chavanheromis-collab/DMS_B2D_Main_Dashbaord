@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { entranceDuration, liveEntranceItems, logoBox, resolveBrand } from '../lib/branding'
+import { MAIN_LOGO, entranceDuration, liveEntranceItems, logoBox, resolveBrand } from '../lib/branding'
 import { backdropClass, backdropOf, themeOf, themeVars } from '../lib/entranceThemes'
 import { ENTRANCE_WAIT_MS, entranceIsKnown, entranceIsSettled } from '../lib/entranceMemory'
 import { celebrates, celebrationFor } from '../lib/celebrate'
@@ -118,6 +118,18 @@ export default function SplashScreen({ onDone, entrance }) {
   const box = logoBox(entrance)
   const logo = useImageFallback(entrance?.logoUrl, box.request)
 
+  // The second mark, drawn ABOVE that one. Same model, different keys --
+  // its own size, its own gap, its own backdrop -- so an admin can put a
+  // wide group lockup over a small division mark without one setting
+  // fighting the other.
+  //
+  // No stock fallback here, deliberately. The logo below has one because
+  // the entrance has always shown SOMETHING; giving this slot one too
+  // would put a second mark on every workspace that never asked for one.
+  const mainBox = logoBox(entrance, MAIN_LOGO)
+  const mainLogo = useImageFallback(entrance?.[MAIN_LOGO.url], mainBox.request)
+  const mainBackdrop = backdropOf(entrance, MAIN_LOGO.backdrop)
+
   // One guarded exit path for all three triggers, so a click landing at the
   // same moment as the timer can't fire the transition twice.
   useEffect(() => {
@@ -210,6 +222,27 @@ export default function SplashScreen({ onDone, entrance }) {
             entrance is the one place a business's own identity belongs. It
             gets a soft glow behind it so a dark logo doesn't disappear into
             the near-black backdrop. */}
+        {/* The main mark, above. Absent unless it was asked for -- and
+            it takes no part in the fallback below it, so a broken link
+            here cannot make the other logo disappear. */}
+        {mainLogo.url && !mainLogo.exhausted && (
+          <div
+            className={`splash-mark flex items-center justify-center ${backdropClass(mainBackdrop)}`}
+            style={{ marginBottom: mainBox.gap }}
+          >
+            <img
+              key={mainLogo.url}
+              src={mainLogo.url}
+              alt=""
+              referrerPolicy="no-referrer"
+              decoding="async"
+              onError={mainLogo.onError}
+              className="w-auto object-contain"
+              style={{ maxHeight: mainBox.height, maxWidth: mainBox.maxWidth }}
+            />
+          </div>
+        )}
+
         {logo.url && !logo.exhausted ? (
           // The gap is a setting and can be negative: a logo file is very
           // often mostly transparent, and the browser cannot see that. See

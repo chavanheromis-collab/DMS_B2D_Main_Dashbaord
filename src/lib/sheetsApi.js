@@ -159,9 +159,27 @@ function rowOp(idToken, body) {
   return apiFetch(idToken, '/api/sheets', { method: 'POST', body: JSON.stringify(body) })
 }
 
-/** Removes rows, for good. Refused entirely if any of them has moved. */
-export async function deleteRows(idToken, pageId, ref, rows) {
-  return rowOp(idToken, { op: 'delete', page: pageId, ref, rows })
+/**
+ * Removes rows, for good. Refused entirely if any of them has moved.
+ *
+ * `widget` is an id, not a decision: the server looks the table up on the
+ * stored page and reads its delete switch and its cap on how many rows
+ * one press may take from there.
+ */
+export async function deleteRows(idToken, pageId, ref, rows, { widget = '' } = {}) {
+  return rowOp(idToken, { op: 'delete', page: pageId, ref, rows, widget })
+}
+
+/**
+ * Empties rows without removing them.
+ *
+ * Which columns get emptied is NOT sent. The server works it out from
+ * this person's column grants and the admin's required-field list, both
+ * read out of stored config -- the browser only says which rows, and
+ * which table it is looking at so the server can find the switch.
+ */
+export async function clearRows(idToken, pageId, ref, rows, { widget = '' } = {}) {
+  return rowOp(idToken, { op: 'clear', page: pageId, ref, rows, widget })
 }
 
 /**

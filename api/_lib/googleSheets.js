@@ -1,5 +1,6 @@
 import { GoogleAuth } from 'google-auth-library'
 import { FP, fingerprintValues } from '../../src/lib/rowFingerprint.js'
+import { ROW_LIMIT_CEILING } from '../../src/lib/rowOps.js'
 
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -199,9 +200,13 @@ export async function listTabs(sheetId) {
 // mistake or somebody probing, and either way it is not a spreadsheet edit.
 const MAX_BATCH_CELLS = 500
 
-// Whole rows are a heavier thing than cells and a rarer gesture. Past two
-// hundred, an add or a delete is not something somebody selected on screen.
-const MAX_BATCH_ROWS = 200
+// Whole rows are a heavier thing than cells and a rarer gesture. How many
+// a table allows is the admin's (see rowLimitOf in rowOps.js); this is the
+// backstop underneath every one of those settings, so it is the CEILING
+// rather than the default. Anything that reaches here having got past the
+// per-table cap is a bug or a crafted request, and either way this is the
+// last thing between it and the spreadsheet.
+const MAX_BATCH_ROWS = ROW_LIMIT_CEILING
 
 const badRequest = (message) => {
   const err = new Error(message)
@@ -340,6 +345,90 @@ export async function deleteRows(sheetId, tabName, rowNumbers) {
   await sheetsFetch(`/${sheetId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests }) })
   invalidateCache(sheetId, tabName)
   return { deleted: wanted.length }
+}
+
+/**
+ * Empties cells in rows that STAY where they are.
+ *
+ * The counterpart to `deleteRows`, and the difference is the whole point:
+ * nothing moves. Row 40 is still row 40 afterwards, so every formula on
+ * another sheet pointing at it still points at the same record's slot,
+ * and the row keeps its formatting, its dropdowns and its conditional
+ * colours. Only the values go.
+ *
+ * `values:batchClear` rather than writing empty strings. Both look the
+ * same in the cell and they are not the same thing: a written '' is a
+ * value, and a sheet full of them turns "is this blank" -- in a formula,
+ * in a filter, in the next COUNTA somebody writes -- into a question with
+ * the wrong answer.
+ *
+ * The columns are located in the sheet's OWN header row and never by an
+ * index from the request, for the reason `updateCell` gives at length: a
+ * caller is cleared to empty a column by NAME, and a name that arrives
+ * with its own position is a permission for whatever now sits there.
+ *
+ * Rectangles, not cells. Contiguous rows and contiguous columns collapse
+ * into one range each, so clearing forty adjacent rows across three
+ * adjacent columns is one range rather than a hundred and twenty.
+ */
+export async function clearRows(sheetId, tabName, rowNumbers, columnNames) {
+  const wanted = [...new Set((rowNumbers || []).map(Number))]
+  if (wanted.length === 0) throw badRequest('Nothing to clear')
+  if (wanted.length > MAX_BATCH_ROWS) throw badRequest(`That is more than ${MAX_BATCH_ROWS} rows in one go`)
+  for (const row of wanted) {
+    // Row 1 is the header. Emptying it takes every column's name off the
+    // sheet at once, and is the one row a clear can never legitimately
+    // mean.
+    if (!Number.isInteger(row) || row < 2) throw badRequest('That row cannot be cleared')
+  }
+
+  const sheet = await fetchSheetRows(sheetId, tabName, { fresh: true })
+  const lastRow = sheet.rows.length + 1
+  for (const row of wanted) {
+    if (row > lastRow) throw badRequest('One of those rows is no longer in this tab')
+  }
+
+  const indexes = []
+  for (const name of [...new Set(columnNames || [])]) {
+    const at = sheet.headers.indexOf(name)
+    // A column dropped in Google since the page loaded is skipped, not a
+    // refusal: the other ten columns of a clear are still exactly what was
+    // asked for, and failing the lot over a column nobody was thinking
+    // about would leave the rows half-read and wholly untouched.
+    if (at !== -1) indexes.push(at)
+  }
+  if (indexes.length === 0) throw badRequest('None of those columns are in this tab')
+
+  const ranges = []
+  for (const [rowStart, rowEnd] of ascendingRuns(wanted)) {
+    for (const [colStart, colEnd] of ascendingRuns(indexes)) {
+      const from = `${columnIndexToLetter(colStart)}${rowStart}`
+      const to = `${columnIndexToLetter(colEnd)}${rowEnd}`
+      ranges.push(`${tabName}!${from}:${to}`)
+    }
+  }
+
+  await sheetsFetch(`/${sheetId}/values:batchClear`, { method: 'POST', body: JSON.stringify({ ranges }) })
+  invalidateCache(sheetId, tabName)
+  return { cleared: wanted.length, columns: indexes.length }
+}
+
+/**
+ * Numbers as ascending contiguous runs: [3,7,4,5] -> [[3,5],[7,7]].
+ *
+ * The same merging `mergeRuns` does and the opposite order, because the
+ * reason for descending there does not apply here: nothing shifts under a
+ * clear, so the runs can read the way a range does.
+ */
+export function ascendingRuns(numbers) {
+  const sorted = [...new Set(numbers)].sort((a, b) => a - b)
+  const runs = []
+  for (const n of sorted) {
+    const last = runs[runs.length - 1]
+    if (last && last[1] === n - 1) last[1] = n
+    else runs.push([n, n])
+  }
+  return runs
 }
 
 /**

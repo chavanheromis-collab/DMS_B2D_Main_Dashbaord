@@ -244,7 +244,9 @@ test('a control is never offered itself to wait for', () => {
   // It would hide itself the moment it was set, and then nobody could
   // unset it.
   assert.match(CONTROLS, /filters=\{controls\.filter\(\(c\) => c\.id !== control\.id && c\.kind !== 'button'\)\}/)
-  assert.match(CONTROLS, /buttons=\{controls\.filter\(\(c\) => c\.id !== control\.id && c\.kind === 'button'\)\}/)
+  // Narrowed to the buttons that REMEMBER being pressed: a rule pointing
+  // at a link or a print button could never be true.
+  assert.match(CONTROLS, /buttons=\{controls\.filter\(\(c\) => c\.id !== control\.id && holdsState\(c\)\)\}/)
 })
 
 test('the editor writes one field, whole', () => {

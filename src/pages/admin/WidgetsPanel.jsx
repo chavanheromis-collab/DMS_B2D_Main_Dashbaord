@@ -40,12 +40,18 @@ import { blankChoice, choiceProblem } from '../../lib/columnChoices'
 import { newClearRule, ruleProblem } from '../../lib/clearRules'
 import { FILL_LIMIT, fillColumnsOf } from '../../lib/fillDown'
 import { REQUIRED_COLUMNS, requiredColumnsOf } from '../../lib/requiredColumns'
+import { holdsState } from '../../lib/buttonActions'
 import {
+  MAX_ROWS_PER_OP,
+  ROW_LIMIT,
+  ROW_LIMIT_CEILING,
   ROW_OP_SWITCHES,
   blankPair,
   copyRoutesOf,
   mappedCount,
+  offersRowOps,
   resolvePairs,
+  rowLimitOf,
   routeNote,
   sendsRows,
 } from '../../lib/rowOps'
@@ -439,7 +445,7 @@ export default function WidgetsPanel({
                   owner={widget}
                   set={set}
                   filters={(pageControls || []).filter((c) => c.kind !== 'button')}
-                  buttons={(pageControls || []).filter((c) => c.kind === 'button')}
+                  buttons={(pageControls || []).filter(holdsState)}
                   tabs={tabs}
                   tabHeaders={tabHeaders}
                 />
@@ -2883,6 +2889,47 @@ function RowActionsEditor({ widget, set, tabOptions, labelFor, tabHeaders }) {
         ))}
       </div>
 
+      {/* How much one press may do. Only once something is switched on:
+          a cap on nothing is a number nobody can act on.
+
+          It belongs per TABLE because the right answer is not the same
+          twice -- a master register wants ten, so a slip with select-all
+          cannot take the month out, and a staging tab emptied every
+          Friday wants five hundred, where a cap of two hundred just means
+          doing it three times and losing count. */}
+      {offersRowOps(widget) && (
+        <div className="flex flex-wrap items-end gap-3">
+          <Field
+            label="Most rows in one action"
+            className="w-40"
+            hint={`Blank for ${MAX_ROWS_PER_OP}. ${ROW_LIMIT_CEILING} is the ceiling.`}
+          >
+            <TextInput
+              type="number"
+              value={widget[ROW_LIMIT] ?? ''}
+              onChange={(v) => set({ [ROW_LIMIT]: v === '' ? null : Number(v) })}
+              placeholder={String(MAX_ROWS_PER_OP)}
+            />
+          </Field>
+          <p className="pb-1.5 text-[10px] leading-snug text-slate-400">
+            The reader is told before they press, and the server refuses anything past it — so this is a limit
+            rather than a warning. Above {ROW_LIMIT_CEILING} the request itself becomes the risk: a move is two
+            reads, an append and a delete, and one that runs out of time half way through has landed rows on the
+            other tab and taken none off this one.
+          </p>
+        </div>
+      )}
+
+      {/* Said only next to the field that sets it. A number the model
+          clamped is a disagreement between the form and what will
+          actually happen, and the one place it has to be visible is where
+          somebody is looking at what they typed. */}
+      {offersRowOps(widget) && rowLimitOf(widget) !== Number(widget[ROW_LIMIT] ?? MAX_ROWS_PER_OP) && (
+        <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] leading-snug text-amber-700">
+          Saved as {widget[ROW_LIMIT]}, applied as {rowLimitOf(widget)}.
+        </p>
+      )}
+
       {/* Only once there is something to send -- copy and move share one
           list of destinations, because they differ in what happens HERE
           rather than in where the rows go. */}
@@ -2900,9 +2947,23 @@ function RowActionsEditor({ widget, set, tabOptions, labelFor, tabHeaders }) {
       <p className="rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] leading-snug text-slate-500">
         These switches only make an action possible in principle; each still needs a per-user grant in the{' '}
         <strong>Users</strong> tab. <em>Delete rows</em> is granted on <strong>this</strong> tab — and{' '}
-        <em>Receive rows</em> on the <strong>destination</strong>, because that is where copied rows land. Admins
-        can always do all of it.
+        <em>Receive rows</em> on the <strong>destination</strong>, because that is where copied rows land.{' '}
+        <em>Clear rows</em> has no grant of its own: it empties cells, so it follows the{' '}
+        <strong>editable columns</strong> this person already holds here, and never a column marked below as one
+        a record must always have. Admins can always do all of it.
       </p>
+
+      {/* Said next to the switch rather than in the paragraph above,
+          because the thing an admin needs to know about clearing is not
+          that it is dangerous -- it is what it will and will not touch on
+          a reader who holds three columns of eleven. */}
+      {widget.canClearRows && (
+        <p className="rounded-lg border border-amber-100 bg-amber-50/60 px-2 py-1.5 text-[10px] leading-snug text-amber-700">
+          Clearing empties the cells and leaves the rows where they are — their position, formatting and dropdowns
+          are kept, so anything pointing at those rows still points at them. Each person empties only the columns
+          they may edit, which is shown to them before it runs, and it cannot be undone.
+        </p>
+      )}
 
       {widget.canDeleteRows && (
         <p className="rounded-lg border border-rose-100 bg-rose-50/60 px-2 py-1.5 text-[10px] leading-snug text-rose-700">

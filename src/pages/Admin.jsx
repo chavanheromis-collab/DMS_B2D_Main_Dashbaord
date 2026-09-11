@@ -47,7 +47,7 @@ export default function Admin() {
   // Which dashboard is being administered. Everything on this screen --
   // the sheet connections, the pages, the entrance -- belongs to one of
   // them; see lib/spaces.js.
-  const { spaceId } = useSpace()
+  const { spaceId, spaces } = useSpace()
   const [allSources, setSources] = useState([])
   const [allPages, setPages] = useState([])
   const sources = useMemo(() => inSpace(allSources, spaceId), [allSources, spaceId])
@@ -308,6 +308,19 @@ export default function Admin() {
               setViews={setPart('views')}
               hideSearch={!!draft.hideSearch}
               setHideSearch={(v) => setDraft((d) => ({ ...d, hideSearch: v }))}
+              // What a one-shot button may be pointed at. The OTHER pages
+              // -- a button that navigates to the page it is already on is
+              // a button that does nothing.
+              targets={{
+                pages: pages
+                  .filter((p) => p.id !== draft.id)
+                  .map((p) => ({ value: p.id, label: p.name || 'Page' })),
+                spaces: spaces.map((s) => ({ value: s.id, label: s.name || s.id })),
+                widgets: (draft.widgets || []).map((w) => ({
+                  value: w.id,
+                  label: w.title || `${w.type} · ${labelFor(w.tab)}`,
+                })),
+              }}
             />
           )}
 

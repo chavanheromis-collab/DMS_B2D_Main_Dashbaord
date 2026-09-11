@@ -35,6 +35,7 @@
 // component asks it what to draw and the server asks it what to allow, so
 // there is one answer rather than two that drift.
 
+import { requiredColumnsOf } from './requiredColumns.js'
 import { dataValues } from './rowMeta.js'
 
 // ---------------------------------------------------------------------
@@ -46,6 +47,20 @@ import { dataValues } from './rowMeta.js'
 // sit behind is what stops "may move" being a right nobody thought to
 // review -- there is no such grant, only the two halves it is made of, each
 // checked on the tab it actually touches.
+
+// CLEARING is the third, and it is deliberately not a grant. Emptying a
+// cell is writing '' into it, which the column grants already govern
+// perfectly: a person who may type in Status may empty Status, one row at
+// a time, and doing forty at once changes the scale rather than the
+// permission. Inventing a "may clear" right would mean an admin could
+// grant somebody the ability to blank a column they cannot write, which is
+// not a thing anybody means.
+//
+// It exists at all because the alternative -- delete the row and enter it
+// again -- throws away the one thing worth keeping. A cleared row holds
+// its place: the row number every other sheet's formula points at, its
+// formatting, its dropdowns, and whatever the admin marked as the fields a
+// record must always have. What goes is the data.
 
 export const ROW_OP_GRANTS = [
   {
@@ -79,6 +94,15 @@ export const ROW_OP_SWITCHES = [
     label: 'Delete rows',
     needs: ['delete'],
     hint: 'Remove the selected rows. Cannot be undone.',
+  },
+  {
+    key: 'canClearRows',
+    label: 'Clear rows',
+    needs: [],
+    // Not a grant but a column question: this empties cells, so it offers
+    // itself only where there is a cell this person may write.
+    columns: true,
+    hint: 'Empty the selected rows without removing them. Only the columns this person may edit, and never one that cannot be left empty.',
   },
   {
     key: 'canCopyRows',
@@ -285,14 +309,23 @@ export function mapRow(row, pairs) {
  * `targets` is expected to arrive already narrowed to the destinations this
  * person may write to. That is where a copy's permission lives, so an empty
  * list is the whole answer for it.
+ *
+ * `columns` is the tab's own header list, and it is what settles clearing:
+ * that one is governed by the column grants rather than by a row grant, so
+ * "may this person empty anything here at all" is a question about columns
+ * and cannot be answered without them. A table with nothing writable on it
+ * offers no Clear button -- one that appeared and then emptied nothing
+ * would be read as the operation having failed silently.
  */
-export function availableActions(widget, { access, ref, isAdmin = false, targets = [] } = {}) {
+export function availableActions(widget, { access, ref, isAdmin = false, targets = [], columns = [] } = {}) {
   const grants = grantsFor(access, ref, isAdmin)
+  const editable = access?.editable?.[ref] || []
   const out = []
   for (const action of ROW_OP_SWITCHES) {
     if (!widget?.[action.key]) continue
     if (!action.needs.every((need) => grants.includes(need))) continue
     if (action.key === 'canCopyRows' && targets.length === 0) continue
+    if (action.columns && clearPlan(widget, columns, { editable, isAdmin }).clear.length === 0) continue
     out.push(action.key)
   }
   return out
@@ -355,6 +388,66 @@ export function scrubRow(values, allowed) {
     if (keep.has(column)) out[column] = value
   }
   return out
+}
+
+// ---------------------------------------------------------------------
+// Emptying rows in place
+// ---------------------------------------------------------------------
+
+/**
+ * Exactly which columns a clear touches, and which it leaves alone.
+ *
+ * Three groups, and every one of them has to be on screen before anybody
+ * presses the button -- "Clear rows" that quietly leaves four columns
+ * filled is discovered by whoever assumes the row is empty.
+ *
+ *   CLEARED. What this person may write here. The same rule that governs
+ *   a cell edit and a row arriving from another tab (`creatableColumns`),
+ *   because it is the same act: putting a value -- here, no value -- into
+ *   a cell on this tab.
+ *
+ *   KEPT. Columns the admin marked as ones a record must always have. This
+ *   is the difference between clearing and deleting: a cleared row is
+ *   still a row, and a row that has lost the field identifying it is worse
+ *   than one that is gone, because it still looks like a record. The
+ *   detail form refuses to empty these one at a time (requiredColumns.js);
+ *   forty at once cannot be the way round that.
+ *
+ *   LOCKED. Everything else on the tab -- not this person's to empty, and
+ *   not claimed to be.
+ */
+export function clearPlan(widget, columns, { editable = [], isAdmin = false } = {}) {
+  const all = (columns || []).filter(Boolean)
+  const writable = creatableColumns(all, editable, isAdmin)
+  const required = new Set(requiredColumnsOf(widget))
+  return {
+    clear: writable.filter((c) => !required.has(c)),
+    kept: writable.filter((c) => required.has(c)),
+    locked: all.filter((c) => !writable.includes(c)),
+  }
+}
+
+const andList = (names) => {
+  const list = (names || []).filter(Boolean)
+  if (list.length <= 1) return list.join('')
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`
+}
+
+/** What a clear will do, said before it does it. */
+export function clearNote({ clear = [], kept = [], locked = [] } = {}) {
+  if (clear.length === 0) return 'There is nothing here that you can empty.'
+
+  const shown = clear.slice(0, 4).join(', ')
+  const rest = clear.length > 4 ? ` and ${clear.length - 4} more` : ''
+  const parts = [`Empties ${clear.length === 1 ? 'one column' : `${clear.length} columns`}: ${shown}${rest}.`]
+
+  if (kept.length > 0) {
+    parts.push(`${andList(kept)} ${kept.length === 1 ? 'stays' : 'stay'} — ${kept.length === 1 ? 'it cannot' : 'they cannot'} be left empty.`)
+  }
+  if (locked.length > 0) {
+    parts.push(`${locked.length} ${locked.length === 1 ? 'column is' : 'columns are'} not yours to edit and ${locked.length === 1 ? 'is' : 'are'} untouched.`)
+  }
+  return parts.join(' ')
 }
 
 // ---------------------------------------------------------------------
@@ -459,6 +552,8 @@ export function confirmLabel(action, n, target = '') {
   switch (action) {
     case 'delete':
       return `Delete ${rowCount(n)}`
+    case 'clear':
+      return `Clear ${rowCount(n)}`
     case 'copy':
       return `Copy ${rowCount(n)} to ${target}`
     case 'move':
@@ -468,15 +563,68 @@ export function confirmLabel(action, n, target = '') {
   }
 }
 
-/** How many rows one request may carry. Past this it is not a gesture. */
+// ---------------------------------------------------------------------
+// How much one press may do
+// ---------------------------------------------------------------------
+// There has to be a cap. A row operation is a gesture -- somebody ticked
+// rows they were looking at -- and past a few hundred it is not that any
+// more, it is a script, and the difference between "the ones I meant" and
+// "everything the filter happened to leave" stops being visible on the
+// screen that is about to act on it.
+//
+// But the right number is not the same everywhere, which is why it is now
+// the admin's. A master register wants a cap of ten, so that a slip with
+// select-all cannot take the month out. A staging tab that gets emptied
+// every Friday wants five hundred, and a cap of two hundred there just
+// means doing it three times and losing count.
+//
+// Two numbers, and only one of them is a decision:
+//
+//   THE DEFAULT is what every table has always had, so nothing configured
+//   before this existed changes.
+//
+//   THE CEILING is not configurable at all. Above it the write stops being
+//   the risk and the request does: the move path alone is two reads, an
+//   append and a delete, and a serverless function that runs out of time
+//   half way through has appended rows nobody can see and deleted none of
+//   them. Five hundred is what fits with room to spare.
+
+/** How many rows one request may carry when nobody has said otherwise. */
 export const MAX_ROWS_PER_OP = 200
 
-export function tooMany(n) {
-  return n > MAX_ROWS_PER_OP
+/** The most any table can be set to, whatever is in the document. */
+export const ROW_LIMIT_CEILING = 500
+
+/** Where the admin's number lives on the widget. */
+export const ROW_LIMIT = 'maxRowsPerOp'
+
+/**
+ * This table's cap, from a document that may say anything.
+ *
+ * Clamped rather than validated, and clamped in the MODEL rather than at
+ * the form, so the page's own answer and the server's are the same
+ * function of the same field. A hand-edited document asking for fifty
+ * thousand gets the ceiling; one asking for nothing gets the default;
+ * one asking for zero or a word gets the default too, because neither is
+ * somebody saying "no rows at a time".
+ */
+export function rowLimitOf(widget) {
+  const raw = Math.floor(Number(widget?.[ROW_LIMIT]))
+  if (!Number.isFinite(raw) || raw < 1) return MAX_ROWS_PER_OP
+  return Math.min(raw, ROW_LIMIT_CEILING)
 }
 
-export function limitNote(n) {
-  return tooMany(n)
-    ? `That is ${rowCount(n)}. ${MAX_ROWS_PER_OP} at a time is the most this will do in one go.`
+/** Does this table offer any whole-row action at all? */
+export function offersRowOps(widget) {
+  return ROW_OP_SWITCHES.some((action) => Boolean(widget?.[action.key]))
+}
+
+export function tooMany(n, limit = MAX_ROWS_PER_OP) {
+  return n > limit
+}
+
+export function limitNote(n, limit = MAX_ROWS_PER_OP) {
+  return tooMany(n, limit)
+    ? `That is ${rowCount(n)}. ${limit} at a time is the most this table will do in one go.`
     : ''
 }

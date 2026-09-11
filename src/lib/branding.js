@@ -59,6 +59,55 @@ export const GAP_MIN = -80
 export const GAP_MAX = 80
 export const GAP_DEFAULT = 24
 
+// ---------------------------------------------------------------------
+// The two logos
+// ---------------------------------------------------------------------
+// A business very often has two marks rather than one: the group's, and
+// the one for the thing this dashboard is about. Stacking them is the
+// normal way that gets said -- the parent above, the division under it --
+// and doing it with one image means keeping a composite file in step with
+// two brands by hand.
+//
+// So there are two slots, and the SECOND one is the field that has always
+// existed. Nothing moves: a workspace that set a logo before this went in
+// still has exactly that logo, in exactly that place, and the new one is
+// blank above it.
+//
+// They are described as a TABLE rather than written out twice because
+// "the main logo has every setting the other one has" is the whole
+// requirement, and the only way to guarantee it is for both to be the
+// same code reading different keys. Add a setting to one and the other
+// has it.
+
+export const LOGO_SLOTS = [
+  {
+    key: 'main',
+    label: 'Main logo',
+    note: 'Drawn above the logo below. Blank shows nothing at all — no stock mark stands in for it.',
+    url: 'mainLogoUrl',
+    backdrop: 'mainLogoBackdrop',
+    size: 'mainLogoSize',
+    gap: 'mainLogoGap',
+  },
+  {
+    key: 'logo',
+    label: 'Logo image',
+    note: 'Replaces the built-in mark on the entrance. Blank keeps the built-in one.',
+    url: 'logoUrl',
+    backdrop: 'logoBackdrop',
+    size: 'logoSize',
+    gap: 'logoGap',
+  },
+]
+
+export const MAIN_LOGO = LOGO_SLOTS[0]
+export const LOGO = LOGO_SLOTS[1]
+
+/** A slot by key, defaulting to the one that has always existed. */
+export function logoSlot(key) {
+  return LOGO_SLOTS.find((s) => s.key === key) || LOGO
+}
+
 export const DEFAULT_ENTRANCE = {
   enabled: true,
   brandName: '',
@@ -66,6 +115,20 @@ export const DEFAULT_ENTRANCE = {
   // An admin-supplied logo replaces the generic mark on the entrance. Blank
   // keeps the built-in one, so a fresh install still looks finished.
   logoUrl: '',
+  // The second mark, drawn ABOVE that one -- the group's logo over the
+  // division's, which is how a business with two of them says it. Blank
+  // shows nothing: unlike the logo below it, there is no stock mark for
+  // this slot, because a workspace that has one logo has one logo.
+  mainLogoUrl: '',
+  mainLogoBackdrop: 'glow',
+  mainLogoSize: LOGO_DEFAULT,
+  mainLogoGap: GAP_DEFAULT,
+  // The browser tab's icon. Its own field rather than the logo again,
+  // because they are drawn at 96px and at 16px and almost no logo works
+  // at both: the entrance wants the full lockup, the tab wants the mark
+  // out of it. Blank falls back to the logo, which is better than a
+  // default globe and is what a workspace that has only one image wants.
+  faviconUrl: '',
   // Named rather than left blank: `themeOf` and `backdropOf` both fall back
   // to the first entry anyway, but a stored document that says what it is
   // beats one whose look depends on which entry happens to be first.
@@ -96,21 +159,31 @@ export const DEFAULT_ENTRANCE = {
 /** `null` and `''` mean "not set", and `Number(null)` is 0 -- which is not. */
 const raw2 = (value) => (value === null || value === undefined || value === '' ? NaN : Number(value))
 
-export function logoBox(entrance) {
+export function logoBox(entrance, slot = LOGO) {
   // `null` and `''` are "not set", not zero. `Number(null)` is 0, which is
   // perfectly finite and would clamp every logo on a workspace that had
   // once cleared the field down to the smallest it can be.
-  const asked = raw2(entrance?.logoSize)
+  const asked = raw2(entrance?.[slot.size])
   const height = Math.round(
     Number.isFinite(asked) ? Math.max(LOGO_MIN, Math.min(LOGO_MAX, asked)) : LOGO_DEFAULT
   )
   // 2.7:1, which is the proportion the fixed 96px/260px box always had.
   const maxWidth = Math.round(height * 2.7)
-  const askedGap = raw2(entrance?.logoGap)
+  const askedGap = raw2(entrance?.[slot.gap])
   const gap = Math.round(
     Number.isFinite(askedGap) ? Math.max(GAP_MIN, Math.min(GAP_MAX, askedGap)) : GAP_DEFAULT
   )
   return { height, maxWidth, gap, request: Math.min(1600, maxWidth * 2) }
+}
+
+/** The link in one slot, or ''. */
+export function logoUrlOf(entrance, slot = LOGO) {
+  return entrance?.[slot.url] || ''
+}
+
+/** Is there anything in this slot to draw? */
+export function hasLogo(entrance, slot = LOGO) {
+  return logoUrlOf(entrance, slot) !== ''
 }
 
 export function emptyEntranceItem(kind = 'campaign') {

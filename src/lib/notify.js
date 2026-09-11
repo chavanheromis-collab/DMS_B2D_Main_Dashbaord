@@ -32,8 +32,15 @@
 import { avatarSpec } from './avatar.js'
 import { conversationIdOf, kindOf, titleOf } from './conversations.js'
 
-/** The tab title, when nothing is waiting. */
-export const BASE_TITLE = 'Dealer Dashboard'
+/**
+ * The tab title, when nothing is waiting.
+ *
+ * Has to match index.html. The markup's title is what a cold tab shows;
+ * this is what the message centre writes over it the moment it mounts, so
+ * two different strings would mean the tab renaming itself a second after
+ * it opens.
+ */
+export const BASE_TITLE = 'Chavan Dealer Dashboard'
 
 /** Whether this browser has the API at all. */
 export function notifySupported() {

@@ -1,6 +1,7 @@
 import { requireUser, getAccess, adminDb } from './_lib/firebaseAdmin.js'
 import {
   appendRows,
+  clearRows,
   deleteRows,
   fetchManyTabs,
   fetchSheetRows,
@@ -13,11 +14,12 @@ import { staleRows } from '../src/lib/rowFingerprint.js'
 import {
   canAdd,
   canDelete,
+  clearPlan,
   creatableColumns,
   mapRow,
-  MAX_ROWS_PER_OP,
   resolvePairs,
   routeFor,
+  rowLimitOf,
 } from '../src/lib/rowOps.js'
 
 // ---------------------------------------------------------------------
@@ -498,7 +500,7 @@ async function verifyRows(sheetId, tab, wanted) {
  * crafted request cannot name its own pairs any more than it can name its
  * own destination.
  */
-function transferRoute(page, body, ref, target, move) {
+function tableWidget(page, body, ref) {
   const widgetId = String(body.widget || '')
   const widget = (page.widgets || []).find((w) => w?.id === widgetId)
 
@@ -507,6 +509,12 @@ function transferRoute(page, body, ref, target, move) {
     err.statusCode = 400
     throw err
   }
+  return widget
+}
+
+function transferRoute(page, body, ref, target, move) {
+  const widget = tableWidget(page, body, ref)
+
   if (!widget[move ? 'canMoveRows' : 'canCopyRows']) {
     throw forbid(`This table does not ${move ? 'move' : 'copy'} rows`)
   }
@@ -536,14 +544,22 @@ function rowRefsFrom(body) {
   return out
 }
 
-function requireSome(rows) {
+/**
+ * There is at least one row, and not more than this table allows.
+ *
+ * The cap is read off the stored widget like everything else here. A
+ * browser that thinks it may send five hundred because somebody edited
+ * the number in front of them is not the authority on what the saved
+ * page says.
+ */
+function requireSome(rows, limit) {
   if (rows.length === 0) {
     const err = new Error('No rows were given')
     err.statusCode = 400
     throw err
   }
-  if (rows.length > MAX_ROWS_PER_OP) {
-    const err = new Error(`That is more than ${MAX_ROWS_PER_OP} rows in one go`)
+  if (rows.length > limit) {
+    const err = new Error(`That is more than ${limit} rows in one go — the most this table allows`)
     err.statusCode = 400
     throw err
   }
@@ -563,7 +579,8 @@ async function handleRowOp(req, res, uid, pageId, body) {
 
   const { access, sources, page } = await rowOpContext(uid, pageId, refs.filter(Boolean))
 
-  if (op === 'delete') return deleteOp(res, access, sources, ref, body)
+  if (op === 'delete') return deleteOp(res, access, sources, page, ref, body)
+  if (op === 'clear') return clearOp(res, access, sources, page, ref, body)
   if (op === 'copy' || op === 'move') {
     return copyOp(res, access, sources, page, ref, target, body, op === 'move')
   }
@@ -582,15 +599,77 @@ function writableColumns(access, ref, headers) {
   return creatableColumns(headers, access.editable?.[ref] || [], access.isAdmin)
 }
 
-async function deleteOp(res, access, sources, ref, body) {
+/**
+ * Removes rows, for good.
+ *
+ * The table is identified for the same two reasons every other operation
+ * identifies it: its cap on how many rows one press may take, and the
+ * admin's switch. A grant is per TAB, so without the switch a delete
+ * could be aimed at a table whose admin deliberately did not offer one --
+ * the check every other row operation makes, and the one this was missing
+ * while it had no reason to look the widget up.
+ */
+async function deleteOp(res, access, sources, page, ref, body) {
   if (!canDelete(access, ref, access.isAdmin)) throw forbid('You are not allowed to delete rows from this tab')
+
+  const widget = tableWidget(page, body, ref)
+  if (!widget.canDeleteRows) throw forbid('This table does not delete rows')
 
   const { sheetId, tab } = sheetFor(sources, ref)
   const wanted = rowRefsFrom(body)
-  requireSome(wanted)
+  requireSome(wanted, rowLimitOf(widget))
 
   await verifyRows(sheetId, tab, wanted)
   return res.status(200).json(await deleteRows(sheetId, tab, wanted.map((w) => w.row)))
+}
+
+/**
+ * Empties rows in place, leaving them where they are.
+ *
+ * Governed by the COLUMN grants and by nothing else, which is the whole
+ * shape of this operation: emptying a cell is writing '' into it, so
+ * whoever may type in Status may blank Status, and doing forty rows at
+ * once is a change of scale rather than of permission. There is no "may
+ * clear" right to hold, and inventing one would let an admin grant the
+ * blanking of a column its holder cannot write.
+ *
+ * What that leaves the server to check is everything the browser must not
+ * be trusted with, all of it re-derived from stored config:
+ *
+ *   THE TABLE OFFERS IT. Read off the saved widget -- the same rule a
+ *   transfer follows, so a crafted request cannot switch an operation on
+ *   for a table whose admin left it off.
+ *
+ *   THE COLUMNS. This person's grants on this ref, intersected with the
+ *   sheet's real header row, minus whatever the admin marked as fields a
+ *   record must always have. That last exclusion is what separates a clear
+ *   from a delete: a cleared row is still a row, and one that has lost the
+ *   field identifying it is worse than one that is gone -- it still looks
+ *   like a record. The detail form refuses to empty those one at a time;
+ *   two hundred at once cannot be the way round it.
+ *
+ *   THE ROWS ARE STILL THE ROWS. Same fingerprint check as a delete, and
+ *   the same all-or-nothing refusal. Clearing is not undoable either, and
+ *   clearing the wrong rows is exactly as bad as deleting the right
+ *   number of wrong ones.
+ */
+async function clearOp(res, access, sources, page, ref, body) {
+  const widget = tableWidget(page, body, ref)
+  if (!widget.canClearRows) throw forbid('This table does not clear rows')
+  if (!widget.editable) throw forbid('Nothing on this table can be edited')
+
+  const { sheetId, tab } = sheetFor(sources, ref)
+  const wanted = rowRefsFrom(body)
+  requireSome(wanted, rowLimitOf(widget))
+
+  const sheet = await verifyRows(sheetId, tab, wanted)
+  const { clear } = clearPlan(widget, sheet.headers, {
+    editable: access.editable?.[ref] || [],
+    isAdmin: access.isAdmin,
+  })
+  if (clear.length === 0) throw forbid('None of these columns can be emptied')
+
+  return res.status(200).json(await clearRows(sheetId, tab, wanted.map((w) => w.row), clear))
 }
 
 /**
@@ -636,7 +715,10 @@ async function copyOp(res, access, sources, page, ref, target, body, move) {
   const from = sheetFor(sources, ref)
   const to = sheetFor(sources, target)
   const wanted = rowRefsFrom(body)
-  requireSome(wanted)
+  // The cap belongs to the table the rows are LEAVING -- that is the one
+  // whose admin is looking at a select-all over their own rows. The route
+  // is read out of the same widget a line later.
+  requireSome(wanted, rowLimitOf(tableWidget(page, body, ref)))
 
   const sheet = await verifyRows(from.sheetId, from.tab, wanted)
   const byNumber = new Map(sheet.rows.map((r) => [r._row, r]))

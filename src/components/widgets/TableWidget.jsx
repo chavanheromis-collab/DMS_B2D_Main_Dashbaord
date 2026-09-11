@@ -28,7 +28,13 @@ import {
   toggleAll,
   toggleRow,
 } from '../../lib/tableSelection.js'
-import { availableActions, canMove as moveAllowed, hasRowActions } from '../../lib/rowOps.js'
+import {
+  availableActions,
+  canMove as moveAllowed,
+  clearPlan,
+  hasRowActions,
+  rowLimitOf,
+} from '../../lib/rowOps.js'
 import { fetchDownloadMeta, getDownloadActions, triggerDownload } from '../../lib/downloadActions.js'
 import RowDetailPanel from '../RowDetailPanel.jsx'
 import ColumnFilterMenu from '../ColumnFilterMenu.jsx'
@@ -198,6 +204,7 @@ export default function TableWidget({
   headersFor,
   isAdmin = false,
   onDeleteRows,
+  onClearRows,
   onCopyRows,
 }) {
   const defaultSorts = useMemo(
@@ -297,15 +304,36 @@ export default function TableWidget({
   // and -- for a copy -- there is somewhere to send rows to. See
   // lib/rowOps.js. The server checks all of it again for itself, so hiding
   // a button is a courtesy rather than the boundary.
+  // Clearing hangs off the COLUMN grants rather than a row grant -- it
+  // empties cells, and emptying a cell is writing to it -- so the context
+  // carries the columns as well as the grants. `editableColumns` is
+  // already this person's writable list for this tab, narrowed by the
+  // table's own edit switch (see Dashboard.jsx), which is exactly the
+  // question being asked.
   const rowActionContext = useMemo(
-    () => ({ access: { rowOps: { [widget.tab]: rowGrants } }, ref: widget.tab, isAdmin, targets: copyTargets }),
-    [widget.tab, rowGrants, isAdmin, copyTargets]
+    () => ({
+      access: { rowOps: { [widget.tab]: rowGrants }, editable: { [widget.tab]: editableColumns } },
+      ref: widget.tab,
+      isAdmin,
+      targets: copyTargets,
+      columns: tabHeaders || [],
+    }),
+    [widget.tab, rowGrants, editableColumns, isAdmin, copyTargets, tabHeaders]
   )
   const rowActions = useMemo(
     () => availableActions(widget, rowActionContext),
     [widget, rowActionContext]
   )
   const canMoveOut = moveAllowed(widget, rowActionContext)
+
+  // What a clear would empty, and what it would leave. Worked out here so
+  // the dialog can say it BEFORE anything happens -- the server derives
+  // the same three lists for itself from the same stored config, and its
+  // answer is the one that decides.
+  const clearing = useMemo(
+    () => clearPlan(widget, tabHeaders || [], { editable: editableColumns, isAdmin }),
+    [widget, tabHeaders, editableColumns, isAdmin]
+  )
   const selectable = hasRowActions(widget, rowActionContext)
 
   // The three rows a panel may be open on, as they are NOW.
@@ -926,12 +954,19 @@ export default function TableWidget({
               columns={columns}
               sourceHeaders={tabHeaders || []}
               sourceLabel={widget.tab}
+              limit={rowLimitOf(widget)}
               busy={saving}
               onClear={() => {
                 setSelection(NO_SELECTION)
                 setAnchorRow(null)
               }}
-              onDelete={() => onDeleteRows(widget.tab, rowRefs(chosenRows))}
+              // The widget's id goes with a delete for the same reason
+              // it goes with a copy: the server reads this table's switch
+              // and its cap on how many rows one press may take out of
+              // the stored page, not out of this request.
+              onDelete={() => onDeleteRows(widget.tab, rowRefs(chosenRows), { widget: widget.id })}
+              clearing={clearing}
+              onClearRows={() => onClearRows(widget.tab, rowRefs(chosenRows), { widget: widget.id })}
               // `target` is a REF, not a label -- see copyTargetsFor in
               // pages/Dashboard.jsx. The widget's own id goes with it so the
               // server can read the column mapping out of the stored page

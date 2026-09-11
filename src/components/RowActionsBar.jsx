@@ -1,7 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowRight, CheckSquare, Copy, Loader2, Lock, Scissors, Trash2, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckSquare,
+  Copy,
+  Eraser,
+  Loader2,
+  Lock,
+  Scissors,
+  Trash2,
+  X,
+} from 'lucide-react'
 
-import { confirmLabel, limitNote, resolvePairs, rowCount, routeNote, tooMany } from '../lib/rowOps'
+import {
+  MAX_ROWS_PER_OP,
+  clearNote,
+  confirmLabel,
+  limitNote,
+  resolvePairs,
+  rowCount,
+  routeNote,
+  tooMany,
+} from '../lib/rowOps'
 
 // ---------------------------------------------------------------------
 // What to do with the rows you have ticked
@@ -31,6 +51,12 @@ import { confirmLabel, limitNote, resolvePairs, rowCount, routeNote, tooMany } f
 //   that lists the first few rows by their own values, so the question is
 //   "are these the records?" rather than "are you sure?".
 //
+//   A CLEAR SAYS WHICH COLUMNS. It empties what this person may write
+//   and nothing else, so on a table where they hold three columns of
+//   eleven it empties three -- and a row somebody believes is blank and
+//   is not is the whole failure this has to avoid. The names are on the
+//   dialog before it runs.
+//
 //   A COPY SAYS WHAT WILL NOT CARRY. Columns map across tabs by NAME, so
 //   sending a quotation to Bookings drops whatever Bookings has no column
 //   for. Said before it happens, with the names, because discovered
@@ -59,12 +85,24 @@ export default function RowActionsBar({
   // table -- but named on screen, because "Quotations → Bookings" is the
   // sentence somebody is checking before they press Move.
   sourceLabel = '',
+  // { clear, kept, locked } -- which columns an Empty would take out, and
+  // which it would leave. Worked out by the table from the same model the
+  // server re-derives for itself, so this describes what will happen
+  // rather than deciding it.
+  clearing = { clear: [], kept: [], locked: [] },
+  // How many rows one press may act on here. The admin's, per table --
+  // the server reads the same field off the stored widget, so this warns
+  // about a refusal that is going to happen rather than inventing one.
+  limit = MAX_ROWS_PER_OP,
   busy = false,
+  // The selection, not the rows: this is the X on the right. The one that
+  // empties rows is `onClearRows`.
   onClear,
+  onClearRows,
   onDelete,
   onCopy,
 }) {
-  // 'delete' | 'copy' | 'move' | null. Copy and move are separate actions
+  // 'delete' | 'clear' | 'copy' | 'move' | null. Copy and move are separate actions
   // rather than one action with a checkbox on it: they are different
   // sentences, one of them takes rows away, and a checkbox is the control
   // people press without reading.
@@ -83,7 +121,7 @@ export default function RowActionsBar({
 
   if (n === 0) return null
 
-  const over = tooMany(n)
+  const over = tooMany(n, limit)
 
   async function run(work) {
     setError(null)
@@ -109,7 +147,7 @@ export default function RowActionsBar({
 
         {over && (
           <span className="flex items-center gap-1 text-[10px] text-amber-700">
-            <AlertTriangle size={11} /> {limitNote(n)}
+            <AlertTriangle size={11} /> {limitNote(n, limit)}
           </span>
         )}
 
@@ -129,6 +167,14 @@ export default function RowActionsBar({
               tone="danger"
               disabled={busy || over}
               onClick={() => setAsking('move')}
+            />
+          )}
+          {actions.includes('canClearRows') && (
+            <BarButton
+              icon={<Eraser size={13} />}
+              label={confirmLabel('clear', n)}
+              disabled={busy || over}
+              onClick={() => setAsking('clear')}
             />
           )}
           {actions.includes('canDeleteRows') && (
@@ -159,6 +205,18 @@ export default function RowActionsBar({
           error={error}
           onCancel={() => setAsking(null)}
           onConfirm={() => run(onDelete)}
+        />
+      )}
+
+      {asking === 'clear' && (
+        <ConfirmClear
+          rows={rows}
+          columns={columns}
+          clearing={clearing}
+          busy={busy}
+          error={error}
+          onCancel={() => setAsking(null)}
+          onConfirm={() => run(onClearRows)}
         />
       )}
 
@@ -286,6 +344,62 @@ function ConfirmDelete({ rows, columns, busy, error, onCancel, onConfirm }) {
         This removes them from the spreadsheet itself. There is no undo — and nothing on the page afterwards to say
         what was here.
       </p>
+      <RowPreview rows={rows} columns={columns} />
+    </Dialog>
+  )
+}
+
+/**
+ * Emptying rows, and saying which columns that actually means.
+ *
+ * Not a smaller Delete. The row stays exactly where it is -- which is the
+ * reason to do this instead of deleting and re-entering: its position,
+ * its formatting and its dropdowns survive, and so does anything else
+ * pointing at that row. What the dialog has to carry is the part that is
+ * not obvious: a clear empties what this person may WRITE, so on a table
+ * where they hold three columns of eleven it empties three. A row
+ * somebody believes is blank and is not is a worse outcome than a refusal.
+ *
+ * Warned in amber rather than red. It cannot be undone, but a row that is
+ * still there and still identified is recoverable in a way a deleted one
+ * is not, and colouring them the same teaches people to read past both.
+ */
+function ConfirmClear({ rows, columns, clearing, busy, error, onCancel, onConfirm }) {
+  const nothing = clearing.clear.length === 0
+  return (
+    <Dialog
+      title={`Clear ${rowCount(rows.length)}?`}
+      error={error}
+      onCancel={onCancel}
+      footer={
+        <>
+          <button onClick={onCancel} className="rounded-lg px-2.5 py-1 text-[11px] text-slate-500 hover:bg-slate-100">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={busy || nothing}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {busy && <Loader2 size={12} className="animate-spin" />}
+            {confirmLabel('clear', rows.length)}
+          </button>
+        </>
+      }
+    >
+      <p className="mb-2 text-[11px] text-slate-500">
+        The rows stay where they are — their position, their formatting and anything pointing at them are kept.
+        Only the values go, and there is no undo.
+      </p>
+
+      {/* The columns, by name. The count alone would let somebody read
+          "Empties 3 columns" as "empties the row". */}
+      <div className="mb-2 rounded-lg border border-amber-100 bg-amber-50/70 px-2 py-1.5">
+        <p className={`text-[10px] leading-snug ${nothing ? 'text-rose-600' : 'text-amber-800'}`}>
+          {clearNote(clearing)}
+        </p>
+      </div>
+
       <RowPreview rows={rows} columns={columns} />
     </Dialog>
   )

@@ -189,8 +189,8 @@ export const LOGO_BACKDROPS = [
 
 export const DEFAULT_BACKDROP = 'glow'
 
-export function backdropOf(entrance) {
-  const wanted = entrance?.logoBackdrop
+export function backdropOf(entrance, field = 'logoBackdrop') {
+  const wanted = entrance?.[field]
   return LOGO_BACKDROPS.find((b) => b.value === wanted) || LOGO_BACKDROPS[0]
 }
 

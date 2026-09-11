@@ -1,5 +1,6 @@
 import { uid } from './config.js'
 import { isDatePreset } from './datePresets.js'
+import { holdsState, isActionButton, isFilterButton } from './buttonActions.js'
 import { bucketedValues, groupKey, groupSortKey, shownValue } from './dataUtils.js'
 import { applyFilters, filterIsActive } from './filterEngine.js'
 import { DEFAULT_REDUCER, byKey, sortsByColumn } from './groupSort.js'
@@ -583,7 +584,12 @@ export function splitControls(controls) {
   const list = controls || []
   return {
     filters: list.filter((c) => c.kind && c.kind !== 'button'),
-    buttons: list.filter(isButton),
+    // FILTER buttons only. A button that opens a link or jumps to a page
+    // is a one-shot with no conditions on it, and handing it to the engine
+    // would be asking it to evaluate a rule that does not exist -- which
+    // it survives, by returning every row, while quietly counting a
+    // control that is not narrowing anything. See lib/buttonActions.js.
+    buttons: list.filter(isFilterButton),
   }
 }
 
@@ -599,9 +605,21 @@ export function partitionByProminence(controls) {
   return { visible, advanced }
 }
 
-/** Is this control currently narrowing anything? */
+/**
+ * Is this control currently narrowing anything?
+ *
+ * A one-shot button never is. It fires and leaves nothing behind, so
+ * counting it would put a "3 filters on" badge above a page with two --
+ * and send somebody hunting for a filter that does not exist.
+ */
 export function controlActive(control, values, activeButtonIds) {
-  if (isButton(control)) return (activeButtonIds || []).includes(control.id)
+  // A one-shot never is: it fires and leaves nothing behind, so counting
+  // it would put a "3 filters on" badge above a page with two. A plain
+  // SWITCH does count, because it holds a state the reader set and can
+  // change what is on the page -- a widget's visibility may turn on it.
+  if (isButton(control)) {
+    return holdsState(control) && (activeButtonIds || []).includes(control.id)
+  }
   return filterIsActive(control, values?.[control.id])
 }
 
@@ -637,8 +655,13 @@ export function emptyView(label = 'New view') {
 export function captureView(values, activeButtonIds, controls) {
   // Fixed controls are the page's own rules, not part of any view: a view
   // that carried them could be used to turn one off by saving it while it
-  // was momentarily absent.
-  const ids = new Set((controls || []).filter((c) => !isFixed(c)).map((c) => c.id))
+  // was momentarily absent. A one-shot is not part of one either -- there
+  // is no state of it to remember. A plain switch IS, because there is.
+  const ids = new Set(
+    (controls || [])
+      .filter((c) => !isFixed(c) && (!isActionButton(c) || holdsState(c)))
+      .map((c) => c.id)
+  )
   const kept = {}
   for (const [id, value] of Object.entries(values || {})) {
     // Only keep values belonging to controls that still exist, or a view
@@ -737,7 +760,10 @@ export function initialValues(controls, { includeFixed = true } = {}) {
     if (mode === 'off') continue
     if (mode === 'fixed' && !includeFixed) continue
     if (isButton(control)) {
-      if (control.defaultOn) buttons.push(control.id)
+      // Only a button that HOLDS a state can start on: "on by default"
+      // means nothing to a button that opens a link, and a page that
+      // fired one on load would navigate away from itself.
+      if (control.defaultOn && holdsState(control)) buttons.push(control.id)
       continue
     }
     if (control.defaultValue === undefined || control.defaultValue === null || control.defaultValue === '') continue

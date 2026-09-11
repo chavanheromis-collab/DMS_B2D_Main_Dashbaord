@@ -472,7 +472,10 @@ export default function WidgetCanvas({
         // than everything at zero size in the top-left corner.
         if (!box || width <= 0) {
           return (
-            <div key={item.id} className="relative mb-3 w-full">
+            // `data-widget-id` is how a "jump to this widget" button finds
+            // its card. On the wrapper rather than inside the widget, so
+            // every type gets it without any of them knowing.
+            <div key={item.id} data-widget-id={item.id} className="relative mb-3 w-full">
               {item.content}
             </div>
           )
@@ -487,6 +490,7 @@ export default function WidgetCanvas({
         return (
           <div
             key={item.id}
+            data-widget-id={item.id}
             onPointerDown={free && !phone ? (event) => startDrag(event, item.id) : undefined}
             className={`absolute widget-fit ${
               dragging

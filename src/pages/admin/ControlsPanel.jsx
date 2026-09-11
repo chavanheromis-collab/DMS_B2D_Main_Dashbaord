@@ -53,6 +53,7 @@ import {
   optValue,
   useWorkspaceCtx,
 } from './ui.jsx'
+import { BUTTON_ACTIONS, actionMeta, actionProblem, buttonAction, holdsState } from '../../lib/buttonActions'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import VisibilityEditor from './VisibilityEditor.jsx'
 import { conditionCount, emptyRowCondition } from '../../lib/rowConditions'
@@ -330,7 +331,22 @@ function ValueBox({ value, onChange, choices, control }) {
   )
 }
 
-export default function ControlsPanel({ tabs, tabHeaders, controls, setControls, views, setViews, hideSearch, setHideSearch }) {
+export default function ControlsPanel({
+  tabs,
+  tabHeaders,
+  controls,
+  setControls,
+  views,
+  setViews,
+  hideSearch,
+  setHideSearch,
+  // What a one-shot button can be pointed at: the other pages, the other
+  // dashboards, and this page's own widgets. Supplied by whichever screen
+  // is hosting the panel, because only it knows -- the admin screen and
+  // the on-page editor have different ideas of "the other pages", and both
+  // are right for where they are.
+  targets = {},
+}) {
   const { labelFor, valuesFor } = useWorkspaceCtx()
   const ops = listOps(controls, setControls)
   const [adding, setAdding] = useState('select')
@@ -545,6 +561,116 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                         -- a text box, a button, and the two sliders whose
                         stops the admin types out here. A setting that does
                         nothing is worse than no setting. */}
+                    {/* Said here, at the moment it is set up. A button
+                        whose target was never chosen is otherwise
+                        discovered by whoever presses it, which is a week
+                        later and somebody else -- and the bar draws it as
+                        unavailable rather than as a thing that silently
+                        does nothing. */}
+                    {/* What this button DOES. Filtering is one of the
+                        things a button can do rather than the only one --
+                        see lib/buttonActions.js. First, because every
+                        field after it depends on the answer. */}
+                    {isButton(control) && (
+                      <Field label="When pressed" className="w-56" hint={actionMeta(buttonAction(control)).hint}>
+                        <Select
+                          value={buttonAction(control)}
+                          onChange={(v) => set({ action: v })}
+                          options={BUTTON_ACTIONS}
+                        />
+                      </Field>
+                    )}
+
+                    {isButton(control) && buttonAction(control) === 'link' && (
+                      <>
+                        <Field
+                          label="Address"
+                          className="w-72"
+                          hint="A page, a form, a WhatsApp chat (wa.me/…), a phone number (tel:…)."
+                        >
+                          <TextInput
+                            value={control.url || ''}
+                            onChange={(v) => set({ url: v })}
+                            placeholder="https://…"
+                          />
+                        </Field>
+                        <div className="pb-1.5">
+                          <Toggle
+                            checked={control.sameTab === true}
+                            onChange={(v) => set({ sameTab: v })}
+                            label="Open in this tab"
+                          />
+                          <p className="ml-5 text-[10px] leading-snug text-slate-400">
+                            Off, it opens a new one — a dashboard on a showroom screen that navigates away is one
+                            somebody has to find their way back to.
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                    {isButton(control) && buttonAction(control) === 'page' && (
+                      <Field label="Go to" className="w-56">
+                        <Select
+                          value={control.pageId || ''}
+                          onChange={(v) => set({ pageId: v })}
+                          options={targets.pages || []}
+                          placeholder="— pick a page —"
+                        />
+                      </Field>
+                    )}
+
+                    {isButton(control) && buttonAction(control) === 'space' && (
+                      <Field label="Switch to" className="w-56">
+                        <Select
+                          value={control.spaceId || ''}
+                          onChange={(v) => set({ spaceId: v })}
+                          options={targets.spaces || []}
+                          placeholder="— pick a dashboard —"
+                        />
+                      </Field>
+                    )}
+
+                    {isButton(control) && buttonAction(control) === 'view' && (
+                      <Field label="Apply" className="w-56" hint="Saved views are set up further down.">
+                        <Select
+                          value={control.viewId || ''}
+                          onChange={(v) => set({ viewId: v })}
+                          options={(views || []).map((v) => ({ value: v.id, label: v.label || 'View' }))}
+                          placeholder="— pick a view —"
+                        />
+                      </Field>
+                    )}
+
+                    {isButton(control) && buttonAction(control) === 'widget' && (
+                      <Field label="Scroll to" className="w-56">
+                        <Select
+                          value={control.widgetId || ''}
+                          onChange={(v) => set({ widgetId: v })}
+                          options={targets.widgets || []}
+                          placeholder="— pick a widget —"
+                        />
+                      </Field>
+                    )}
+
+                    {isButton(control) && buttonAction(control) === 'sheet' && (
+                      <Field label="Whose spreadsheet" className="w-56">
+                        <Select
+                          value={control.sheetRef || ''}
+                          onChange={(v) => set({ sheetRef: v })}
+                          options={(tabs || []).map((t) =>
+                            typeof t === 'string' ? { value: t, label: labelFor(t) } : t
+                          )}
+                          placeholder="— pick a tab —"
+                        />
+                      </Field>
+                    )}
+
+                    {isButton(control) && actionProblem(control) && (
+                      <p className="col-span-2 rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] text-amber-700 md:col-span-4">
+                        {actionProblem(control)}
+                      </p>
+                    )}
+
                     {kindNarrows(control.kind) && (
                       <Field label="Narrowing" className="w-72" hint={narrowHint(control)}>
                         <Select
@@ -1086,7 +1212,7 @@ export default function ControlsPanel({ tabs, tabHeaders, controls, setControls,
                       owner={control}
                       set={set}
                       filters={controls.filter((c) => c.id !== control.id && c.kind !== 'button')}
-                      buttons={controls.filter((c) => c.id !== control.id && c.kind === 'button')}
+                      buttons={controls.filter((c) => c.id !== control.id && holdsState(c))}
                       tabs={[control.tab]}
                       tabHeaders={tabHeaders}
                     />

@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import SplashScreen, { useSplash } from './components/SplashScreen.jsx'
 import { PageErrorBoundary } from './components/ErrorBoundary.jsx'
 import Booting from './components/Booting.jsx'
+import { applyFavicon, faviconHref } from './lib/favicon'
 
 /**
  * The admin panel, fetched only when somebody opens it.
@@ -75,6 +76,14 @@ export default function App() {
   // in the wrong account.
   const { spaceId } = useSpace()
   const entrance = useEntrance(spaceId)
+
+  // The tab wears this dashboard's own logo once the entrance document
+  // has loaded, and the bundled file until then. A workspace serving two
+  // businesses gets each one's mark on its own tab, which a single file
+  // in `public/` could never do.
+  useEffect(() => {
+    applyFavicon(faviconHref(entrance))
+  }, [entrance?.faviconUrl, entrance?.mainLogoUrl, entrance?.logoUrl])
 
   // The entrance lives HERE rather than on the dashboard so that it covers
   // the whole boot -- signing in, resolving the session, the first data

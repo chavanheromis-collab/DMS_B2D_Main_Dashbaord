@@ -2,6 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bookmark, ChevronDown, Paintbrush, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react'
 
 import { filterIsActive } from '../lib/filterEngine'
+import {
+  actionIsReady,
+  buttonAction,
+  isActionButton,
+  isPlainSwitch,
+  linkHref,
+  opensNewTab,
+} from '../lib/buttonActions'
 import { boundsHolding, dateSpan, numericBounds, numericSpan, stepFor, stepperTicks } from '../lib/widgetControls'
 import DateRange from './DateRange.jsx'
 import {
@@ -154,7 +162,7 @@ function rangeEnds(control, rows, dateOrder, fmt) {
  * -- a `min-w-[220px]` baked into a slider would otherwise silently override
  * an admin who asked for 150px, and the number they typed would be a lie.
  */
-function Control({ control, value, rows, optionRows, onChange, isOn, onToggleButton, sized, dateOrder }) {
+function Control({ control, value, rows, optionRows, onChange, isOn, onToggleButton, onAction, sized, dateOrder }) {
   const active = isButton(control) ? isOn : filterIsActive(control, value)
   const fmt = sliderFormat(control.format)
 
@@ -206,6 +214,92 @@ function Control({ control, value, rows, optionRows, onChange, isOn, onToggleBut
   // slider set wide, then narrowed by a filter picked afterwards, loses its
   // own handle off the end. See lib/widgetControls.js.
   const bounds = dataBounds && boundsHolding(dataBounds, value)
+
+  // --- A button that does something other than filter ---------------------
+  // Rendered as an <a> when it opens a link, and as a button otherwise.
+  // Not a button with a click handler that navigates: a real anchor is
+  // what makes middle-click, ctrl-click and "copy link address" work, and
+  // those are the three things somebody does with a link on a dashboard
+  // they are about to share.
+  if (isActionButton(control)) {
+    const own = control.color || ''
+    const shell = `control-face flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-all ${fill} ${
+      own ? 'bg-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+    }`
+    const style = own ? { borderColor: `${own}66`, color: own } : undefined
+    const label = (
+      <>
+        {control.icon ? `${control.icon} ` : ''}
+        {control.label}
+      </>
+    )
+
+    // A switch that narrows nothing. It presses and lights exactly like a
+    // condition button -- because to the person using it that is what it
+    // is -- and no row is affected either way. What reads it is a widget's
+    // Visibility rule; see lib/buttonActions.js.
+    //
+    // It goes through `onToggleButton`, the same path a condition button
+    // takes, so its on/off lives in the one list everything already asks:
+    // saved views, Reset, and the visibility rules themselves.
+    if (isPlainSwitch(control)) {
+      const own = control.color || ''
+      const onColour = own || 'var(--card-accent, #4F46E5)'
+      return (
+        <button
+          onClick={onToggleButton}
+          title={control.hint || undefined}
+          aria-pressed={isOn}
+          className={`control-face rounded-lg border px-3 py-1.5 text-sm font-semibold transition-all ${fill} ${
+            isOn ? 'border-transparent text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+          style={isOn ? { backgroundColor: onColour } : own ? { borderColor: `${own}66` } : undefined}
+        >
+          {control.icon ? `${control.icon} ` : ''}
+          {control.label}
+        </button>
+      )
+    }
+
+    // A button nobody finished setting up is shown as unavailable rather
+    // than as a thing that silently does nothing when pressed.
+    if (!actionIsReady(control)) {
+      return (
+        <button
+          disabled
+          className={`${shell} cursor-not-allowed opacity-40`}
+          title="This button has not been finished — an admin needs to choose what it opens"
+        >
+          {label}
+        </button>
+      )
+    }
+
+    if (buttonAction(control) === 'link') {
+      const newTab = opensNewTab(control)
+      return (
+        <a
+          href={linkHref(control.url)}
+          target={newTab ? '_blank' : undefined}
+          // Both, and not just one: `noopener` is what stops the opened
+          // page reaching back through `window.opener`, and `noreferrer`
+          // is what stops this dashboard's URL being handed to it.
+          rel={newTab ? 'noopener noreferrer' : undefined}
+          title={control.hint || linkHref(control.url)}
+          className={shell}
+          style={style}
+        >
+          {label}
+        </a>
+      )
+    }
+
+    return (
+      <button onClick={() => onAction?.(control)} title={control.hint || undefined} className={shell} style={style}>
+        {label}
+      </button>
+    )
+  }
 
   // --- Action ------------------------------------------------------------
   if (isButton(control)) {
@@ -468,6 +562,10 @@ export default function ControlBar({
   onChange,
   activeButtonIds,
   onToggleButton,
+  // What a one-shot button does. Everything it can do belongs to the page
+  // -- navigating, refreshing, printing -- so the page performs it and the
+  // bar only says which one was pressed.
+  onAction,
   onClearButtons,
   onReset,
   search,
@@ -521,6 +619,7 @@ export default function ControlBar({
           onChange={(v) => onChange(control.id, v)}
           isOn={(activeButtonIds || []).includes(control.id)}
           onToggleButton={() => onToggleButton(control)}
+          onAction={onAction}
           sized={!!px}
           dateOrder={dateOrder}
         />

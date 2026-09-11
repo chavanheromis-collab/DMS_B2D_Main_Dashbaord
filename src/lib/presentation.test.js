@@ -395,10 +395,15 @@ test('the entrance draws the size it was given, at the size it asked for', () =>
 })
 
 test('the admin can move it, see it, and put it back', () => {
+  // One control, rendered per slot: "the main logo has every setting the
+  // other one has" is only true by construction. Two copies would satisfy
+  // it the day they were written and not a fortnight later.
   const panel = fs.readFileSync(path.join(ROOT, 'src/pages/admin/EntrancePanel.jsx'), 'utf8')
-  assert.ok(panel.includes('set({ logoSize: Number(e.target.value) })'), 'there is no way to change it')
-  assert.ok(panel.includes('set({ logoSize: LOGO_DEFAULT })'), 'there is no way back to the stock size')
-  assert.ok(panel.includes('{logoBox(draft).height}px tall'), 'the real figure is never shown')
+  assert.ok(panel.includes('set({ [slot.size]: Number(e.target.value) })'), 'there is no way to change it')
+  assert.ok(panel.includes('set({ [slot.size]: LOGO_DEFAULT })'), 'there is no way back to the stock size')
+  assert.ok(panel.includes('{box.height}px tall'), 'the real figure is never shown')
+  assert.ok(panel.includes('const box = logoBox(draft, slot)'), 'the control is not reading its own slot')
+  assert.ok(panel.includes('{LOGO_SLOTS.map((slot) => ('), 'only one of the two logos is drawn')
   // The slider is bounded by the same numbers the model clamps to, or the
   // control offers sizes the entrance will silently refuse.
   assert.ok(panel.includes('min={LOGO_MIN}') && panel.includes('max={LOGO_MAX}'))
@@ -444,12 +449,12 @@ test('the entrance uses the gap rather than a fixed margin', () => {
 
 test('the admin can close the gap, and put it back', () => {
   const panel = fs.readFileSync(path.join(ROOT, 'src/pages/admin/EntrancePanel.jsx'), 'utf8')
-  assert.ok(panel.includes('set({ logoGap: Number(e.target.value) })'), 'there is no way to change it')
-  assert.ok(panel.includes('set({ logoGap: GAP_DEFAULT })'), 'there is no way back')
+  assert.ok(panel.includes('set({ [slot.gap]: Number(e.target.value) })'), 'there is no way to change it')
+  assert.ok(panel.includes('set({ [slot.gap]: GAP_DEFAULT })'), 'there is no way back')
   assert.ok(panel.includes('min={GAP_MIN}') && panel.includes('max={GAP_MAX}'), 'the slider and the model disagree')
   // Said where the decision is made, because a negative gap looks like a
   // mistake until you know what it is for.
-  assert.match(panel, /Goes negative on purpose/)
+  assert.match(panel, /negative on purpose/)
 })
 
 // --- and everything fits on the screen ----------------------------------

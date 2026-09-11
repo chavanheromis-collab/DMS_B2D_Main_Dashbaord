@@ -12,7 +12,7 @@ import { newNote } from '../lib/stickyNotes'
 import { usePageData, useLocalState } from '../hooks/usePageData'
 import { useWorkspace, useMyAccess } from '../hooks/useWorkspace'
 import { useUserPrefs, usePagePrefs, orderWidgets } from '../hooks/useUserPrefs'
-import { copyRowsTo, deleteRows, updateCell, updateCells, SheetsAuthError } from '../lib/sheetsApi'
+import { clearRows, copyRowsTo, deleteRows, updateCell, updateCells, SheetsAuthError } from '../lib/sheetsApi'
 import { canAdd, copyRoutesOf, copyTargetsOf } from '../lib/rowOps'
 import {
   addAllPending,
@@ -35,6 +35,8 @@ import EditSplit from '../components/EditSplit.jsx'
 import WidgetTypePreview from '../components/WidgetTypePreview.jsx'
 import { hasVariants, variantHint, variantPatch, variantTitle, variantsFor } from '../lib/widgetVariants'
 import { appliedFilters, printStamp } from '../lib/printView'
+import { buttonAction, holdsState } from '../lib/buttonActions'
+import { exitFullscreen, fullscreenElement, fullscreenSupported, requestFullscreen } from '../lib/deviceFullscreen'
 import { DEFAULT_FRACTION, DEFAULT_SIDE, previewHeight, previewKind, targetTitle } from '../lib/editLayout'
 import { WorkspaceCtx } from './admin/ui.jsx'
 
@@ -947,7 +949,12 @@ export default function Dashboard() {
       const on = current.includes(button.id)
       if (on) return current.filter((id) => id !== button.id)
       if (button.group) {
-        const siblings = buttons.filter((b) => b.group === button.group).map((b) => b.id)
+        // Across every button that holds a state, not just the ones the
+        // engine sees: a group of plain switches is as much a group as a
+        // group of filters, and picking one should still release the rest.
+        const siblings = pageControls
+          .filter((b) => holdsState(b) && b.group === button.group)
+          .map((b) => b.id)
         return [...current.filter((id) => !siblings.includes(id)), button.id]
       }
       return [...current, button.id]
@@ -1348,6 +1355,76 @@ export default function Dashboard() {
   }, [reload])
 
   /**
+   * What a one-shot button does when it is pressed.
+   *
+   * Every one of these is something the PAGE owns -- where it navigates,
+   * when it re-reads, whether it is full screen -- so the bar reports
+   * which button was pressed and the page performs it. A bar that
+   * navigated for itself would need the router, the workspace and the
+   * spaces context handed down through it for the sake of one click.
+   *
+   * Links are not here. Those are drawn as a real anchor (see ControlBar),
+   * because an anchor is what makes middle-click, ctrl-click and "copy
+   * link address" work -- the three things somebody does with a link on a
+   * dashboard they are about to share.
+   */
+  const runButton = useCallback(
+    (control) => {
+      switch (buttonAction(control)) {
+        case 'page':
+          if (control.pageId && control.pageId !== pageId) navigate(`/d/${control.pageId}`)
+          break
+        case 'space':
+          // Through the same door the sidebar uses, so a switch made here
+          // is remembered exactly as one made there.
+          if (control.spaceId) chooseSpace(control.spaceId)
+          break
+        case 'view': {
+          const view = (page?.views || []).find((v) => v.id === control.viewId)
+          if (view) applyView(view)
+          break
+        }
+        case 'widget': {
+          const card = document.querySelector(`[data-widget-id="${control.widgetId}"]`)
+          card?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          break
+        }
+        case 'reset':
+          resetFilters()
+          break
+        case 'refresh':
+          refresh()
+          break
+        case 'print':
+          window.print()
+          break
+        case 'fullscreen': {
+          // The canvas rather than the document, so the sidebar and the
+          // browser chrome go and the report fills the screen.
+          const host = document.querySelector('[data-page-canvas]') || document.documentElement
+          if (fullscreenElement()) exitFullscreen()
+          else if (fullscreenSupported()) requestFullscreen(host)
+          break
+        }
+        case 'sheet': {
+          // The spreadsheet behind a tab. Built from the source's own id
+          // rather than stored as a URL, so it cannot rot when somebody
+          // reconnects the sheet.
+          const { sourceId } = parseRef(control.sheetRef || '')
+          const sheetId = sourcesById[sourceId]?.sheetId
+          if (sheetId) {
+            window.open(`https://docs.google.com/spreadsheets/d/${sheetId}/edit`, '_blank', 'noopener,noreferrer')
+          }
+          break
+        }
+        default:
+          break
+      }
+    },
+    [pageId, navigate, chooseSpace, page, applyView, resetFilters, refresh, sourcesById]
+  )
+
+  /**
    * One cell: on screen now, on the sheet shortly.
    *
    * Nothing here is awaited by the caller for the sake of the display --
@@ -1432,7 +1509,16 @@ export default function Dashboard() {
   )
 
   const handleDeleteRows = useCallback(
-    (label, rows) => runRowOp(label, (token, ref) => deleteRows(token, page.id, ref, rows)),
+    (label, rows, options) => runRowOp(label, (token, ref) => deleteRows(token, page.id, ref, rows, options)),
+    [runRowOp, page?.id]
+  )
+
+  const handleClearRows = useCallback(
+    // The widget's id goes with it for the same reason a copy sends one:
+    // the server reads the switch, the column grants and the required
+    // fields off the stored page rather than taking any of them from here.
+    (label, rows, options) =>
+      runRowOp(label, (token, ref) => clearRows(token, page.id, ref, rows, options)),
     [runRowOp, page?.id]
   )
 
@@ -1657,6 +1743,7 @@ export default function Dashboard() {
             showSearch={!page?.hideSearch}
             views={views}
             onApplyView={applyView}
+            onAction={runButton}
             tabsData={dataByLabel}
             optionRows={optionRowsByControl}
             totalLabel={totalLabel}
@@ -2351,6 +2438,7 @@ export default function Dashboard() {
                             isAdmin={isAdmin}
                             copyTargets={copyTargetsFor(widget)}
                             onDeleteRows={handleDeleteRows}
+                            onClearRows={handleClearRows}
                             onCopyRows={handleCopyRows}
                             // By REF, because a destination need not be on
                             // the page and so has no label space to be
@@ -2597,6 +2685,7 @@ export default function Dashboard() {
         onHidden={setNotesHidden}
       >
       <div
+        data-page-canvas
         className={`page-canvas relative z-[1] min-h-screen space-y-3 p-3 md:p-4 ${
           lightText ? 'page-invert' : ''
         } ${designClass(design)}`}
@@ -3065,6 +3154,22 @@ export default function Dashboard() {
                 setViews={(next) => writePage({ views: next })}
                 hideSearch={page.hideSearch}
                 setHideSearch={(v) => writePage({ hideSearch: v })}
+                // The pages and dashboards THIS reader can open, rather
+                // than every one that exists: a button pointed at a page
+                // they cannot see is a button that goes nowhere.
+                targets={{
+                  pages: visiblePages
+                    .filter((p) => p.id !== pageId)
+                    .map((p) => ({ value: p.id, label: p.name || 'Page' })),
+                  spaces: (spaces || []).map((s) => ({ value: s.id, label: s.name || s.id })),
+                  // From the canvas rather than the stored page: these
+                  // are the cards that exist on screen, and so the ones
+                  // carrying a `data-widget-id` to scroll to.
+                  widgets: view.widgets.map((w) => ({
+                    value: w.id,
+                    label: w.title || `${w.type} · ${w.tab}`,
+                  })),
+                }}
               />
             )}
 
