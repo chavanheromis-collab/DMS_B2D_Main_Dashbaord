@@ -183,6 +183,102 @@ export function hasChartText(type) {
   return CHART_TEXT_TYPES.has(type)
 }
 
+// ---------------------------------------------------------------------
+// The kinds of writing on a widget
+// ---------------------------------------------------------------------
+// A card is not one piece of text. It is a heading, a line of small print
+// under it, the figures themselves, and the names beside them -- four
+// things read in four different ways, and until now one control sized
+// all of them at once. Which meant that making the number on a KPI big
+// enough to read across a room also made its caption a headline, so
+// nobody moved the control at all.
+//
+// A chart already had two of these (axis text and legend), for exactly
+// this reason, written out by hand. This is that idea as a TABLE, so
+// adding a fifth kind is a row here rather than four edits in three
+// files that have to agree.
+//
+// `where` is the honest part. A role is only offered on the widgets that
+// actually draw it -- a pie has no column headings, a KPI has no axis --
+// because a control that does nothing is the bug this whole file exists
+// to fix. `null` means every widget draws it.
+
+/** Widgets that draw a figure and a name for it. */
+const FIGURE = new Set(['kpi', 'table', 'pivot', 'leaderboard', 'metric', 'gauge', 'bullet', 'countdown'])
+
+export const TEXT_ROLES = [
+  {
+    key: 'titleText',
+    max: 72,
+    prefix: 'wtitle',
+    label: 'Heading',
+    hint: 'The widget’s own name, at the top of the card.',
+    where: null,
+  },
+  {
+    key: 'captionText',
+    max: 28,
+    prefix: 'wcaption',
+    label: 'Caption',
+    hint: 'The small print under the heading — which tab, which column, what is filtered.',
+    where: null,
+  },
+  {
+    key: 'valueText',
+    max: 140,
+    prefix: 'wvalue',
+    label: 'Values',
+    hint: 'The figures themselves: a KPI’s number, the cells of a table.',
+    where: FIGURE,
+  },
+  {
+    key: 'labelText',
+    max: 28,
+    prefix: 'wlabel',
+    label: 'Names',
+    hint: 'What the figures are called: column headings, field names, a KPI’s label.',
+    where: FIGURE,
+  },
+  {
+    key: 'chartText',
+    prefix: 'chart',
+    label: 'Chart text',
+    hint: 'Axis ticks, axis titles, and a pie’s labels.',
+    where: CHART_TEXT_TYPES,
+  },
+  {
+    key: 'legendText',
+    prefix: 'legend',
+    label: 'Legend',
+    hint: 'The key, on its own — read once and deliberately, so almost never the same size as an axis.',
+    where: CHART_TEXT_TYPES,
+  },
+]
+
+/** Which kinds of writing this widget actually has. */
+export function rolesFor(type) {
+  return TEXT_ROLES.filter((role) => !role.where || role.where.has(type))
+}
+
+/** Every role's properties, merged. */
+export function roleTextVars(style) {
+  const vars = {}
+  for (const role of TEXT_ROLES) Object.assign(vars, markTextVars(style?.[role.key], role.prefix, role.max) || {})
+  return Object.keys(vars).length ? vars : undefined
+}
+
+/** ...and every role's classes. */
+export function roleTextClass(style) {
+  return TEXT_ROLES.map((role) => markTextClass(style?.[role.key], role.prefix, role.max))
+    .filter(Boolean)
+    .join(' ')
+}
+
+/** Has anybody decided anything about any of them? */
+export function hasRoleText(style) {
+  return Boolean(roleTextVars(style))
+}
+
 export const MARK_TEXT_KEYS = ['text', 'font', 'size', 'weight']
 
 export const DEFAULT_MARK_TEXT = { text: null, font: null, size: null, weight: null }
@@ -191,10 +287,10 @@ export const DEFAULT_MARK_TEXT = { text: null, font: null, size: null, weight: n
 export const MARK_SIZE_MIN = 6
 export const MARK_SIZE_MAX = 36
 
-function markSize(value) {
+function markSize(value, max = MARK_SIZE_MAX) {
   const n = Number(value)
   if (!Number.isFinite(n) || n <= 0) return null
-  return Math.round(Math.max(MARK_SIZE_MIN, Math.min(MARK_SIZE_MAX, n)))
+  return Math.round(Math.max(MARK_SIZE_MIN, Math.min(max || MARK_SIZE_MAX, n)))
 }
 
 /**
@@ -205,7 +301,7 @@ function markSize(value) {
  * radius axis -- and a multiplier over several different bases is a number
  * nobody can predict the result of.
  */
-export function markTextVars(t, prefix) {
+export function markTextVars(t, prefix, max = MARK_SIZE_MAX) {
   if (!t || !prefix) return undefined
   const vars = {}
   if (t.text) vars[`--${prefix}-text`] = t.text
@@ -213,7 +309,7 @@ export function markTextVars(t, prefix) {
   const font = CARD_FONTS.find((f) => f.value === t.font)?.css
   if (font) vars[`--${prefix}-font`] = font
 
-  const size = markSize(t.size)
+  const size = markSize(t.size, max)
   if (size !== null) vars[`--${prefix}-size`] = `${size}px`
 
   const weight = WEIGHTS.find((w) => w.value === t.weight)?.css
@@ -229,12 +325,12 @@ export function markTextVars(t, prefix) {
  * every tick to its parent's size the moment somebody picked only a
  * typeface -- a setting quietly breaking a setting nobody touched.
  */
-export function markTextClass(t, prefix) {
+export function markTextClass(t, prefix, max = MARK_SIZE_MAX) {
   if (!t || !prefix) return ''
   const out = []
   if (t.text) out.push(`${prefix}-ink`)
   if (CARD_FONTS.some((f) => f.value === t.font && f.css)) out.push(`${prefix}-font`)
-  if (markSize(t.size) !== null) out.push(`${prefix}-size`)
+  if (markSize(t.size, max) !== null) out.push(`${prefix}-size`)
   if (WEIGHTS.some((w) => w.value === t.weight && w.css)) out.push(`${prefix}-weight`)
   return out.join(' ')
 }

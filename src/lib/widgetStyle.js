@@ -19,8 +19,8 @@
 import {
   DEFAULT_MARK_TEXT,
   DEFAULT_TYPOGRAPHY,
-  markTextClass,
-  markTextVars,
+  roleTextClass,
+  roleTextVars,
   typographyClass,
   typographyVars,
 } from './typography.js'
@@ -243,6 +243,13 @@ export const DEFAULT_WIDGET_STYLE = {
   ...DEFAULT_TYPOGRAPHY,
   // A chart's two kinds of text, set apart from the card's and from each
   // other -- see lib/typography.js for why they are not one control.
+  // One per kind of writing on a card -- see TEXT_ROLES. Spelled out
+  // rather than built from the table so this stays a plain object
+  // literal anybody can read, and guarded by a test that the two agree.
+  titleText: { ...DEFAULT_MARK_TEXT },
+  captionText: { ...DEFAULT_MARK_TEXT },
+  valueText: { ...DEFAULT_MARK_TEXT },
+  labelText: { ...DEFAULT_MARK_TEXT },
   chartText: { ...DEFAULT_MARK_TEXT },
   legendText: { ...DEFAULT_MARK_TEXT },
   // And how the chart is DRAWN, which is a third decision again: the grid,
@@ -314,8 +321,10 @@ export function styleVars(style) {
   // about what "muted" means -- see lib/typography.js.
   const vars = {
     ...(typographyVars(s) || {}),
-    ...(markTextVars(s.chartText, 'chart') || {}),
-    ...(markTextVars(s.legendText, 'legend') || {}),
+    // Every kind of writing the card has, from the one table that
+    // lists them. Two hard-coded lines here were how a third kind came
+    // to be saved by the editor and read by nothing.
+    ...(roleTextVars(s) || {}),
     ...(chartVisualVars(s.chartVisuals) || {}),
   }
   if (s.bg) vars['--card-bg'] = s.bg
@@ -363,8 +372,7 @@ export function styleClass(style) {
     // This is the switch that lets the rest of them honour it too.
     s.accent ? 'card-accented' : '',
     typographyClass(s),
-    markTextClass(s.chartText, 'chart'),
-    markTextClass(s.legendText, 'legend'),
+    roleTextClass(s),
     chartVisualClass(s.chartVisuals),
   ]
     .filter(Boolean)

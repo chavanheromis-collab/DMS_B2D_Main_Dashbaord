@@ -228,7 +228,11 @@ export default function PiePanel({ type, data, widget, fmt, colorFor, activeName
                 endAngle={-270}
                 isAnimationActive={false}
                 labelLine={false}
-                label={showLabels ? renderLabel({ labelled, labelStyle, fmt, percentBase }) : false}
+                label={
+                  showLabels
+                    ? renderLabel({ labelled, labelStyle, fmt, percentBase, onDrill: onDrill ? drill : null })
+                    : false
+                }
                 activeIndex={isRose ? undefined : hover}
                 activeShape={isRose ? undefined : ActiveSlice}
                 onMouseEnter={(_, index) => setHover(index)}
@@ -343,7 +347,7 @@ function ActiveSlice(props) {
 }
 
 /** Outside labels, only where one fits. */
-function renderLabel({ labelled, labelStyle, fmt, percentBase = 'total' }) {
+function renderLabel({ labelled, labelStyle, fmt, percentBase = 'total', onDrill = null }) {
   return function Label({ cx, cy, midAngle, outerRadius, name, value, percent, index, payload }) {
     if (!labelled.has(name)) return null
 
@@ -381,16 +385,27 @@ function renderLabel({ labelled, labelStyle, fmt, percentBase = 'total' }) {
     // `fill` and `fontSize` stay as attributes: they are the default, and
     // a CSS rule outranks an attribute, so they apply exactly when nobody
     // has chosen otherwise.
+    // The label filters, like the slice it names. To the person reading
+    // the chart they are one thing, and on a pie of eleven thin slices
+    // the label is the bigger target of the two -- which is exactly when
+    // it matters.
+    //
+    // Drilled by the slice's own `name`, never by what the label says:
+    // the text above is truncated to sixteen characters to fit, and
+    // filtering by "Maharashtra Reg…" would match nothing while looking
+    // like it had worked.
+    const clickable = typeof onDrill === 'function' && !payload?.isOther
     return (
       <text
         key={index}
-        className="recharts-pie-label-text"
+        className={`recharts-pie-label-text${clickable ? ' chart-label-click' : ''}`}
         x={x}
         y={y}
         textAnchor={right ? 'start' : 'end'}
         dominantBaseline="central"
         fontSize={10}
         fill="#64748b"
+        onClick={clickable ? () => onDrill(payload || { name }) : undefined}
       >
         {text}
       </text>

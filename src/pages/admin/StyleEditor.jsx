@@ -13,7 +13,7 @@ import { Btn, Field, Select, TextInput, Toggle } from './ui.jsx'
 import { copiedLook, copyLook, hasCopiedLook } from '../../lib/lookClipboard'
 import TypographyFields, { MarkTextFields } from '../../components/TypographyFields.jsx'
 import ChartVisualFields from '../../components/ChartVisualFields.jsx'
-import { hasChartText } from '../../lib/typography'
+import { hasChartText, rolesFor } from '../../lib/typography'
 import { CHROME_TOGGLES } from '../../lib/widgetChrome'
 
 /**
@@ -209,26 +209,28 @@ export default function StyleEditor({ widget, set }) {
           <TypographyFields value={style} onChange={(patch) => setStyle(patch)} />
         </div>
 
-        {/* A chart is two kinds of writing in one picture, read differently:
-            an axis is glanced at while reading a value off the chart, a
-            legend is read once and deliberately. One control for both would
-            mean enlarging a legend enlarged forty axis ticks with it. */}
-        {hasChartText(widget.type) && (
-          <div className="space-y-2 rounded-lg border border-violet-100 bg-white/60 p-2">
+{/* One block per kind of writing this widget actually draws.
+            A card is a heading, the small print under it, the figures
+            and the names beside them -- four things read four ways, and
+            one control for all of them meant that making a KPI's number
+            big enough to read across a room turned its caption into a
+            headline. A chart adds its axis text and its legend, which
+            were the first two to be separated and are why the rest are.
+
+            Driven by the table rather than written out: a fifth kind is
+            a row in lib/typography.js, not four edits in three files
+            that have to agree. */}
+        <div className="space-y-2 rounded-lg border border-violet-100 bg-white/60 p-2">
+          {rolesFor(widget.type).map((role) => (
             <MarkTextFields
-              label="Chart text"
-              hint="Axis ticks, axis titles, and a pie's labels."
-              value={style.chartText}
-              onChange={(v) => setStyle({ chartText: v })}
+              key={role.key}
+              label={role.label}
+              hint={role.hint}
+              value={style[role.key]}
+              onChange={(v) => setStyle({ [role.key]: v })}
             />
-            <MarkTextFields
-              label="Legend"
-              hint="The key, on its own — read once and deliberately, so almost never the same size as an axis."
-              value={style.legendText}
-              onChange={(v) => setStyle({ legendText: v })}
-            />
-          </div>
-        )}
+          ))}
+        </div>
       </div>
 
       {/* The text is one decision and the DRAWING is another: the grid, the

@@ -9,6 +9,7 @@ import {
   TYPOGRAPHY_KEYS,
   MARK_SIZE_MAX,
   MARK_SIZE_MIN,
+  TEXT_ROLES,
   clearTypography,
   hasChartText,
   hasTypography,
@@ -327,8 +328,16 @@ test('the legend rules are written after the card’s, so they win the tie', () 
 test('chart text can be set on the widget, in the admin panel, and on the page', () => {
   assert.ok(paint.includes('<MarkTextFields label="Chart text"'))
   assert.ok(paint.includes('<MarkTextFields label="Legend"'))
-  assert.ok(editor.includes('value={style.chartText}'))
-  assert.ok(editor.includes('value={style.legendText}'))
+  // The widget editor lists whatever kinds of writing the widget draws,
+  // from the one table, rather than naming two of them by hand -- which
+  // is how a third kind came to be saved by an editor and read by
+  // nothing. The guarantee is unchanged and now covers every role.
+  assert.ok(editor.includes('{rolesFor(widget.type).map((role) => ('))
+  assert.ok(editor.includes('value={style[role.key]}'))
+  assert.ok(editor.includes('onChange={(v) => setStyle({ [role.key]: v })}'))
+  for (const key of ['chartText', 'legendText']) {
+    assert.ok(TEXT_ROLES.some((r) => r.key === key), key)
+  }
   assert.ok(designPanel.includes('value={d.chartText}'))
   assert.ok(designPanel.includes('value={d.legendText}'))
 })

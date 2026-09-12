@@ -426,7 +426,9 @@ test('a pie’s labels are reachable at all', () => {
   // other piece of chart text obeyed the admin's colour and the pie's did
   // not.
   const pie = read('components/widgets/PiePanel.jsx')
-  assert.ok(pie.includes('className="recharts-pie-label-text"'))
+  // The name is still on it, now beside the class that makes it
+  // clickable -- the rule below has to reach it either way.
+  assert.match(pie, /className=\{`recharts-pie-label-text/)
   assert.ok(css.includes('.recharts-pie-label-text'), 'and a rule aims at that name')
 })
 

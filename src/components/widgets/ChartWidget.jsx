@@ -36,6 +36,7 @@ import ExportButton from '../ExportButton.jsx'
 import PiePanel from './PiePanel.jsx'
 import { arrowRightPath, arrowUpPath, cylinderCapRadius, nestedCircles } from '../../lib/chartShapes.js'
 import { chartExtent, legendStyle } from '../../lib/chartScroll.js'
+import { axisClickProps, matchCategory } from '../../lib/chartDrill.js'
 import { autoFillLabels, barGapProps, barRadius, fillLabelColor, gridProps, TOOLTIP_SURFACE } from '../../lib/chartVisuals.js'
 import {
   axisTicks,
@@ -494,6 +495,17 @@ export default function ChartWidget({
   // Clicking anywhere in a category's column, not just on the bar itself.
   const onChartClick = onCrossFilter ? (state) => drill(nameFromChartEvent(state)) : undefined
 
+  // ...and on the NAME of the category, which is a different click
+  // entirely: recharts resolves a chart click from the pointer position
+  // and only inside the plotting rectangle, and an axis label is drawn
+  // outside it. So every click on one used to land on nothing. See
+  // lib/chartDrill.js.
+  //
+  // Spread onto the CATEGORY axis only. A value axis is a scale, and
+  // filtering to "20,000" is not a thing any row can match -- a pointer
+  // cursor over a number that will not respond is worse than no cursor.
+  const axisDrill = axisClickProps(onCrossFilter ? drill : null)
+
   const colorFor = (entry, i) => {
     if (type === 'waterfall') {
       if (entry.direction === 'total') return widget.totalColor || '#334155'
@@ -692,7 +704,15 @@ export default function ChartWidget({
     showLabels ? { position, fontSize: 10, fill: '#64748b', formatter: fmt } : null
 
   const xAxis = (
-    <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={54} />
+    <XAxis
+      dataKey="name"
+      tick={{ fontSize: 11 }}
+      interval={0}
+      angle={-20}
+      textAnchor="end"
+      height={54}
+      {...axisDrill}
+    />
   )
 
   const height = widget.height || 260
@@ -719,7 +739,7 @@ export default function ChartWidget({
         return (
           <RadarChart data={data} outerRadius="70%" onClick={onChartClick} {...cursorProp}>
             {showGrid && <PolarGrid stroke="#e2e8f0" />}
-            <PolarAngleAxis dataKey="name" tick={{ fontSize: 10 }} />
+            <PolarAngleAxis dataKey="name" tick={{ fontSize: 10 }} {...axisDrill} />
             <PolarRadiusAxis tick={{ fontSize: 9 }} {...(scale ? { domain: scale.domain, ticks: scale.ticks } : {})} />
             <Tooltip {...tooltipStyle} />
             {showLegend && <Legend wrapperStyle={legendBox} />}
@@ -804,7 +824,24 @@ export default function ChartWidget({
               isAnimationActive
               onClick={(entry) => drill(nameFromShapeEvent(entry))}
             >
-              <LabelList position="right" fill="#475569" stroke="none" dataKey="name" fontSize={11} />
+              {/* The step's NAME, beside it. Drawn by a label rather
+                  than by an axis, so there is no tick to hang a handler
+                  on and nothing but the text to go on at click time --
+                  which is why it is resolved back against the data
+                  rather than trusted. See matchCategory. */}
+              <LabelList
+                position="right"
+                fill="#475569"
+                stroke="none"
+                dataKey="name"
+                fontSize={11}
+                className={onCrossFilter ? 'chart-label-click' : undefined}
+                onClick={
+                  onCrossFilter
+                    ? (e) => drill(matchCategory(e?.target?.textContent, data))
+                    : undefined
+                }
+              />
               {showLabels && (
                 <LabelList
                   position="insideRight"
@@ -914,7 +951,15 @@ export default function ChartWidget({
             {...cursorProp}
           >
             {grid}
-            <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-35} textAnchor="end" height={58} />
+            <XAxis
+              dataKey="name"
+              tick={{ fontSize: 10 }}
+              interval={0}
+              angle={-35}
+              textAnchor="end"
+              height={58}
+              {...axisDrill}
+            />
             <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
             {refBands('y')}
@@ -970,7 +1015,7 @@ export default function ChartWidget({
             {...cursorProp}
           >
             {grid}
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" {...axisDrill} />
             <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             {cumulativeAxis()}
             <Tooltip {...tooltipStyle} />
@@ -1007,7 +1052,7 @@ export default function ChartWidget({
               </linearGradient>
             </defs>
             {grid}
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" {...axisDrill} />
             <YAxis tick={{ fontSize: 11 }} {...axisProps} />
             {cumulativeAxis()}
             <Tooltip {...tooltipStyle} />
@@ -1053,6 +1098,7 @@ export default function ChartWidget({
               // Given the room, every bar is named. Recharts otherwise thins
               // them out, and a dropped label is a category nobody can name.
               interval={extent.scrolls ? 0 : 'preserveStartEnd'}
+              {...axisDrill}
             />
             <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
             {refBands('x')}

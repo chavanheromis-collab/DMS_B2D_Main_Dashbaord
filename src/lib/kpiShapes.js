@@ -55,6 +55,31 @@ export const KPI_SHAPES = [
     label: 'Beside its mark',
     hint: 'The image on the left, the number and title to its right.',
   },
+  {
+    value: 'inline',
+    label: 'One line',
+    hint: 'The title on the left, the number on the right. For a tall stack of small metrics.',
+  },
+  {
+    value: 'stat',
+    label: 'Stat, with change',
+    hint: 'The number, and beside it how far above or below its target it is. The reporting shape.',
+  },
+  {
+    value: 'bar',
+    label: 'Bar to target',
+    hint: 'The number over a bar that fills towards the target, with the target marked on it.',
+  },
+  {
+    value: 'segment',
+    label: 'Segments',
+    hint: 'The ring drawn as ten blocks. Easier to read a rough share off than a smooth circle.',
+  },
+  {
+    value: 'needle',
+    label: 'Dial with a needle',
+    hint: 'A speedometer: the pointer says where the figure sits between nothing and the target.',
+  },
 ]
 
 /**
@@ -71,15 +96,34 @@ export function shapeOf(widget, hasSideImage = false) {
   return hasSideImage ? 'side' : 'classic'
 }
 
+const ROUND = new Set(['ring', 'badge', 'gauge', 'arc', 'segment', 'needle'])
+const DIALS = new Set(['ring', 'gauge', 'arc', 'segment', 'needle'])
+
 /** Do the numbers get their own line, or sit inside a shape? */
 export function isRound(shape) {
-  return shape === 'ring' || shape === 'badge' || shape === 'gauge' || shape === 'arc'
+  return ROUND.has(shape)
 }
 
 /** Which of the round ones are drawn as a track that fills. */
 export function isDial(shape) {
-  return shape === 'ring' || shape === 'gauge' || shape === 'arc'
+  return DIALS.has(shape)
 }
+
+/** Which is drawn in blocks rather than as one continuous run. */
+export const isSegmented = (shape) => shape === 'segment'
+
+/** Which draws a pointer instead of filling its track. */
+export const isNeedle = (shape) => shape === 'needle'
+
+/**
+ * The shapes a target actually changes, and the ones with a circle to size.
+ *
+ * The picker asks for each setting on exactly these. Anywhere else it is
+ * a box that changes nothing on screen, which this codebase has spent
+ * enough time removing.
+ */
+export const WANTS_TARGET = ['ring', 'gauge', 'arc', 'segment', 'needle', 'bar', 'stat']
+export const WANTS_SIZE = ['ring', 'gauge', 'arc', 'badge', 'segment', 'needle']
 
 /**
  * How much of the circle each shape actually draws.
@@ -89,7 +133,7 @@ export function isDial(shape) {
  * somebody forgot to finish; an arc is the top half only, for a card too
  * short for a circle.
  */
-export const SWEEPS = { ring: 1, gauge: 0.75, arc: 0.5 }
+export const SWEEPS = { ring: 1, gauge: 0.75, arc: 0.5, segment: 1, needle: 0.75 }
 
 /**
  * Where each one STARTS, in degrees clockwise from three o'clock.
@@ -99,7 +143,7 @@ export const SWEEPS = { ring: 1, gauge: 0.75, arc: 0.5 }
  * half past seven so its opening is centred at the bottom; an arc starts at
  * nine so it sweeps over the top to three.
  */
-export const STARTS = { ring: -90, gauge: 135, arc: 180 }
+export const STARTS = { ring: -90, gauge: 135, arc: 180, segment: -90, needle: 135 }
 
 const num = (value) => {
   const n = Number(value)
@@ -168,13 +212,117 @@ export function ringGeometry(fraction, size = 96, stroke = 8, shape = 'ring') {
 }
 
 /**
+ * The blocks a segmented ring is drawn in.
+ *
+ * Each block is its own run of the same circle: a dash long enough to be
+ * the block, a gap longer than the circle so nothing repeats, and an
+ * offset that walks it round. Ten separate runs rather than one cleverly
+ * dashed one, because a single dash pattern cannot both cut the blocks
+ * AND stop at the fraction -- and a segmented ring whose last block is
+ * half-lit is a ring, not segments.
+ *
+ * A block lights once the value has REACHED it, rounding down: at 94% of
+ * ten blocks, nine are lit and the tenth is not. Rounding up would show
+ * a full set of blocks for a target that was missed, which is the one
+ * thing this shape must never do.
+ */
+export function segmentBlocks(fraction, geometry, count = 10) {
+  const blocks = Math.max(2, Math.min(24, Math.round(Number(count) || 10)))
+  const filled = Math.max(0, Math.min(1, Number(fraction) || 0))
+  const lit = Math.floor(filled * blocks + 1e-9)
+  const step = (geometry?.track || 0) / blocks
+  // A hair of air between blocks, proportional so it holds at any size.
+  const gap = Math.min(step * 0.34, Math.max(2, (geometry?.stroke || 8) * 0.7))
+  const length = Math.max(1, step - gap)
+
+  return Array.from({ length: blocks }, (_, i) => ({
+    key: i,
+    length,
+    // Dash offsets count backwards, which is the one thing here that is
+    // easy to get the wrong way round. `|| 0` because negating zero
+    // gives -0, which is the same number and reads as a typo in the
+    // markup.
+    offset: -(i * step) || 0,
+    on: i < lit,
+  }))
+}
+
+/**
+ * Where a needle points, and the line to draw for it.
+ *
+ * Degrees from three o'clock like everything else here, so the pointer
+ * and the track it sits in cannot disagree about where "empty" is.
+ */
+export function needleGeometry(fraction, size = 96, shape = 'needle') {
+  const filled = Math.max(0, Math.min(1, Number(fraction) || 0))
+  const centre = Math.max(8, size) / 2
+  const sweep = SWEEPS[shape] ?? 0.75
+  const start = STARTS[shape] ?? 135
+  const angle = start + filled * sweep * 360
+  const radians = (angle * Math.PI) / 180
+  const length = centre * 0.66
+  return {
+    angle,
+    centre,
+    x: centre + length * Math.cos(radians),
+    y: centre + length * Math.sin(radians),
+    // The hub. It is what makes a needle look mounted rather than
+    // floating on the card.
+    hub: Math.max(3, Math.round(size / 22)),
+  }
+}
+
+/**
+ * How far off its mark this figure is, for the shapes that say so.
+ *
+ * Against the TARGET where there is one and the unfiltered total
+ * otherwise -- the same order of preference the ring fills by, because a
+ * card showing both a ring and a change must not measure them against
+ * different things.
+ *
+ * `null` when there is nothing to compare with. Not zero: "on target"
+ * and "no target" are different states, and a card showing a calm 0% for
+ * the second is claiming to have been measured.
+ */
+export function deltaOf(value, { target, baseline } = {}) {
+  const v = num(value)
+  const goal = num(target)
+  const against = goal !== null && goal !== 0 ? goal : num(baseline)
+  if (v === null || against === null || against === 0) return null
+  const change = (v - against) / Math.abs(against)
+  return {
+    change,
+    percent: change * 100,
+    // A hair either side of zero is "level". Two readings that differ in
+    // the fourth decimal place are the same reading.
+    dir: change > 0.0005 ? 'up' : change < -0.0005 ? 'down' : 'level',
+    against,
+    basis: goal !== null && goal !== 0 ? 'target' : 'unfiltered',
+  }
+}
+
+/** "+12.4% vs target", in one line. */
+export function deltaText(delta, { digits = 1 } = {}) {
+  if (!delta) return ''
+  const sign = delta.dir === 'up' ? '+' : delta.dir === 'down' ? '−' : ''
+  const size = Math.abs(delta.percent)
+  // Under a twentieth of a percent is noise dressed as a measurement.
+  const shown = size < 0.05 ? '0' : size.toFixed(size >= 100 ? 0 : digits)
+  return `${sign}${shown}% vs ${delta.basis}`
+}
+
+/**
  * How tall a shape needs its box to be, as a fraction of its width.
  *
  * An arc uses the top half and a sliver below it for the stroke; giving it
  * a square box would leave a hole under the number the size of the number.
  */
 export function boxRatio(shape) {
-  return shape === 'arc' ? 0.62 : 1
+  // A needle's dial leaves its bottom quarter open, so the box can lose a
+  // little of it without cutting anything off.
+  if (shape === 'arc') return 0.62
+  if (shape === 'needle') return 0.86
+  return 1
 }
 
 /**

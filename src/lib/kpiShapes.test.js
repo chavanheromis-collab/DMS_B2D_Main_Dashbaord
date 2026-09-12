@@ -13,6 +13,8 @@ import {
   shapeOf,
   STARTS,
   SWEEPS,
+  WANTS_SIZE,
+  WANTS_TARGET,
 } from './kpiShapes.js'
 
 // ---------------------------------------------------------------------
@@ -276,10 +278,20 @@ test('a target is only asked for where it would be drawn', () => {
   // Offering "target" on a shape that cannot show one is a control that
   // does nothing.
   const panel = read('src/pages/admin/WidgetsPanel.jsx')
-  // Every dial, not just the ring: a gauge and an arc measure against a
-  // target in exactly the same way.
-  assert.ok(panel.includes("{['ring', 'gauge', 'arc'].includes(widget.kpiShape) && ("))
+  // Driven by the model rather than by a list typed into the form: the
+  // two lists were the same three shapes until a fourth arrived, and
+  // then only one of them knew about it.
+  assert.ok(panel.includes('{WANTS_TARGET.includes(widget.kpiShape) && ('))
   assert.ok(panel.includes('onChange={(v) => set({ kpiTarget: v })}'))
+  // Every dial measures against a target in the same way, so every dial
+  // is offered one.
+  for (const dial of ['ring', 'gauge', 'arc', 'segment', 'needle']) {
+    assert.ok(WANTS_TARGET.includes(dial), dial)
+  }
+  // ...and nothing that cannot show one is on the list.
+  for (const shape of WANTS_TARGET) {
+    assert.ok(isDial(shape) || shape === 'bar' || shape === 'stat', `${shape} cannot show a target`)
+  }
 })
 
 test('a ring with nothing to measure against says so', () => {
@@ -295,7 +307,11 @@ test('a ring with nothing to measure against says so', () => {
 
 test('a gauge and an arc are drawn as dials, turned to start in the right place', () => {
   const kpi = read('src/components/widgets/KpiWidget.jsx')
-  assert.ok(kpi.includes('ringGeometry(fraction, size, Math.max(6, Math.round(size / 13)), shape)'))
+  // The stroke follows the circle, so a big dial is not a hairline and a
+  // small one is not all stroke. Measured where there is a measurement,
+  // and the old constant where there is not yet one -- a card must draw
+  // what it always drew on the frame before anything has been observed.
+  assert.ok(kpi.includes('ringGeometry(fraction, size, scale?.stroke || Math.max(6, Math.round(size / 13)), shape)'))
   assert.ok(kpi.includes('isDial(shape) ? ('))
   assert.ok(kpi.includes('transform: `rotate(${ring.rotation}deg)`'))
 })

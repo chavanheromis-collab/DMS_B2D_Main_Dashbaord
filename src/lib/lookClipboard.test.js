@@ -287,7 +287,10 @@ test('no widget spells out its own card surface', () => {
 
 test('the KPI card is a card, and adds only its own behaviour to it', () => {
   const kpi = read('src/components/widgets/KpiWidget.jsx')
-  assert.ok(kpi.includes('className={`card group relative overflow-hidden'))
+  // `kpi-card` beside it is not a surface of its own: it is the one
+  // rule that stops the card scrolling, because a KPI has no body to
+  // scroll. See index.css.
+  assert.ok(kpi.includes('className={`card kpi-card group relative overflow-hidden'))
   // The lift and the drilled ring are what it adds; the surface is not.
   assert.ok(kpi.includes('hover:-translate-y-0.5'))
   assert.ok(kpi.includes("isDrilled ? 'ring-2 ring-offset-1' : ''"))

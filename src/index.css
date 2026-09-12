@@ -348,6 +348,102 @@ aside.fixed.right-0 {
 }
 .badge-pop { animation: badgePop 320ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 
+/* A KPI never scrolls.
+ *
+ * `.widget-sized > .card` is `overflow: auto`, which is right for a
+ * table or a chart -- a body taller than the card is scrolled. A KPI
+ * has no body: it is one figure that is supposed to FIT, and a
+ * scrollbar on it is the card saying it failed. It appeared as soon as
+ * a card was dragged smaller than the circle drawn in it.
+ *
+ * THREE selectors, because there are three ways a card gets its height
+ * and two of them set `overflow: auto` of their own. Naming only one is
+ * why this worked on some KPIs and not others: a widget on the canvas
+ * goes through `.widget-fit`, whose rule is further down this file and
+ * so won the tie on order alone.
+ *
+ * Specificity, since it bit twice: the card's own `overflow-hidden`
+ * utility is ONE class and loses to both of those two-class rules. That
+ * is why each selector here names `.kpi-card` alongside the container
+ * rather than relying on the utility already on the element.
+ *
+ * Sizing (lib/kpiScale.js) is the real fix -- the content is made to
+ * fit rather than clipped. This is the guarantee underneath it: a title
+ * nobody expected to wrap must not bring a scrollbar back.
+ */
+.widget-fit > * > .card.kpi-card,
+.widget-sized > .card.kpi-card,
+.card.kpi-card {
+  overflow: hidden;
+}
+
+/* The four kinds of writing on a card, each its own decision.
+ *
+ * A heading, the small print under it, the figures, and the names
+ * beside them are read in four different ways -- so making a KPI's
+ * number big enough to read across the room must not turn its caption
+ * into a headline. See TEXT_ROLES in lib/typography.js.
+ *
+ * A class per PROPERTY rather than one per role, for the reason the
+ * chart text already gives: `font-size: var(--x, inherit)` under a
+ * single class resets the size the moment somebody picks only a
+ * typeface, which is one setting quietly breaking another.
+ *
+ * The VALUE and NAME selectors carry a structural fallback beside the
+ * explicit hook -- `tbody td`, `thead th` -- because a table's cells
+ * are generated in a loop and the alternative was a class on every one
+ * of them. The hook is what a widget uses when its figure is not a
+ * cell: a KPI's number, a gauge's reading.
+ */
+.wtitle-ink :where(.widget-title) { color: var(--wtitle-text); }
+.wtitle-font :where(.widget-title) { font-family: var(--wtitle-font); }
+.wtitle-size :where(.widget-title) { font-size: var(--wtitle-size); }
+.wtitle-weight :where(.widget-title) { font-weight: var(--wtitle-weight); }
+
+.wcaption-ink :where(.widget-caption) { color: var(--wcaption-text); }
+.wcaption-font :where(.widget-caption) { font-family: var(--wcaption-font); }
+.wcaption-size :where(.widget-caption) { font-size: var(--wcaption-size); }
+.wcaption-weight :where(.widget-caption) { font-weight: var(--wcaption-weight); }
+
+.wvalue-ink :where(.widget-value, tbody td) { color: var(--wvalue-text); }
+.wvalue-font :where(.widget-value, tbody td) { font-family: var(--wvalue-font); }
+.wvalue-size :where(.widget-value, tbody td) { font-size: var(--wvalue-size); }
+.wvalue-weight :where(.widget-value, tbody td) { font-weight: var(--wvalue-weight); }
+
+.wlabel-ink :where(.widget-label, thead th) { color: var(--wlabel-text); }
+.wlabel-font :where(.widget-label, thead th) { font-family: var(--wlabel-font); }
+.wlabel-size :where(.widget-label, thead th) { font-size: var(--wlabel-size); }
+.wlabel-weight :where(.widget-label, thead th) { font-weight: var(--wlabel-weight); }
+
+/* Chart text that filters when it is clicked.
+ *
+ * The name under a bar, the label on a pie slice, the step beside a
+ * funnel. They have always been part of the same object as the shape
+ * they name -- to the reader, "Nashik" and the bar above it are one
+ * thing -- and now they behave like it.
+ *
+ * Which means they have to LOOK like it, or the click is a secret. A
+ * cursor on hover and the ink going indigo is the least that can be
+ * said; an underline as well, because a pointer cursor over a bare axis
+ * label is easy to miss at eleven pixels.
+ *
+ * `fill` rather than `color`: this is SVG text, and recharts writes the
+ * colour as an attribute, which a rule outranks.
+ */
+.chart-axis-click .recharts-cartesian-axis-tick,
+.chart-axis-click .recharts-polar-angle-axis-tick,
+.chart-label-click {
+  cursor: pointer;
+}
+
+.chart-axis-click .recharts-cartesian-axis-tick:hover .recharts-cartesian-axis-tick-value,
+.chart-axis-click .recharts-polar-angle-axis-tick:hover text,
+.chart-label-click:hover {
+  fill: #4f46e5;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* An alarm going off.
  *
  * Nothing else in this app animates for ever, and this one does -- on

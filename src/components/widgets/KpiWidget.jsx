@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MousePointerClick } from 'lucide-react'
+import { Minus, MousePointerClick, TrendingDown, TrendingUp } from 'lucide-react'
 import { aggregate, formatNumber } from '../../lib/dataUtils'
 import { aggNeedsColumn } from '../../lib/config'
 import { matchesConditions } from '../../lib/filterEngine'
@@ -7,13 +7,22 @@ import AppImage from '../PageIcon.jsx'
 import { safeImageUrl } from '../../lib/imageUrl'
 import {
   boxRatio,
+  deltaOf,
+  deltaText,
   isDial,
+  isNeedle,
   isRound,
+  isSegmented,
+  needleGeometry,
+  segmentBlocks,
   ringFraction,
   ringGeometry,
   ringIsMeaningful,
   shapeOf,
 } from '../../lib/kpiShapes'
+import { deltaChip, drawColour, kpiSurface, markColor, themeOf } from '../../lib/kpiThemes'
+import { kpiScale, sizeStyle } from '../../lib/kpiScale'
+import { useElementSize } from '../../hooks/useElementSize'
 
 /**
  * A KPI's mark.
@@ -122,7 +131,20 @@ function useCountUp(target, duration = 550) {
  * When filters are active it also shows what the same figure was before
  * filtering, so a filtered number is never mistaken for the real total.
  */
-export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, rawRowsByTab, tabError, onCrossFilter, isDrilled }) {
+export default function KpiWidget({
+  widget,
+  rows,
+  unfilteredRows,
+  rowsByTab,
+  rawRowsByTab,
+  tabError,
+  onCrossFilter,
+  isDrilled,
+  // Whether the card was GIVEN a height, rather than taking one from
+  // its own contents. See heightOf in lib/kpiScale.js: measuring a
+  // height that the text itself decides is a loop.
+  fillHeight = false,
+}) {
   const isConversion = !!widget.secondaryTab
 
   const primaryValue = useMemo(() => {
@@ -189,7 +211,38 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
   ])
 
   const animated = useCountUp(value)
-  const color = widget.color || '#4F46E5'
+  // What marks are drawn in. "No colour" is slate rather than nothing:
+  // a ring still has to be visible, and colourless means "not a
+  // statement", not "invisible". What actually disappears is the rail
+  // and the wash -- see kpiSurface.
+  const color = drawColour(widget.color)
+
+  // The card's real size, measured. Every size on a KPI used to be a
+  // constant, which is right for exactly one card size -- the one it
+  // was chosen against. See lib/kpiScale.js.
+  const { ref: boxRef, width: boxW, height: boxH } = useElementSize()
+
+  // What the card is MADE of, as against what shape it takes. Expressed
+  // in the same custom properties the Look tab uses, and applied before
+  // the widget's own style so a colour somebody typed still wins -- a
+  // theme is a preset, not a decision. See lib/kpiThemes.js.
+  const surface = kpiSurface(themeOf(widget), widget.color)
+
+  // How far along, and how far off. Worked out ONCE here and handed to
+  // whichever shape is drawn: a card showing both a bar and a change
+  // measured against different things would be two answers to one
+  // question. See ringFraction and deltaOf for which of target and
+  // unfiltered total wins, and why.
+  const shown = formatNumber(
+    animated,
+    isConversion ? 'percent' : widget.format,
+    isConversion ? 'percent' : widget.aggregation
+  )
+  const fraction = ringFraction(value, { target: widget.kpiTarget, baseline })
+  const delta = useMemo(
+    () => deltaOf(value, { target: widget.kpiTarget, baseline }),
+    [value, widget.kpiTarget, baseline]
+  )
 
   // The side layout only makes sense when there is actually an image to put
   // there -- with an emoji it would be a large empty tile.
@@ -198,6 +251,17 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
   // same data -- what changes is what the eye is meant to do with it. See
   // lib/kpiShapes.js.
   const shape = shapeOf(widget, sideImage)
+
+  // Sized against the box AND against the figure: "8" and "1,24,85,000"
+  // are the same measurement in the same card, and the long one has to
+  // fit without the short one looking timid. Below `shape`, which it
+  // reads -- a round card sizes its number against the circle rather
+  // than against the card.
+  const scale = kpiScale(
+    { width: boxW, height: boxH },
+    { shape, textLength: shown.length, fixed: widget.kpiRingSize, sized: fillHeight }
+  )
+
   const imageSize = Number(widget.iconSize) || 52
   // The share bar and its "of N unfiltered · TAB" caption.
   //
@@ -254,10 +318,15 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
       //
       // Everything below is what this widget adds ON TOP of a card -- the
       // lift on hover, and the ring when it is the thing being drilled by.
-      className={`card group relative overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg ${
-        clickable ? 'cursor-pointer' : ''
-      } ${isDrilled ? 'ring-2 ring-offset-1' : ''}`}
-      style={isDrilled ? { '--tw-ring-color': color } : undefined}
+      ref={boxRef}
+      // `kpi-card` is what stops the card scrolling. A KPI has no body
+      // to scroll: it is one figure that is supposed to fit, and a
+      // scrollbar on it is the card saying it failed. See index.css --
+      // the utility alone loses to `.widget-sized > .card`.
+      className={`card kpi-card group relative overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+        surface.className
+      } ${clickable ? 'cursor-pointer' : ''} ${isDrilled ? 'ring-2 ring-offset-1' : ''}`}
+      style={{ ...surface.vars, ...(isDrilled ? { '--tw-ring-color': color } : null) }}
       title={
         clickable
           ? `Click to filter the dashboard by “${widget.title}”`
@@ -266,12 +335,19 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
             : `${widget.tab}${widget.column ? ` · ${widget.column}` : ''}`
       }
     >
-      {/* wash of the KPI's colour, brightening on hover */}
-      <span
-        className="pointer-events-none absolute inset-0 opacity-[0.06] transition-opacity group-hover:opacity-[0.12]"
-        style={{ background: `radial-gradient(120% 100% at 100% 0%, ${color} 0%, transparent 60%)` }}
-      />
-      <span className="absolute left-0 top-0 h-full w-1" style={{ backgroundColor: color }} />
+      {/* The wash of the card's colour, and nothing else.
+          There used to be a hard rail of it down the left edge as well.
+          It is gone: a stripe is a second statement of the same thing
+          the wash and the marks already make, and on a row of cards it
+          reads as a table of contents nobody asked for. The colour now
+          reaches the eye through what it actually measures -- the ring,
+          the bar, the needle -- rather than through a bookmark. */}
+      {!surface.onFill && (
+        <span
+          className="pointer-events-none absolute inset-0 opacity-[0.06] transition-opacity group-hover:opacity-[0.12]"
+          style={{ background: `radial-gradient(120% 100% at 100% 0%, ${color} 0%, transparent 60%)` }}
+        />
+      )}
 
       {/* --- Two layouts -------------------------------------------------
           "corner" is the original: a small mark tucked top-right.
@@ -287,20 +363,26 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
           value={value}
           baseline={baseline}
           color={color}
+          surface={surface}
+          fraction={fraction}
+          scale={scale}
+          shown={shown}
           isConversion={isConversion}
           clickable={clickable}
           isDrilled={isDrilled}
         />
       ) : shape === 'centred' ? (
         <div className="relative flex flex-1 flex-col items-center justify-center py-1 text-center">
-          <p className="text-4xl font-bold leading-none tabular-nums text-slate-800">
-            {formatNumber(
-              animated,
-              isConversion ? 'percent' : widget.format,
-              isConversion ? 'percent' : widget.aggregation
-            )}
+          <p
+            className="widget-value font-bold leading-none tabular-nums text-slate-800"
+            style={{ fontSize: `var(--wvalue-size, ${scale?.number ? scale.number + 'px' : '2.25rem'})`, color: surface.ink || undefined }}
+          >
+            {shown}
           </p>
-          <p className="mt-2 truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <p
+            className="widget-label mt-2 truncate font-semibold uppercase tracking-wide text-slate-500"
+            style={{ fontSize: `var(--wlabel-size, ${scale?.label ? scale.label + 'px' : '11px'})`, color: surface.muted || undefined }}
+          >
             {widget.icon ? `${widget.icon} ` : ''}
             {widget.title}
           </p>
@@ -313,6 +395,115 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
               style={{ color }}
             />
           )}
+        </div>
+      ) : shape === 'inline' ? (
+        /* One line: the name on the left, the figure on the right. The
+           shape for a stack of eight small metrics, where every card
+           being a block of its own wastes most of the column on air. */
+        <div className="relative flex items-center gap-2">
+          <span
+            className="widget-label min-w-0 flex-1 truncate font-semibold"
+            style={{ fontSize: `var(--wlabel-size, ${scale?.label ? scale.label + 'px' : '12px'})`, color: surface.muted || undefined }}
+          >
+            {widget.icon ? `${widget.icon} ` : ''}
+            {widget.title}
+          </span>
+          <span
+            className="widget-value shrink-0 font-bold leading-none tabular-nums"
+            style={{ fontSize: `var(--wvalue-size, ${scale?.number ? scale.number + 'px' : '1.25rem'})`, color: surface.ink || undefined }}
+          >
+            {shown}
+          </span>
+        </div>
+      ) : shape === 'stat' ? (
+        /* The reporting shape: the figure, and beside it how far off its
+           mark it is. The number alone answers "how many"; this one
+           answers "and is that good", which is the question that gets
+           asked next in every meeting. */
+        <div className="relative">
+          <p
+            className="widget-label truncate font-semibold uppercase tracking-wide"
+            style={{ fontSize: `var(--wlabel-size, ${scale?.label ? scale.label + 'px' : '11px'})`, color: surface.muted || undefined }}
+          >
+            {widget.icon ? `${widget.icon} ` : ''}
+            {widget.title}
+          </p>
+          <div className="mt-1.5 flex items-end gap-2">
+            <p
+              className="widget-value font-bold leading-none tabular-nums"
+              style={{ fontSize: `var(--wvalue-size, ${scale?.number ? scale.number + 'px' : '1.875rem'})`, color: surface.ink || undefined }}
+            >
+              {shown}
+            </p>
+            {delta && (
+              <span
+                className="mb-0.5 flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
+                style={deltaChip(delta, surface)}
+                title={deltaText(delta)}
+              >
+                {delta.dir === 'up' ? <TrendingUp size={10} /> : delta.dir === 'down' ? <TrendingDown size={10} /> : <Minus size={10} />}
+                {Math.abs(delta.percent) < 0.05 ? '0%' : `${Math.abs(delta.percent).toFixed(Math.abs(delta.percent) >= 100 ? 0 : 1)}%`}
+              </span>
+            )}
+          </div>
+          {/* What it was measured against, said in full. A chip reading
+              "+12%" with nothing to compare it to is a number wearing the
+              clothes of a judgement. */}
+          <p className="mt-1 truncate text-[10px]" style={{ color: surface.muted || undefined }}>
+            {delta
+              ? `vs ${delta.basis === 'target' ? 'target' : 'unfiltered'} ${formatNumber(
+                  delta.against,
+                  isConversion ? 'percent' : widget.format,
+                  isConversion ? 'percent' : widget.aggregation
+                )}`
+              : 'set a target to show the change'}
+          </p>
+        </div>
+      ) : shape === 'bar' ? (
+        /* The figure over a bar that fills towards its target, with the
+           target itself marked on the track. A ring says roughly how
+           close; a marked bar says which side of the line it is on,
+           which is the whole of what a target is for. */
+        <div className="relative">
+          <div className="flex items-baseline justify-between gap-2">
+            <span
+              className="widget-label min-w-0 truncate font-semibold uppercase tracking-wide"
+              style={{ fontSize: `var(--wlabel-size, ${scale?.label ? scale.label + 'px' : '11px'})`, color: surface.muted || undefined }}
+            >
+              {widget.icon ? `${widget.icon} ` : ''}
+              {widget.title}
+            </span>
+            <span className="shrink-0 text-[10px] font-semibold tabular-nums" style={{ color: surface.muted || undefined }}>
+              {Math.round(fraction * 100)}%
+            </span>
+          </div>
+
+          <p
+            className="widget-value mt-1 font-bold leading-none tabular-nums"
+            style={{ fontSize: `var(--wvalue-size, ${scale?.number ? scale.number + 'px' : '1.5rem'})`, color: surface.ink || undefined }}
+          >
+            {shown}
+          </p>
+
+          <div className="relative mt-2 h-2.5 overflow-hidden rounded-full" style={{ backgroundColor: surface.track }}>
+            <div
+              className="h-full rounded-full transition-all duration-700 ease-out"
+              style={{ width: `${Math.round(fraction * 100)}%`, backgroundColor: markColor(surface, color) }}
+            />
+          </div>
+          {/* The target, marked ON the track rather than written beside
+              it. Where a target exists the bar fills towards it, so full
+              IS the target -- the tick sits at the end and the eye reads
+              "short of it" or "past it" without doing any arithmetic. */}
+          <p className="mt-1 truncate text-[10px]" style={{ color: surface.muted || undefined }}>
+            {ringIsMeaningful({ target: widget.kpiTarget, baseline })
+              ? `of ${formatNumber(
+                  Number(widget.kpiTarget) > 0 ? Number(widget.kpiTarget) : baseline,
+                  isConversion ? 'percent' : widget.format,
+                  isConversion ? 'percent' : widget.aggregation
+                )}${Number(widget.kpiTarget) > 0 ? ' target' : ' unfiltered'}`
+              : 'set a target to fill this bar'}
+          </p>
         </div>
       ) : sideImage ? (
         <div className="relative flex items-center gap-3">
@@ -343,14 +534,16 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
           <span className="h-10 w-px shrink-0 bg-slate-200" />
 
           <div className="min-w-0 flex-1 text-right">
-            <p className="truncate text-2xl font-bold leading-tight tabular-nums text-slate-800">
-              {formatNumber(
-                animated,
-                isConversion ? 'percent' : widget.format,
-                isConversion ? 'percent' : widget.aggregation
-              )}
+            <p
+              className="widget-value truncate font-bold leading-tight tabular-nums text-slate-800"
+              style={{ fontSize: `var(--wvalue-size, ${scale?.number ? scale.number + 'px' : '1.5rem'})`, color: surface.ink || undefined }}
+            >
+              {shown}
             </p>
-            <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <p
+              className="widget-label truncate font-semibold uppercase tracking-wide text-slate-500"
+              style={{ fontSize: `var(--wlabel-size, ${scale?.label ? scale.label + 'px' : '11px'})`, color: surface.muted || undefined }}
+            >
               {widget.title}
             </p>
           </div>
@@ -368,7 +561,12 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
       ) : (
         <>
           <div className="relative flex items-start justify-between gap-2">
-            <p className="text-[14px] font-semibold uppercase tracking-wide text-slate-800">{widget.title}</p>
+            <p
+              className="widget-label font-semibold uppercase tracking-wide text-slate-800"
+              style={{ fontSize: `var(--wlabel-size, ${scale?.label ? scale.label + 'px' : '14px'})`, color: surface.ink || undefined }}
+            >
+              {widget.title}
+            </p>
             <span className="flex items-center gap-1">
               {clickable && (
                 <MousePointerClick
@@ -381,12 +579,11 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
             </span>
           </div>
 
-          <p className="relative mt-2 text-2xl font-bold leading-tight tabular-nums text-slate-800">
-            {formatNumber(
-              animated,
-              isConversion ? 'percent' : widget.format,
-              isConversion ? 'percent' : widget.aggregation
-            )}
+          <p
+            className="widget-value relative mt-2 font-bold leading-tight tabular-nums text-slate-800"
+            style={{ fontSize: `var(--wvalue-size, ${scale?.number ? scale.number + 'px' : '1.5rem'})`, color: surface.ink || undefined }}
+          >
+            {shown}
           </p>
         </>
       )}
@@ -428,22 +625,37 @@ export default function KpiWidget({ widget, rows, unfilteredRows, rowsByTab, raw
  * Both put the number in the middle, which is the whole point: the eye
  * lands on the figure rather than reading a label first and finding it.
  */
-function RoundKpi({ widget, shape, animated, value, baseline, color, isConversion, clickable, isDrilled }) {
-  const size = Math.max(72, Math.min(160, Number(widget.kpiRingSize) || 104))
-  const fraction = ringFraction(value, { target: widget.kpiTarget, baseline })
+function RoundKpi({
+  widget,
+  shape,
+  animated,
+  value,
+  baseline,
+  color,
+  surface,
+  fraction,
+  scale,
+  shown,
+  isConversion,
+  clickable,
+  isDrilled,
+}) {
+  // The measured circle where there is one, and what it always was
+  // before there was anything to measure -- so the first frame, and any
+  // browser without a ResizeObserver, draws exactly what it used to.
+  const size = scale?.circle || Math.max(72, Math.min(160, Number(widget.kpiRingSize) || 104))
+  // On a card that IS the accent, a ring drawn in the accent is invisible.
+  const mark = markColor(surface, color)
   // A ring with nothing to be a share of is always full, which is a
   // decoration wearing the clothes of a measurement. It says so rather than
   // drawing a circle that means nothing.
   const meaningful = ringIsMeaningful({ target: widget.kpiTarget, baseline })
-  const ring = ringGeometry(fraction, size, Math.max(6, Math.round(size / 13)), shape)
+  const ring = ringGeometry(fraction, size, scale?.stroke || Math.max(6, Math.round(size / 13)), shape)
+  const needle = needleGeometry(fraction, size, shape)
   // An arc uses the top half, so a square box would leave a hole under the
   // number the size of the number.
   const boxH = Math.round(size * boxRatio(shape))
-  const text = formatNumber(
-    animated,
-    isConversion ? 'percent' : widget.format,
-    isConversion ? 'percent' : widget.aggregation
-  )
+  const text = shown
 
   return (
     <div className="relative flex flex-1 flex-col items-center justify-center gap-2 py-1">
@@ -458,42 +670,117 @@ function RoundKpi({ widget, shape, animated, value, baseline, color, isConversio
             // arc. An SVG circle begins at three o'clock.
             style={{ transform: `rotate(${ring.rotation}deg)`, display: 'block' }}
           >
-            {/* The track first, so the fill draws over it. */}
-            <circle
-              cx={ring.centre}
-              cy={ring.centre}
-              r={ring.r}
-              fill="none"
-              stroke={color}
-              strokeOpacity={0.16}
-              strokeWidth={ring.stroke}
-              strokeLinecap="round"
-              // The track is only as long as this shape draws. A gauge with
-              // a faint ghost of its missing quarter is a ring with a
-              // smudge in it.
-              strokeDasharray={ring.dashArray}
-            />
-            <circle
-              cx={ring.centre}
-              cy={ring.centre}
-              r={ring.r}
-              fill="none"
-              stroke={color}
-              strokeWidth={ring.stroke}
-              strokeLinecap="round"
-              strokeDasharray={ring.dashArray}
-              strokeDashoffset={ring.offset}
-              className="transition-[stroke-dashoffset] duration-700 ease-out"
-            />
+            {isSegmented(shape) ? (
+              /* Blocks, each its own run of the same circle. Ten of them
+                 rather than a smooth ring because a rough share is what
+                 gets read off a card in passing -- "seven of ten" lands
+                 without measuring, where 68% of a circle does not.
+
+                 ONE COLOUR, at two strengths -- exactly what every other
+                 dial here does, and this one did not. Lighting a block
+                 in the accent and leaving the rest in a grey meant that
+                 a cross-filter, which moves the value and so moves the
+                 boundary, visibly changed the card's COLOUR rather than
+                 its reading. Same hue throughout, and the eye reads the
+                 count instead of a palette. */
+              segmentBlocks(fraction, ring, widget.kpiSegments).map((block) => (
+                <circle
+                  key={block.key}
+                  cx={ring.centre}
+                  cy={ring.centre}
+                  r={ring.r}
+                  fill="none"
+                  stroke={mark}
+                  // 0.16 is the track every other dial draws, so a
+                  // segmented one sits in the same family as a ring.
+                  strokeOpacity={block.on ? 1 : 0.16}
+                  strokeWidth={ring.stroke}
+                  strokeLinecap="butt"
+                  strokeDasharray={`${block.length} ${ring.circumference}`}
+                  strokeDashoffset={block.offset}
+                  // Opacity, not colour. A hue cross-fading over half a
+                  // second is what made a filter look like a restyle;
+                  // the other dials animate their LENGTH for the same
+                  // reason -- the shape changes, the palette does not.
+                  className="transition-opacity duration-300"
+                />
+              ))
+            ) : (
+              <>
+                {/* The track first, so the fill draws over it. */}
+                <circle
+                  cx={ring.centre}
+                  cy={ring.centre}
+                  r={ring.r}
+                  fill="none"
+                  stroke={mark}
+                  strokeOpacity={0.16}
+                  strokeWidth={ring.stroke}
+                  strokeLinecap="round"
+                  // The track is only as long as this shape draws. A gauge
+                  // with a faint ghost of its missing quarter is a ring
+                  // with a smudge in it.
+                  strokeDasharray={ring.dashArray}
+                />
+                {/* A needle's track stays empty: the pointer is what says
+                    where the figure sits, and a filled arc behind it says
+                    the same thing twice in two different languages. */}
+                {!isNeedle(shape) && (
+                  <circle
+                    cx={ring.centre}
+                    cy={ring.centre}
+                    r={ring.r}
+                    fill="none"
+                    stroke={mark}
+                    strokeWidth={ring.stroke}
+                    strokeLinecap="round"
+                    strokeDasharray={ring.dashArray}
+                    strokeDashoffset={ring.offset}
+                    className="transition-[stroke-dashoffset] duration-700 ease-out"
+                  />
+                )}
+              </>
+            )}
           </svg>
         ) : (
           <span
             className="block h-full w-full rounded-full"
+            data-kpi="badge"
             style={{
               background: `radial-gradient(120% 120% at 30% 20%, ${color} 0%, ${color}D9 60%, ${color}B3 100%)`,
               boxShadow: `0 10px 22px -10px ${color}`,
             }}
           />
+        )}
+
+        {/* The pointer, in its own un-rotated layer.
+            `needleGeometry` already works in absolute degrees from three
+            o'clock -- the same frame the track's rotation is expressed in
+            -- so putting it inside the rotated svg would turn it twice
+            and point it at the wrong number. */}
+        {isNeedle(shape) && (
+          <svg
+            width={size}
+            height={size}
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{ display: 'block' }}
+          >
+            <line
+              x1={needle.centre}
+              y1={needle.centre}
+              x2={needle.x}
+              y2={needle.y}
+              stroke={mark}
+              strokeWidth={Math.max(2, Math.round(size / 40))}
+              strokeLinecap="round"
+              className="transition-all duration-700 ease-out"
+            />
+            {/* The hub. Without it the needle is a line that happens to
+                start near the middle. */}
+            <circle cx={needle.centre} cy={needle.centre} r={needle.hub} fill={mark} />
+            <circle cx={needle.centre} cy={needle.centre} r={needle.hub / 2.4} fill="#fff" fillOpacity={0.85} />
+          </svg>
         )}
 
         {/* The number, centred over whichever circle was drawn. A badge is
@@ -506,8 +793,15 @@ function RoundKpi({ widget, shape, animated, value, baseline, color, isConversio
           style={{ height: boxH }}
         >
           <span
-            className={`font-bold leading-none tabular-nums ${shape === 'badge' ? 'text-white' : 'text-slate-800'}`}
-            style={{ fontSize: Math.max(15, Math.round(size / (text.length > 5 ? 5.2 : 3.6))) }}
+            className={`font-bold leading-none tabular-nums ${
+              shape === 'badge' ? 'text-white' : surface.ink ? '' : 'text-slate-800'
+            }`}
+            style={{
+              fontSize: scale?.number || Math.max(15, Math.round(size / (text.length > 5 ? 5.2 : 3.6))),
+              // A themed card states its own ink; an unthemed one keeps
+              // the slate it always had, so nothing existing shifts.
+              color: shape === 'badge' ? undefined : surface.ink || undefined,
+            }}
           >
             {text}
           </span>
@@ -520,7 +814,10 @@ function RoundKpi({ widget, shape, animated, value, baseline, color, isConversio
         </span>
       </div>
 
-      <p className="max-w-full truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      <p
+        className="widget-label max-w-full truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+        style={{ ...sizeStyle(scale?.label), color: surface.muted || undefined }}
+      >
         {widget.icon ? `${widget.icon} ` : ''}
         {widget.title}
       </p>

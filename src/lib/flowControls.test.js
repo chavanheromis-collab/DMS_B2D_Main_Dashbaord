@@ -447,7 +447,7 @@ test('the circle is filled by the values on screen, and says what share that is'
 test('a label can read either percentage, and the admin picks which', () => {
   assert.ok(pie.includes("const percentBase = widget.piePercentBase === 'shown' ? 'shown' : 'total'"))
   assert.ok(pie.includes('labelStyle, fmt, percentBase )') || pie.includes('fmt, percentBase'))
-  assert.ok(pie.includes('renderLabel({ labelled, labelStyle, fmt, percentBase })'))
+  assert.ok(pie.includes('renderLabel({ labelled, labelStyle, fmt, percentBase, onDrill'))
   const panel = read('pages/admin/WidgetsPanel.jsx')
   assert.ok(panel.includes('onChange={(v) => set({ piePercentBase: v })}'))
   assert.ok(panel.includes('onChange={(v) => set({ pieFillWindow: v })}'))

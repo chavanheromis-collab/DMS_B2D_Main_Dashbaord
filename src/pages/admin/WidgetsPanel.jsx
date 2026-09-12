@@ -27,7 +27,8 @@ import { DEFAULT_BLEND, blendIsReady, blendedHeaders } from '../../lib/blend'
 import { hasCustomStyle } from '../../lib/widgetStyle'
 import { COLOR_MODES, DEFAULT_REFERENCE, REFERENCE_KINDS, chartCaps, unsupportedNote } from '../../lib/chartOptions'
 import { PIE_LIST_POSITIONS, PIE_LIST_STYLES } from '../../lib/pieData'
-import { KPI_SHAPES } from '../../lib/kpiShapes'
+import { KPI_SHAPES, WANTS_SIZE, WANTS_TARGET } from '../../lib/kpiShapes'
+import { KPI_THEMES, NO_COLOUR, isColourless, themeOf } from '../../lib/kpiThemes'
 import {
   BAND_KINDS,
   CUMULATIVE_MODES,
@@ -801,13 +802,36 @@ function KpiEditor({ widget, cols, tabs, tabHeaders, set }) {
         <Field label="Icon">
           <EmojiPicker value={widget.icon} onChange={(v) => set({ icon: v })} placeholder="🚗" />
         </Field>
-        <Field label="Colour">
-          <input
-            type="color"
-            value={widget.color || PALETTE[0]}
-            onChange={(e) => set({ color: e.target.value })}
-            className="h-[30px] w-full rounded-lg border border-slate-200"
-          />
+        <Field
+          label="Colour"
+          hint={isColourless(widget.color) ? 'No rail, no wash — a card that holds its place quietly.' : undefined}
+        >
+          {/* A swatch and a switch, because `<input type="color">` has no
+              empty state at all -- it cannot express "none", and a page
+              where all eight cards have a coloured rail is a page with no
+              emphasis left to give. */}
+          <div className="flex items-center gap-1.5">
+            <input
+              type="color"
+              value={isColourless(widget.color) ? PALETTE[0] : widget.color || PALETTE[0]}
+              onChange={(e) => set({ color: e.target.value })}
+              disabled={isColourless(widget.color)}
+              className="h-[30px] w-full rounded-lg border border-slate-200 disabled:opacity-40"
+            />
+            <button
+              type="button"
+              onClick={() => set({ color: isColourless(widget.color) ? PALETTE[0] : NO_COLOUR })}
+              aria-pressed={isColourless(widget.color)}
+              title={isColourless(widget.color) ? 'Give this card a colour' : 'No colour on this card'}
+              className={`h-[30px] shrink-0 rounded-lg border px-2 text-[10px] font-semibold transition-colors ${
+                isColourless(widget.color)
+                  ? 'border-slate-400 bg-slate-100 text-slate-600'
+                  : 'border-slate-200 text-slate-400 hover:bg-slate-50'
+              }`}
+            >
+              None
+            </button>
+          </div>
         </Field>
       </div>
 
@@ -845,52 +869,88 @@ function KpiEditor({ widget, cols, tabs, tabHeaders, set }) {
         </div>
       </Field>
 
-      {safeImageUrl(widget.iconUrl) && (
-        <div className="col-span-2 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2 md:grid-cols-3">
-          {/* Every shape shows the same number from the same data. What
-              changes is what the eye is meant to do with it -- see
-              lib/kpiShapes.js. */}
+      {/* Shape and theme, for EVERY KPI.
+          These used to live inside the block below, which only appears
+          once an image URL has been typed -- so a ring, a gauge and a
+          badge, none of which have anything to do with an image, could
+          not be chosen at all without pasting one. The picker existed
+          and was unreachable. */}
+      <div className="col-span-2 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2 md:grid-cols-3">
+        {/* Every shape shows the same number from the same data. What
+            changes is what the eye is meant to do with it -- see
+            lib/kpiShapes.js. */}
+        <Field
+          label="Card shape"
+          hint={KPI_SHAPES.find((s) => s.value === (widget.kpiShape || 'classic'))?.hint}
+        >
+          <Select
+            value={widget.kpiShape || 'classic'}
+            onChange={(v) => set({ kpiShape: v })}
+            options={KPI_SHAPES}
+          />
+        </Field>
+
+        {/* ...and the theme is what the card is MADE of, which is a
+            different question from what shape it takes. Two dropdowns
+            rather than one list of thirty-six. */}
+        <Field
+          label="Card theme"
+          hint={KPI_THEMES.find((t) => t.value === themeOf(widget))?.hint}
+        >
+          <Select
+            value={themeOf(widget)}
+            onChange={(v) => set({ kpiTheme: v })}
+            options={KPI_THEMES}
+          />
+        </Field>
+
+        {/* Only where it would be drawn. A target on a shape that cannot
+            show one is a control that does nothing. */}
+        {WANTS_TARGET.includes(widget.kpiShape) && (
           <Field
-            label="Card shape"
-            hint={KPI_SHAPES.find((s) => s.value === (widget.kpiShape || 'classic'))?.hint}
+            label="Target"
+            hint={
+              Number(widget.kpiTarget) > 0
+                ? 'The shape fills towards this.'
+                : 'Blank measures against the unfiltered total instead.'
+            }
           >
-            <Select
-              value={widget.kpiShape || 'classic'}
-              onChange={(v) => set({ kpiShape: v })}
-              options={KPI_SHAPES}
+            <TextInput
+              type="number"
+              value={widget.kpiTarget ?? ''}
+              onChange={(v) => set({ kpiTarget: v })}
+              placeholder="unfiltered total"
             />
           </Field>
+        )}
 
-          {/* Only where it would be drawn. A target on a shape that cannot
-              show one is a control that does nothing. */}
-          {['ring', 'gauge', 'arc'].includes(widget.kpiShape) && (
-            <Field
-              label="Ring target"
-              hint={
-                Number(widget.kpiTarget) > 0
-                  ? 'The ring fills towards this.'
-                  : 'Blank fills it against the unfiltered total instead.'
-              }
-            >
-              <TextInput
-                type="number"
-                value={widget.kpiTarget ?? ''}
-                onChange={(v) => set({ kpiTarget: v })}
-                placeholder="unfiltered total"
-              />
-            </Field>
-          )}
+        {WANTS_SIZE.includes(widget.kpiShape) && (
+          <Field
+            label="Circle size (px)"
+            hint="Blank fits it to the card, so dragging the card bigger draws a bigger dial."
+          >
+            <TextInput
+              type="number"
+              value={widget.kpiRingSize ?? ''}
+              onChange={(v) => set({ kpiRingSize: v === '' ? null : Number(v) || null })}
+              placeholder="fit the card"
+            />
+          </Field>
+        )}
 
-          {['ring', 'gauge', 'arc', 'badge'].includes(widget.kpiShape) && (
-            <Field label="Circle size (px)">
-              <TextInput
-                type="number"
-                value={widget.kpiRingSize ?? 104}
-                onChange={(v) => set({ kpiRingSize: Number(v) || 104 })}
-              />
-            </Field>
-          )}
+        {widget.kpiShape === 'segment' && (
+          <Field label="Blocks" hint="How many the ring is cut into. Ten reads fastest.">
+            <TextInput
+              type="number"
+              value={widget.kpiSegments ?? 10}
+              onChange={(v) => set({ kpiSegments: Number(v) || 10 })}
+            />
+          </Field>
+        )}
+      </div>
 
+      {safeImageUrl(widget.iconUrl) && (
+        <div className="col-span-2 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2 md:grid-cols-3">
           <Field
             label="Image placement"
             hint={
