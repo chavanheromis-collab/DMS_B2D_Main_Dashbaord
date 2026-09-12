@@ -262,9 +262,54 @@ export const BADGE =
  * starts being width.
  */
 export function titleWithBadge(count, base = BASE_TITLE) {
-  const n = Number(count) || 0
-  if (n <= 0) return base
-  return `(${n > 9 ? '9+' : n}) ${base}`
+  return tabTitle({ unread: count }, base)
+}
+
+/**
+ * The whole title, from everything that wants a word in it.
+ *
+ * TWO things now write here -- the unread count and a reminder going off
+ * -- and `document.title` is one string. Two effects each assigning it
+ * means whichever rendered last wins and the other's mark vanishes at
+ * random, which is the sort of bug that is never reproducible because it
+ * depends on render order.
+ *
+ * So the parts are composed in one place and written in one place. The
+ * clock goes FIRST: an alarm outranks a count, and it is the leftmost
+ * character that survives a tab narrowed to nothing.
+ */
+export function tabTitle({ unread = 0, alarms = 0 } = {}, base = BASE_TITLE) {
+  const marks = []
+  const ringing = Number(alarms) || 0
+  const waiting = Number(unread) || 0
+  if (ringing > 0) marks.push(ringing > 1 ? `⏰${ringing}` : '⏰')
+  // Capped at 9 for the same reason the bell is: past that the number
+  // stops being information and starts being width.
+  if (waiting > 0) marks.push(`(${waiting > 9 ? '9+' : waiting})`)
+  return marks.length > 0 ? `${marks.join(' ')} ${base}` : base
+}
+
+// The live parts, as module state -- the same lifetime the document title
+// itself has. Each writer owns its own key and nothing else, so neither
+// can erase the other by rendering.
+let titleParts = { unread: 0, alarms: 0 }
+
+/**
+ * Contribute one part and repaint. The impure half of `tabTitle`.
+ *
+ * Returns the string written, so a caller can assert on it without
+ * reaching for the document.
+ */
+export function setTitlePart(patch, doc = typeof document === 'undefined' ? null : document) {
+  titleParts = { ...titleParts, ...patch }
+  const next = tabTitle(titleParts)
+  if (doc) doc.title = next
+  return next
+}
+
+/** For tests, and for a sign-out that should leave nothing behind. */
+export function resetTitleParts() {
+  titleParts = { unread: 0, alarms: 0 }
 }
 
 /**
@@ -303,6 +348,46 @@ export function raise(message, tone, onClick, context) {
     return null
   }
 }
+
+/**
+ * Raise one that was composed elsewhere.
+ *
+ * `raise` above knows the shape of a message -- who sent it, what tone it
+ * carries, whose face to draw. A reminder has none of those and inventing
+ * a sender for it would put it in the same visual family as the messages,
+ * which is the one thing this must not do. So the caller hands over a
+ * finished `{ title, options }` and this does the part that is the same
+ * for everything: the permission check, and the try that stops a platform
+ * wanting a service worker from taking the dashboard down with it.
+ */
+export function raiseNote({ title, options }, onClick) {
+  if (permissionState() !== 'granted') return null
+  try {
+    const note = new window.Notification(title, options)
+    note.onclick = () => {
+      window.focus()
+      note.close()
+      onClick?.()
+    }
+    return note
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The status-bar mark for an alarm: a clock, not a speech bubble.
+ *
+ * Android draws this monochrome at about 16px, which is the size at which
+ * the difference between "somebody wants you" and "you wanted yourself"
+ * has to survive.
+ */
+export const ALARM_BADGE =
+  'data:image/svg+xml;charset=utf-8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white">' +
+      '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.6V6h-2v7.4l5.2 3.1 1-1.7-4.2-2.2z"/></svg>'
+  )
 
 /** Ask, once, from a gesture. Resolves to the new state. */
 export async function askPermission() {

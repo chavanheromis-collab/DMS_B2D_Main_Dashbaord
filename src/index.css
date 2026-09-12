@@ -348,6 +348,52 @@ aside.fixed.right-0 {
 }
 .badge-pop { animation: badgePop 320ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 
+/* An alarm going off.
+ *
+ * Nothing else in this app animates for ever, and this one does -- on
+ * purpose, and it is the reason a reminder cannot be mistaken for a
+ * message. A message ANNOUNCES itself and then sits still, because it can
+ * wait. An alarm is still ringing until somebody deals with it, so the
+ * screen keeps breathing until they do.
+ *
+ * Slow and wide rather than fast and small: a two-second swell reads as a
+ * pulse, and anything quicker reads as a fault. Only `transform` and
+ * `opacity`, so a full-screen element costs the compositor nothing.
+ */
+@keyframes alarmPulse {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50%      { transform: scale(1.06); opacity: 1; }
+}
+.alarm-pulse { animation: alarmPulse 2s ease-in-out infinite; }
+
+@keyframes alarmSweep {
+  0%, 100% { transform: rotate(-9deg); }
+  50%      { transform: rotate(9deg); }
+}
+.alarm-sweep {
+  animation: alarmSweep 1.6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* The takeover arriving. Bigger and slower than `popIn`: the whole screen
+   is changing, and a viewport-sized element that snaps in 160ms is a
+   flash rather than an entrance. */
+@keyframes alarmIn {
+  from { opacity: 0; transform: scale(1.04); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.alarm-in { animation: alarmIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Somebody who has asked for less movement gets none of it. The colour
+   and the words carry the whole message without the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .alarm-pulse,
+  .alarm-sweep,
+  .alarm-in {
+    animation: none;
+  }
+}
+
 @keyframes splashOut {
   to { opacity: 0; transform: scale(1.06); visibility: hidden; }
 }

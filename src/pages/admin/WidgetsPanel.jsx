@@ -40,6 +40,7 @@ import { blankChoice, choiceProblem } from '../../lib/columnChoices'
 import { newClearRule, ruleProblem } from '../../lib/clearRules'
 import { FILL_LIMIT, fillColumnsOf } from '../../lib/fillDown'
 import { REQUIRED_COLUMNS, requiredColumnsOf } from '../../lib/requiredColumns'
+import { MEDIA_COLUMNS, mediaColumnsOf } from '../../lib/media'
 import { holdsState } from '../../lib/buttonActions'
 import {
   MAX_ROWS_PER_OP,
@@ -3021,8 +3022,8 @@ function TableEditor({ widget, cols, set }) {
           {
             key: 'files',
             label: 'Files',
-            badge: Boolean(widget.downloadButtons),
-            hint: 'Download buttons for link columns',
+            badge: (widget.downloadButtons ? 1 : 0) + mediaColumnsOf(widget).length,
+            hint: 'Showing and downloading what is behind a link column',
           },
           {
             key: 'pills',
@@ -3414,6 +3415,47 @@ function TableEditor({ widget, cols, set }) {
             </p>
           </div>
         )}
+
+        {/* Showing a file and downloading one are two different things to
+            want from the same link, so they are two lists rather than one
+            switch: the damage photo is looked at and never downloaded,
+            the signed invoice is downloaded and rarely looked at, and
+            plenty of columns are both. */}
+        <div className="mt-3 border-t border-slate-200 pt-3">
+          <p className="mb-1 text-[11px] font-medium text-slate-500">
+            Show these columns as the file itself{' '}
+            <span className="font-normal text-slate-400">(photos, PDFs, Drive links…)</span>
+          </p>
+          <div className="grid max-h-32 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-slate-100 bg-white p-2 md:grid-cols-3">
+            {cols.map((col) => {
+              const on = mediaColumnsOf(widget).includes(col)
+              return (
+                <label key={col} className="flex items-center gap-1.5 text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => {
+                      const current = mediaColumnsOf(widget)
+                      set({
+                        [MEDIA_COLUMNS]: on ? current.filter((c) => c !== col) : [...current, col],
+                      })
+                    }}
+                  />
+                  <span className="truncate" title={col}>
+                    {col}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+          <p className="mt-1 text-[10px] leading-snug text-slate-400">
+            The cell shows a thumbnail instead of the link, and clicking it opens the file over the page — a photo,
+            a PDF, a video, or Google Drive&rsquo;s own preview for anything held there. In card view the same files
+            are drawn large on the card. The kind is worked out from each link, so one column can hold a photo on
+            one row and a PDF on the next.
+          </p>
+        </div>
+
       </div>
 
       )}

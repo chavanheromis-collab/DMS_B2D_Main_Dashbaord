@@ -4,6 +4,7 @@ import Sidebar, { SIDEBAR_RAIL, SIDEBAR_WIDTH } from './Sidebar.jsx'
 import { useLocalState } from '../hooks/usePageData'
 import { CLOSE_DELAY, EDGE, OPEN_DELAY, canPeek, contentOffset } from '../lib/sidebarPeek'
 import MessageCenter from './MessageCenter.jsx'
+import ReminderCenter from './ReminderCenter.jsx'
 
 /**
  * The frame every signed-in screen sits in: sidebar on the left, content on
@@ -152,6 +153,10 @@ export default function AppShell({
             admin panel, and the bell has to be reachable from everywhere. */}
         <main className="app-content">
           <MessageCenter />
+          {/* Beside the messages and for the same reason: a reminder set
+              on one page has to go off on whichever page its owner is
+              looking at when the time comes, the admin panel included. */}
+          <ReminderCenter />
           {children}
         </main>
       </div>

@@ -364,8 +364,8 @@ test('nothing is raised without permission, checked at the moment', () => {
 })
 
 test('the tab title is put back when the centre goes', () => {
-  assert.ok(centre.includes('document.title = titleWithBadge(unread)'))
-  assert.ok(centre.includes('document.title = titleWithBadge(0)'))
+  assert.ok(centre.includes('setTitlePart({ unread })'))
+  assert.ok(centre.includes('setTitlePart({ unread: 0 })'))
 })
 
 // ---------------------------------------------------------------------

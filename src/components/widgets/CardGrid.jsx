@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Maximize2, X } from 'lucide-react'
 
+import { mediaOf, tileSize } from '../../lib/media.js'
+import { MediaStrip } from '../MediaViewer.jsx'
+
 import {
   cardLines,
   cardMinHeight,
@@ -42,6 +45,8 @@ export default function CardGrid({
   rows,
   columns,
   badgeCols = [],
+  mediaCols = [],
+  onViewMedia,
   selectable = false,
   selection = [],
   onTick,
@@ -79,6 +84,11 @@ export default function CardGrid({
           const ticked = selection.includes(row._row)
           const heading = String(row[spec.title] ?? '').trim()
           const sub = spec.subtitle ? String(row[spec.subtitle] ?? '').trim() : ''
+          // Drawn, not listed. A card is a thing you look at rather than
+          // read, and a row of thumbnails is the most card-like content
+          // there is -- the photo of the damage IS the record, in a way
+          // its file name never is.
+          const files = mediaOf(row, mediaCols)
 
           return (
             <article
@@ -134,6 +144,16 @@ export default function CardGrid({
                   />
                 </div>
 
+                {files.length > 0 && (
+                  <MediaStrip
+                    items={files}
+                    size={tileSize(files.length)}
+                    max={5}
+                    showName={files.length > 1}
+                    onOpen={(item) => onViewMedia?.(row, item)}
+                  />
+                )}
+
                 <dl className="min-w-0 space-y-1.5">
                   {lines.map(({ column, value }) => (
                     <div key={column} className="flex min-w-0 items-baseline gap-2">
@@ -180,6 +200,8 @@ export default function CardGrid({
           row={zoomRow}
           widget={widget}
           spec={spec}
+          files={mediaOf(zoomRow, mediaCols)}
+          onViewMedia={onViewMedia}
           // The colour of the card that was clicked, found again by its
           // place in what is on screen -- so the zoom is visibly the same
           // object rather than a white panel that appeared from nowhere.
@@ -201,7 +223,7 @@ export default function CardGrid({
  * body scrolls and the heading does not, so a record with thirty fields
  * can be read without losing track of whose it is.
  */
-function CardZoom({ row, widget, spec, tone, badgeCols, onOpenDetail, onClose }) {
+function CardZoom({ row, widget, spec, tone, badgeCols, files = [], onViewMedia, onOpenDetail, onClose }) {
   useEffect(() => {
     function onKey(e) {
       if (e.key === 'Escape') onClose()
@@ -213,6 +235,8 @@ function CardZoom({ row, widget, spec, tone, badgeCols, onOpenDetail, onClose })
   const lines = zoomLines(row, spec.all)
   const heading = String(row[spec.title] ?? '').trim()
   const sub = spec.subtitle ? String(row[spec.subtitle] ?? '').trim() : ''
+  // Bigger here than on the card: there is room, and this is the screen
+  // somebody opened BECAUSE they wanted a proper look.
 
   // Sized by how much there is to show -- see `zoomSize`. Height needs no
   // rule: the panel hugs its content and stops at the viewport.
@@ -261,6 +285,20 @@ function CardZoom({ row, widget, spec, tone, badgeCols, onOpenDetail, onClose })
             <X size={16} />
           </button>
         </div>
+
+        {/* The files, above the fields and drawn large. Somebody who
+            opened a record to look at the photo should not have to read
+            past eleven rows of text to reach it -- and at this size a
+            scanned page is legible enough to answer the question without
+            opening it at all. */}
+        {files.length > 0 && (
+          <div
+            className="flex shrink-0 flex-wrap gap-2 border-b px-4 py-3"
+            style={{ borderColor: tone.border }}
+          >
+            <MediaStrip items={files} size={96} max={6} showName={files.length > 1} onOpen={(item) => onViewMedia?.(row, item)} />
+          </div>
+        )}
 
         {/* One column while a record still fits, two once it would
             otherwise scroll -- side by side is harder to read down, and it

@@ -218,12 +218,26 @@ function nameFromShapeEvent(entry) {
  * the leading category always fills the row. Sharing a total would make every
  * bar a sliver as soon as there were more than a handful of categories, which
  * is exactly when this chart is most useful.
+ *
+ * `height` is the admin's "Height (px)", and it is a DEFINITE height rather
+ * than a maximum -- the same thing the number means on every other style in
+ * this picker. A list is the one shape where that is tempting to soften into
+ * "grow until you reach it", and softening it is what made the setting look
+ * broken: with fewer rows than the box, typing a bigger number changed
+ * nothing on screen. Twenty rows scroll inside it; three sit in it with room
+ * to spare, exactly as three bars do.
+ *
+ * `null` means the card is deciding -- it was dragged to a size on the canvas
+ * or given one in pixels, so the list fills what it was given (`fillHeight`).
  */
-function ProgressList({ data, fmt, activeName, onDrill, colorFor, showLabels }) {
+function ProgressList({ data, fmt, activeName, onDrill, colorFor, showLabels, height = null }) {
   const max = Math.max(...data.map((d) => d.value), 0) || 1
 
   return (
-    <div className="flex-1 space-y-1.5 overflow-y-auto pr-1">
+    <div
+      className={`space-y-1.5 overflow-y-auto pr-1 ${height ? '' : 'min-h-0 flex-1'}`}
+      style={height ? { height } : undefined}
+    >
       {data.map((entry, i) => {
         const dimmed = activeName && activeName !== entry.name
         return (
@@ -1151,6 +1165,11 @@ export default function ChartWidget({
           onDrill={drill}
           colorFor={colorFor}
           showLabels={widget.showLabels !== false}
+          // The same two-way answer every other style gets: the card's
+          // size when the card has one, and otherwise the number the
+          // admin typed. This branch took neither, which is why the
+          // height box did nothing at all for a progress list.
+          height={fillHeight ? null : height}
         />
       ) : (
         <div

@@ -31,8 +31,8 @@ import {
   pendingNotifications,
   permissionState,
   raise,
+  setTitlePart,
   shouldOfferNotifications,
-  titleWithBadge,
 } from '../lib/notify'
 
 // =====================================================================
@@ -246,11 +246,14 @@ export default function MessageCenter() {
 
   // The count in the tab title. No permission, survives a denied prompt, and
   // it is what somebody actually sees glancing along a row of tabs.
+  //
+  // Contributed rather than assigned: a reminder going off writes to the
+  // same one string, and two effects each setting `document.title` means
+  // whichever rendered last wins and the other's mark disappears at
+  // random. Each writer owns its own part; notify.js composes them.
   useEffect(() => {
-    document.title = titleWithBadge(unread)
-    return () => {
-      document.title = titleWithBadge(0)
-    }
+    setTitlePart({ unread })
+    return () => setTitlePart({ unread: 0 })
   }, [unread])
 
   if (!uid || !mayReceive) return null

@@ -834,7 +834,11 @@ test('the bell and the tab title show one number, from one place', () => {
   // Two counts of "how many" that can disagree is somebody seeing 3 in the
   // tab and 1 on the bell.
   assert.ok(centre.includes('const unread = useMemo(() => pendingCount(messages, uid), [messages, uid])'))
-  assert.ok(centre.includes('document.title = titleWithBadge(unread)'))
+  // Contributed to the title rather than assigning it: reminders write to
+  // the same one string, and two effects each setting document.title
+  // means whichever rendered last wins.
+  assert.ok(centre.includes('setTitlePart({ unread })'))
+  assert.equal(centre.includes('document.title ='), false, 'two owners of one string')
   // With the condition. The label survives the branch around it being
   // wired to `false`, and then no badge is drawn at all.
   assert.ok(centre.includes('{unread > 0 && ('), 'the badge must actually be drawn')

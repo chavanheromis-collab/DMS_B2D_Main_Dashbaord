@@ -84,7 +84,11 @@ test('and re-read when the rows change, which is the only moment that matters', 
   // memo: the lookup is right, runs once, and never runs again -- so the
   // form is live until the first save and frozen from then on.
   const memos = TABLE.match(/useMemo\(\s*\(\) =>[\s\S]*?liveRow\(rows[\s\S]*?\]\s*\)/g) || []
-  assert.equal(memos.length, 3, 'the detail form, the downloads menu and the remarks popover')
+  assert.equal(
+    memos.length,
+    4,
+    'the detail form, the downloads menu, the remarks popover and the file viewer'
+  )
   for (const memo of memos) {
     const deps = memo.slice(memo.lastIndexOf('['))
     assert.match(deps, /\brows\b/, 'a lookup that never re-runs is a snapshot again: ' + memo)

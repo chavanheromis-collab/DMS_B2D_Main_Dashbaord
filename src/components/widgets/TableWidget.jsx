@@ -36,6 +36,8 @@ import {
   rowLimitOf,
 } from '../../lib/rowOps.js'
 import { fetchDownloadMeta, getDownloadActions, triggerDownload } from '../../lib/downloadActions.js'
+import { mediaColumnsOf, mediaOf } from '../../lib/media.js'
+import MediaViewer, { MediaStrip } from '../MediaViewer.jsx'
 import RowDetailPanel from '../RowDetailPanel.jsx'
 import ColumnFilterMenu from '../ColumnFilterMenu.jsx'
 import { activeFilterColumns, applyColumnFilters, columnIsFiltered } from '../../lib/columnFilters'
@@ -236,6 +238,12 @@ export default function TableWidget({
   const [openDetail, setOpenDetail] = useState(null)
   const [savedOrder, setSavedOrder] = useState(false)
   const [openDownloads, setOpenDownloads] = useState(null)
+  // { row, index } -- which record's files are open, and which of them is
+  // on screen. The ROW rather than the one file that was clicked, so the
+  // arrows page through everything attached to that record: three photos
+  // of the same damage are looked at as three photos, not by closing and
+  // reopening twice.
+  const [viewing, setViewing] = useState(null)
   const [downloadSizes, setDownloadSizes] = useState({})
   // Spreadsheet-style per-column filters: { [column]: { exclude, text } }.
   const [colFilters, setColFilters] = useState({})
@@ -297,6 +305,12 @@ export default function TableWidget({
   }, [order, adminColumns])
 
   const badgeCols = widget.badgeColumns || []
+  // Columns the admin said hold files. Marked rather than sniffed: a
+  // dashboard that turned every column of URLs into thumbnails the day
+  // this shipped would have redesigned itself.
+  const mediaCols = useMemo(() => mediaColumnsOf(widget), [widget])
+  const viewingRow = useMemo(() => liveRow(rows, viewing?.row), [rows, viewing])
+  const viewingItems = useMemo(() => mediaOf(viewingRow, mediaCols), [viewingRow, mediaCols])
 
   // --- whole-row actions ------------------------------------------------
   // Three separate people have to agree before a button exists: the admin
@@ -944,6 +958,15 @@ export default function TableWidget({
               Above also means it pushes the grid down rather than covering
               it, so the last row is never hidden behind the thing that is
               about to delete it. */}
+          {viewing && viewingItems.length > 0 && (
+            <MediaViewer
+              items={viewingItems}
+              index={Math.min(viewing.index, viewingItems.length - 1)}
+              onIndex={(index) => setViewing((v) => ({ ...v, index }))}
+              onClose={() => setViewing(null)}
+            />
+          )}
+
           {selectable && (
             <RowActionsBar
               rows={chosenRows}
@@ -995,6 +1018,17 @@ export default function TableWidget({
                 rows={pageRows}
                 columns={columns}
                 badgeCols={badgeCols}
+                mediaCols={mediaCols}
+                // The same viewer the table opens, from the same state:
+                // one record's files are one set of files however they
+                // were reached.
+                onViewMedia={(row, item) => {
+                  const all = mediaOf(row, mediaCols)
+                  setViewing({
+                    row,
+                    index: Math.max(0, all.findIndex((m) => m.url === item.url && m.column === item.column)),
+                  })
+                }}
                 selectable={selectable}
                 selection={selection}
                 onTick={tickRow}
@@ -1192,6 +1226,10 @@ export default function TableWidget({
                       // anything, which is worse than no control.
                       const choices = editable ? columnChoices[col] : null
                       const asBadge = badgeCols.includes(col) && String(value ?? '').trim() !== ''
+                      // What is in this one cell, which can be several
+                      // files: a sheet holds two photos of one thing in
+                      // one cell the moment somebody has two.
+                      const files = mediaCols.includes(col) ? mediaOf(row, [col]) : []
 
                       const fillable = canDragFill(col)
                       // Only the column being dragged lights up. The span
@@ -1271,6 +1309,24 @@ export default function TableWidget({
                             >
                               {value}
                             </span>
+                          ) : files.length > 0 ? (
+                            /* The file, not its address. A 90-character
+                               Drive link tells nobody whether it is the
+                               right invoice; the first page of it does. */
+                            <MediaStrip
+                              items={files}
+                              size={28}
+                              onOpen={(item) => {
+                                const all = mediaOf(row, mediaCols)
+                                setViewing({
+                                  row,
+                                  index: Math.max(
+                                    0,
+                                    all.findIndex((m) => m.url === item.url && m.column === item.column)
+                                  ),
+                                })
+                              }}
+                            />
                           ) : (
                             value || (editable ? <span className="text-slate-300">—</span> : '')
                           )}

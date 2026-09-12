@@ -194,6 +194,37 @@ test('a widget on the canvas fills the height it was given', () => {
   )
 })
 
+test('every chart style answers the height box, including the ones recharts does not draw', () => {
+  // The bug: "Height (px)" did nothing at all for a progress list. Every
+  // branch of the chart render consumes the number -- the pie panel, the
+  // circles, the scrolling axis, the plain ResponsiveContainer -- except
+  // that one, which was laid out purely with `flex-1` and so took its
+  // height from however many rows it happened to have.
+  //
+  // Pinned as a slice of the branch rather than as "the file mentions
+  // height somewhere", because the file mentions height constantly and
+  // this is precisely about the one place that did not.
+  const chart = read('components/widgets/ChartWidget.jsx')
+  const at = chart.indexOf("type === 'progress' ? (")
+  assert.ok(at >= 0, 'the progress style is gone')
+  const branch = chart.slice(at, chart.indexOf('/>', at))
+  assert.ok(branch.includes('height={fillHeight ? null : height}'), 'the progress list ignores the height box')
+
+  // ...and applies it. A prop taken and dropped is the same bug one file
+  // further in.
+  const from = chart.indexOf('function ProgressList(')
+  const list = chart.slice(from, chart.indexOf('\nfunction ', from + 1))
+  assert.ok(list.includes('showLabels, height = null }'), 'the list does not take a height')
+  assert.ok(list.includes('style={height ? { height } : undefined}'), 'the list does not apply it')
+  // A DEFINITE height, not a maximum: with fewer rows than the box, a
+  // maximum means typing a bigger number changes nothing on screen, which
+  // is the complaint this fixes.
+  assert.equal(list.includes('maxHeight'), false, 'the height softened back into a maximum')
+  // And when the CARD has a size -- dragged on the canvas, or typed in
+  // pixels -- the list fills it instead, like everything else.
+  assert.ok(list.includes("${height ? '' : 'min-h-0 flex-1'}"), 'a placed card no longer fills')
+})
+
 test('the preview has a definite height, or a chart in it has none at all', () => {
   // `height: 100%` of an auto-height box is zero. On the canvas every
   // widget is drawn at a definite height -- a phone stacks them at their
