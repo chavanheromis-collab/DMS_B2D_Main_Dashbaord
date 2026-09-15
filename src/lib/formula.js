@@ -155,6 +155,18 @@ export function parseFormula(text) {
     if (t.type === 'op' && t.value === '(') {
       pos += 1
       const inner = parseBinary(0)
+      // ("2 FOLL", "3 FOLL") -- a list, which is how people write "any of
+      // these" without being taught to. Before lists existed a comma here
+      // was an error, so no formula that already worked changes meaning.
+      if (peek() && peek().type === 'op' && peek().value === ',') {
+        const items = [inner]
+        while (peek() && peek().type === 'op' && peek().value === ',') {
+          pos += 1
+          items.push(parseBinary(0))
+        }
+        expect(')')
+        return { kind: 'list', items }
+      }
       expect(')')
       return inner
     }
@@ -239,11 +251,24 @@ function describeArity([min, max]) {
 // ---------------------------------------------------------------------
 // Values
 // ---------------------------------------------------------------------
-const num = (v) => (typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : toNumber(v))
-const text = (v) => (v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : String(v))
+// A list means something where "any of these" does -- CONTAINS, IN, = --
+// and anywhere else it reads as its items joined, never as "a,b" or NaN.
+const num = (v) =>
+  Array.isArray(v) ? null : typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : toNumber(v)
+const text = (v) =>
+  Array.isArray(v)
+    ? v.map((x) => text(x)).join(', ')
+    : v === null || v === undefined
+      ? ''
+      : typeof v === 'boolean'
+        ? v
+          ? 'TRUE'
+          : 'FALSE'
+        : String(v)
 // Exported so a formula CONDITION means true exactly as IF() does -- one
 // definition of truth for the language, not a second one that drifts.
 export const truthy = (v) => {
+  if (Array.isArray(v)) return v.some(truthy)
   if (typeof v === 'boolean') return v
   if (v === null || v === undefined || v === '') return false
   const n = toNumber(v)
@@ -252,6 +277,32 @@ export const truthy = (v) => {
 }
 
 const MS_PER_DAY = 86400000
+
+/** Values with any ("list") among them opened up into its items. */
+const spread = (values) => values.flatMap((v) => (Array.isArray(v) ? v : [v]))
+
+/**
+ * A LIKE pattern as a regular expression, built once per pattern.
+ *
+ * `*` and `?` are the only special characters -- the two everybody already
+ * knows from searching for files. Everything else is itself, so "A.B" does
+ * not quietly mean "A, anything, B".
+ */
+const likeCache = new Map()
+function likePattern(pattern) {
+  const key = String(pattern ?? '').trim()
+  let re = likeCache.get(key)
+  if (!re) {
+    const body = key
+      .split('')
+      .map((ch) => (ch === '*' ? '.*' : ch === '?' ? '.' : ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+      .join('')
+    re = new RegExp(`^${body}$`, 'is')
+    if (likeCache.size >= 500) likeCache.clear()
+    likeCache.set(key, re)
+  }
+  return re
+}
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
 
 /**
@@ -261,7 +312,19 @@ const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
  * trimmed, case-insensitive text -- because `[Status] = "delivered"` failing
  * on "Delivered" is not a subtlety anybody wants to debug.
  */
+// "15/09/2026" is a date, not the number 15092026. Numbers used to be tried
+// first, and a number is what a slashed date becomes once its slashes are
+// stripped -- so 02/10/2025 came out LATER than 01/09/2026. Anything shaped
+// like a date is now compared as one before anything else is tried.
+const DATE_SHAPE = /^\s*(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}|\d{1,2}[-\s][A-Za-z]{3,}|[A-Za-z]{3,}\s+\d{1,2},?\s+\d{2,4})/
+
 function compare(a, b, dateOrder) {
+  const datey = (v) => v instanceof Date || (typeof v === 'string' && DATE_SHAPE.test(v))
+  if (datey(a) || datey(b)) {
+    const ta = a instanceof Date ? a : toDate(a, dateOrder)
+    const tb = b instanceof Date ? b : toDate(b, dateOrder)
+    if (ta && tb) return ta.getTime() === tb.getTime() ? 0 : ta < tb ? -1 : 1
+  }
   const na = num(a)
   const nb = num(b)
   if (na !== null && nb !== null) return na === nb ? 0 : na < nb ? -1 : 1
@@ -273,6 +336,26 @@ function compare(a, b, dateOrder) {
   const sa = text(a).trim().toLowerCase()
   const sb = text(b).trim().toLowerCase()
   return sa === sb ? 0 : sa < sb ? -1 : 1
+}
+
+/** What one comparison operator says about `compare`'s answer. */
+function compareOp(op, c) {
+  switch (op) {
+    case '=':
+    case '==':
+      return c === 0
+    case '<>':
+    case '!=':
+      return c !== 0
+    case '<':
+      return c < 0
+    case '<=':
+      return c <= 0
+    case '>':
+      return c > 0
+    default:
+      return c >= 0
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -289,6 +372,22 @@ export const FUNCTIONS = {
   ISBLANK: { arity: [1, 1], group: 'Logic', hint: 'ISBLANK([Column])' },
   ISNUMBER: { arity: [1, 1], group: 'Logic', hint: 'ISNUMBER([Column])' },
   COALESCE: { arity: [1, Infinity], group: 'Logic', hint: 'COALESCE(a, b, …) — the first one that is filled' },
+  // The short way to say the long thing. Each of these replaces a stack of
+  // IF, OR, NOT and the same column typed four times, which nobody could
+  // read back a week later.
+  WHEN: {
+    arity: [2, 2],
+    group: 'Logic',
+    hint: 'WHEN(test, rule) — the rule applies only where the test holds; every other row passes',
+  },
+  IN: { arity: [2, Infinity], group: 'Logic', hint: 'IN([Column], "a", "b", …) — equals any of them' },
+  NOTIN: { arity: [2, Infinity], group: 'Logic', hint: 'NOTIN([Column], "a", "b", …) — equals none of them' },
+  BETWEEN: {
+    arity: [3, 3],
+    group: 'Logic',
+    hint: 'BETWEEN(value, low, high) — from low to high, both included; numbers or dates',
+  },
+  ISFILLED: { arity: [1, Infinity], group: 'Logic', hint: 'ISFILLED([Column], …) — has something in it (every one, if several)' },
 
   // --- numbers
   ROUND: { arity: [1, 2], group: 'Numbers', hint: 'ROUND(value, decimals)' },
@@ -308,11 +407,16 @@ export const FUNCTIONS = {
   LEN: { arity: [1, 1], group: 'Text', hint: 'LEN(text)' },
   LEFT: { arity: [2, 2], group: 'Text', hint: 'LEFT(text, n)' },
   RIGHT: { arity: [2, 2], group: 'Text', hint: 'RIGHT(text, n)' },
-  CONTAINS: { arity: [2, 2], group: 'Text', hint: 'CONTAINS(text, "part")' },
-  STARTSWITH: { arity: [2, 2], group: 'Text', hint: 'STARTSWITH(text, "part")' },
-  ENDSWITH: { arity: [2, 2], group: 'Text', hint: 'ENDSWITH(text, "part")' },
+  // Any number of parts, or a ("list", "of", "parts"). One match is enough,
+  // except where the name says otherwise.
+  CONTAINS: { arity: [2, Infinity], group: 'Text', hint: 'CONTAINS(text, "part", …) — any of them' },
+  NOTCONTAINS: { arity: [2, Infinity], group: 'Text', hint: 'NOTCONTAINS(text, "part", …) — none of them' },
+  CONTAINSALL: { arity: [2, Infinity], group: 'Text', hint: 'CONTAINSALL(text, "part", …) — every one of them' },
+  STARTSWITH: { arity: [2, Infinity], group: 'Text', hint: 'STARTSWITH(text, "part", …) — any of them' },
+  ENDSWITH: { arity: [2, Infinity], group: 'Text', hint: 'ENDSWITH(text, "part", …) — any of them' },
   REPLACE: { arity: [3, 3], group: 'Text', hint: 'REPLACE(text, find, with)' },
   SPLITPART: { arity: [3, 3], group: 'Text', hint: 'SPLITPART(text, "/", 2)' },
+  LIKE: { arity: [2, Infinity], group: 'Text', hint: 'LIKE(text, "KA*", …) — * is any run of characters, ? is one' },
 
   // --- dates
   TODAY: { arity: [0, 0], group: 'Dates', hint: 'TODAY()' },
@@ -324,6 +428,15 @@ export const FUNCTIONS = {
   MONTHNAME: { arity: [1, 1], group: 'Dates', hint: 'MONTHNAME([Date])' },
   WEEKDAY: { arity: [1, 1], group: 'Dates', hint: 'WEEKDAY([Date]) — Monday first' },
   ADDDAYS: { arity: [2, 2], group: 'Dates', hint: 'ADDDAYS([Date], n)' },
+  // The questions people actually ask of a date, as words rather than as
+  // arithmetic on DAYSSINCE that has to be got the right way round.
+  ISTODAY: { arity: [1, 1], group: 'Dates', hint: 'ISTODAY([Date])' },
+  INLASTDAYS: { arity: [2, 2], group: 'Dates', hint: 'INLASTDAYS([Date], 7) — today or up to 7 days ago' },
+  INNEXTDAYS: { arity: [2, 2], group: 'Dates', hint: 'INNEXTDAYS([Date], 7) — today or up to 7 days ahead' },
+  OLDERTHAN: { arity: [2, 2], group: 'Dates', hint: 'OLDERTHAN([Date], 30) — more than 30 days ago' },
+  THISWEEK: { arity: [1, 1], group: 'Dates', hint: 'THISWEEK([Date]) — Monday to Sunday' },
+  THISMONTH: { arity: [1, 1], group: 'Dates', hint: 'THISMONTH([Date])' },
+  THISYEAR: { arity: [1, 1], group: 'Dates', hint: 'THISYEAR([Date])' },
 
   // --- the whole table
   TOTAL: { arity: [1, 1], agg: true, group: 'Whole table', hint: 'TOTAL([Column]) — summed over every row' },
@@ -360,7 +473,7 @@ export function formulaColumns(ast, into = new Set()) {
   if (!ast || typeof ast !== 'object') return into
   if (ast.kind === 'column') into.add(ast.name)
   for (const key of ['arg', 'left', 'right']) if (ast[key]) formulaColumns(ast[key], into)
-  for (const arg of ast.args || []) formulaColumns(arg, into)
+  for (const arg of [...(ast.args || []), ...(ast.items || [])]) formulaColumns(arg, into)
   return into
 }
 
@@ -381,7 +494,7 @@ export function aggregateKeys(ast, into = []) {
     }
   }
   for (const key of ['arg', 'left', 'right']) if (ast[key]) aggregateKeys(ast[key], into)
-  for (const arg of ast.args || []) aggregateKeys(arg, into)
+  for (const arg of [...(ast.args || []), ...(ast.items || [])]) aggregateKeys(arg, into)
   return into
 }
 
@@ -425,6 +538,9 @@ export function evaluateFormula(ast, row, ctx = {}) {
       case 'call':
         return call(node)
 
+      case 'list':
+        return node.items.map(walk)
+
       default:
         return null
     }
@@ -442,6 +558,15 @@ export function evaluateFormula(ast, row, ctx = {}) {
     if (op === '&') return text(a) + text(b)
 
     if (['=', '==', '<>', '!=', '<', '<=', '>', '>='].includes(op)) {
+      // [Source] = ("WALK-IN", "REFERRAL") is "any of these", and <> is
+      // "none of them" -- the two readings nobody has to be told.
+      if (Array.isArray(a) || Array.isArray(b)) {
+        const lefts = spread([a])
+        const rights = spread([b])
+        const holds = (x, y) => compareOp(op, compare(x, y, dateOrder))
+        if (op === '<>' || op === '!=') return lefts.every((x) => rights.every((y) => holds(x, y)))
+        return lefts.some((x) => rights.some((y) => holds(x, y)))
+      }
       const c = compare(a, b, dateOrder)
       switch (op) {
         case '=':
@@ -530,6 +655,28 @@ export function evaluateFormula(ast, row, ctx = {}) {
         }
         return null
       }
+      case 'WHEN':
+        // Only the rows the test is about are held to the rule.
+        return truthy(v(0)) ? truthy(v(1)) : true
+      case 'IN':
+      case 'NOTIN': {
+        const values = spread([v(0)])
+        const options = spread(A.slice(1).map(walk))
+        const hit = values.some((x) => options.some((o) => compare(x, o, dateOrder) === 0))
+        return node.name === 'IN' ? hit : !hit
+      }
+      case 'BETWEEN': {
+        // Both ends included, and either way round -- "between 10 and 5" is
+        // still a range, and refusing it helps nobody.
+        const x = v(0)
+        if (isBlank(x)) return false
+        const low = v(1)
+        const high = v(2)
+        const [from, to] = compare(low, high, dateOrder) <= 0 ? [low, high] : [high, low]
+        return compare(x, from, dateOrder) >= 0 && compare(x, to, dateOrder) <= 0
+      }
+      case 'ISFILLED':
+        return A.every((a) => !isBlank(walk(a)))
 
       // --- numbers
       case 'ROUND': {
@@ -581,17 +728,28 @@ export function evaluateFormula(ast, row, ctx = {}) {
         return count === 0 ? '' : s(0).slice(-count)
       }
       case 'CONTAINS':
-        return s(0).toLowerCase().includes(s(1).toLowerCase())
+      case 'NOTCONTAINS':
+      case 'CONTAINSALL':
       case 'STARTSWITH':
-        return s(0).toLowerCase().startsWith(s(1).toLowerCase())
-      case 'ENDSWITH':
-        return s(0).toLowerCase().endsWith(s(1).toLowerCase())
+      case 'ENDSWITH': {
+        const hay = s(0).toLowerCase()
+        const parts = spread(A.slice(1).map(walk)).map((p) => text(p).toLowerCase())
+        const found = (p) =>
+          node.name === 'STARTSWITH' ? hay.startsWith(p) : node.name === 'ENDSWITH' ? hay.endsWith(p) : hay.includes(p)
+        if (node.name === 'CONTAINSALL') return parts.every(found)
+        if (node.name === 'NOTCONTAINS') return !parts.some(found)
+        return parts.some(found)
+      }
       case 'REPLACE':
         return s(0).split(s(1)).join(s(2))
       case 'SPLITPART': {
         const parts = s(0).split(s(1))
         const index = Math.trunc(n(2) ?? 1)
         return parts[index - 1] ?? ''
+      }
+      case 'LIKE': {
+        const hay = s(0).trim()
+        return spread(A.slice(1).map(walk)).some((p) => likePattern(text(p)).test(hay))
       }
 
       // --- dates
@@ -620,6 +778,37 @@ export function evaluateFormula(ast, row, ctx = {}) {
         const date = d(0)
         const days = n(1)
         return date && days !== null ? new Date(date.getTime() + days * MS_PER_DAY) : null
+      }
+      // A blank or unreadable date answers NO to every one of these: a lead
+      // with no follow-up date is not "in the next seven days".
+      case 'ISTODAY': {
+        const date = d(0)
+        return Boolean(date) && startOfDay(date).getTime() === startOfDay(today).getTime()
+      }
+      case 'INLASTDAYS':
+      case 'INNEXTDAYS':
+      case 'OLDERTHAN': {
+        const date = d(0)
+        const days = n(1)
+        if (!date || days === null) return false
+        const age = Math.round((startOfDay(today) - startOfDay(date)) / MS_PER_DAY)
+        if (node.name === 'OLDERTHAN') return age > days
+        if (node.name === 'INLASTDAYS') return age >= 0 && age <= days
+        return age <= 0 && -age <= days
+      }
+      case 'THISWEEK': {
+        const date = d(0)
+        if (!date) return false
+        const monday = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate() - ((x.getDay() + 6) % 7)).getTime()
+        return monday(date) === monday(today)
+      }
+      case 'THISMONTH': {
+        const date = d(0)
+        return Boolean(date) && date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth()
+      }
+      case 'THISYEAR': {
+        const date = d(0)
+        return Boolean(date) && date.getFullYear() === today.getFullYear()
       }
 
       // --- the whole table

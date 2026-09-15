@@ -21,6 +21,8 @@ import { avatarSpec } from '../lib/avatar'
 import { PRESENCE_TICK_MS, groupPresence, groupPresenceText, presenceFor } from '../lib/presence'
 import { usePresenceBeats } from '../hooks/usePresence'
 import { useNow } from '../hooks/useReminders'
+import SharedRowCard from './SharedRowCard.jsx'
+import { isDefaultShareBody } from '../lib/rowShare'
 
 /**
  * The message centre, as a chat.
@@ -559,7 +561,13 @@ function Bubble({ entry, mine, run, name, onUnsend }) {
               {tone.label}
             </span>
           )}
-          <span className="whitespace-pre-wrap break-words">{entry.text}</span>
+          {/* A row that came with it, drawn as the record rather than as
+              text. The stand-in sentence under a card would only repeat its
+              heading, so it is left out when the sender wrote nothing. */}
+          {entry.row && <SharedRowCard row={entry.row} className="my-1 w-64 max-w-full" />}
+          {!(entry.row && isDefaultShareBody({ row: entry.row, body: entry.text })) && (
+            <span className="whitespace-pre-wrap break-words">{entry.text}</span>
+          )}
         </div>
         <p className={`mt-0.5 flex items-center gap-1 text-[9px] text-slate-300 ${mine ? 'justify-end' : ''}`}>
           <span title={entry.at}>{clockOf(entry.at)}</span>

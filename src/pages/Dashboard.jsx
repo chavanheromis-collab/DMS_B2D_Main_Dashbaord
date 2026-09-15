@@ -2490,6 +2490,9 @@ export default function Dashboard() {
                             // rows are. The widget is handed the finished
                             // lists rather than the whole workspace.
                             columnChoices={buildChoices(widget, rowsByLabel)}
+                            // What a row sent from this table says it came
+                            // from, and the page its recipient can open.
+                            shareFrom={{ pageId, pageName: page?.name }}
                           />
                         )}
 

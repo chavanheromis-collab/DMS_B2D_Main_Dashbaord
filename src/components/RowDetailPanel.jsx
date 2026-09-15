@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, Check, Copy, Eraser, MessageSquare, Save } from 'lucide-react'
+import { X, Check, Copy, Eraser, MessageSquare, Save, Send } from 'lucide-react'
 import { badgeStyle } from '../lib/dataUtils'
 import { isStrayValue, optionsForCell } from '../lib/columnChoices'
 import { useTypingBuffer } from '../hooks/useTypingBuffer'
@@ -114,6 +114,9 @@ export default function RowDetailPanel({
   // the panel has to be the same note the table's marker shows.
   onOpenNotes,
   noteCount = 0,
+  // Sending this record to somebody in a message -- absent unless the table
+  // offers it. See lib/rowShare.js.
+  onShare,
   // The whole form, saved in one go. Field-at-a-time meant six writes and
   // six page reloads to correct six fields, no way to change your mind
   // about the third, and a rule firing on a half-corrected row.
@@ -209,6 +212,16 @@ export default function RowDetailPanel({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {onShare && (
+              <button
+                onClick={onShare}
+                title="Send this row to someone in Messages"
+                aria-label="Send this row in a message"
+                className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium text-slate-400 hover:bg-white/70 hover:text-slate-700"
+              >
+                <Send size={13} />
+              </button>
+            )}
             {onOpenNotes && (
               <button
                 onClick={(e) => onOpenNotes(e.currentTarget.getBoundingClientRect())}

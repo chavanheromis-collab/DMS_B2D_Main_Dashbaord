@@ -22,6 +22,8 @@
 //
 // Pure: messages and a uid in, messages out. No Firestore, no React.
 
+import { cleanSharedRow } from './rowShare.js'
+
 export const AUDIENCES = [
   { value: 'people', label: 'Choose people' },
   { value: 'all', label: 'Everyone with an account' },
@@ -363,6 +365,10 @@ export function messageDoc(draft, sender) {
     readBy: [],
     dismissedBy: [],
     replies: [],
+    // A row sent from a table, when there is one -- cleaned here, on the
+    // one path every message is built by, so no caller can store a shape
+    // the card cannot draw. See lib/rowShare.js.
+    ...(cleanSharedRow(draft?.row) ? { row: cleanSharedRow(draft.row) } : {}),
   }
 }
 

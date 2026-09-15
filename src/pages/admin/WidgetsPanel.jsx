@@ -42,6 +42,7 @@ import { newClearRule, ruleProblem } from '../../lib/clearRules'
 import { FILL_LIMIT, fillColumnsOf } from '../../lib/fillDown'
 import { REQUIRED_COLUMNS, requiredColumnsOf } from '../../lib/requiredColumns'
 import { MEDIA_COLUMNS, mediaColumnsOf } from '../../lib/media'
+import { ROW_SHARE, SHARE_COLUMNS, SHARE_TITLE, shareColumnsOf, toggleShareColumn } from '../../lib/rowShare'
 import { holdsState } from '../../lib/buttonActions'
 import {
   MAX_ROWS_PER_OP,
@@ -2295,6 +2296,7 @@ function ClearEditor({ widget, set, cols }) {
                   // For a formula rule: what the guided editor suggests and
                   // checks names against.
                   columns={cols}
+                  valuesOf={(column) => valuesFor?.(widget.tab, column)}
                 />
               </div>
               <div className="ml-auto pb-1">
@@ -3079,6 +3081,12 @@ function TableEditor({ widget, cols, set }) {
             hint: 'A shared note on each row',
           },
           {
+            key: 'sharing',
+            label: 'Sharing',
+            badge: widget[ROW_SHARE] ? shareColumnsOf(widget).length : 0,
+            hint: 'Sending a row to somebody in Messages, and which columns go with it',
+          },
+          {
             key: 'choices',
             label: 'Dropdowns',
             badge: (widget.columnChoices || []).length,
@@ -3365,6 +3373,97 @@ function TableEditor({ widget, cols, set }) {
               it is saved, so a remark somebody has already acted on cannot quietly become a
               different sentence.
             </p>
+          </div>
+        )}
+      </div>
+      )}
+
+      {/* --- Sending a row in a message ------------------------------- */}
+      {part === 'sharing' && (
+      <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+        <Toggle
+          checked={widget[ROW_SHARE]}
+          onChange={(v) => set({ [ROW_SHARE]: v })}
+          label="Let people send a row to someone in Messages"
+        />
+        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+          A send button appears on each row, on each card and in the row panel. The reader picks who it goes
+          to and can add a note; it arrives in that person&rsquo;s chat as a card holding the columns below,
+          with the values as they were when it was sent.
+        </p>
+
+        {widget[ROW_SHARE] && (
+          <div className="mt-2 space-y-2">
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <p className="text-[11px] font-medium text-slate-500">
+                  Columns that go with a row{' '}
+                  <span className="font-normal text-slate-400">
+                    ({shareColumnsOf(widget).length} of {cols.length})
+                  </span>
+                </p>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => set({ [SHARE_COLUMNS]: [...cols] })}
+                    className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500 hover:bg-slate-50"
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => set({ [SHARE_COLUMNS]: [] })}
+                    className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500 hover:bg-slate-50"
+                  >
+                    None
+                  </button>
+                </div>
+              </div>
+              <div className="grid max-h-40 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-slate-100 bg-white p-2 md:grid-cols-3">
+                {cols.map((col) => {
+                  const on = shareColumnsOf(widget).includes(col)
+                  return (
+                    <label key={col} className="flex items-center gap-1.5 text-[11px]">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => set({ [SHARE_COLUMNS]: toggleShareColumn(widget, col, cols) })}
+                      />
+                      <span className="truncate" title={col}>
+                        {col}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            <Field
+              label="Card heading"
+              hint="The value a sent row is titled with. Only a column that is sent can head it."
+              className="max-w-xs"
+            >
+              <Select
+                value={shareColumnsOf(widget).includes(widget[SHARE_TITLE]) ? widget[SHARE_TITLE] : ''}
+                onChange={(v) => set({ [SHARE_TITLE]: v })}
+                options={shareColumnsOf(widget)}
+                placeholder="— the first sent column with a value —"
+              />
+            </Field>
+
+            {/* The two things an admin must know before this goes live,
+                where the decision is made. */}
+            {shareColumnsOf(widget).length === 0 ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-700">
+                <strong>Tick at least one column.</strong> Until you do, no send button appears.
+              </p>
+            ) : (
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] leading-snug text-rose-700">
+                <strong>Whoever receives a row sees these values in their messages</strong> — even if they
+                cannot open this page. Leave out anything they should not see: phone numbers, margins,
+                customer details. Columns you do not tick are never sent, not even as the heading.
+              </p>
+            )}
           </div>
         )}
       </div>

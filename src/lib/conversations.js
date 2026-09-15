@@ -29,6 +29,7 @@
 // Pure: messages in, conversations out.
 
 import { addressedTo, isRead, toneOf } from './messages.js'
+import { sharePreview } from './rowShare.js'
 
 /** The channel everybody is in. */
 export const ALL = 'all'
@@ -106,6 +107,9 @@ export function entriesOf(messages, uid, conversationId) {
       at: m.createdAt || '',
       tone: m.tone,
       isReply: false,
+      // Only when there is one, so a plain message's entry is exactly what
+      // it always was.
+      ...(m.row ? { row: m.row } : {}),
     })
 
     for (const [i, r] of (Array.isArray(m.replies) ? m.replies : []).entries()) {
@@ -155,7 +159,9 @@ export function conversationsFor(messages, uid, usersById = {}) {
     // The last thing said, wherever it was said -- the message itself, or a
     // reply somebody left on it an hour later.
     const said = [
-      { at: m.createdAt || '', text: m.body || '', from: m.from },
+      // A row says it is a row in the list, not only "Shared a row: …" or
+      // a note that reads as if it came with nothing.
+      { at: m.createdAt || '', text: m.row ? sharePreview(m) : m.body || '', from: m.from },
       ...(Array.isArray(m.replies) ? m.replies : []).map((r) => ({
         at: r.at || '',
         text: r.text || '',

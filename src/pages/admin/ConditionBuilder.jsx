@@ -32,7 +32,17 @@ import { useId } from 'react'
  * editor still guides the functions and simply does not check the names --
  * it must not call every column wrong because it was not told them.
  */
-export function OperatorValue({ operator, value, value2, onChange, className = 'w-44', choices = null, columns = null }) {
+export function OperatorValue({
+  operator,
+  value,
+  value2,
+  onChange,
+  className = 'w-44',
+  choices = null,
+  columns = null,
+  // (column) => that column's values, for the formula builder's pickers.
+  valuesOf = null,
+}) {
   const meta = operatorMeta(operator)
   const listId = useId()
   const list = Array.isArray(choices) && choices.length > 0 ? choices : null
@@ -51,6 +61,7 @@ export function OperatorValue({ operator, value, value2, onChange, className = '
           value={value}
           onChange={(v) => onChange({ value: v })}
           columns={columns || []}
+          valuesOf={valuesOf}
           className="basis-full"
         />
       ) : (
@@ -167,6 +178,9 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
                 // tab's columns instead, below.
                 choices={valuesFor?.(cond.tab, cond.column)}
                 columns={columnsOf(cond.tab)}
+                // Every column's own values, so a formula built with clicks
+                // picks "WALK-IN" rather than spelling it.
+                valuesOf={(column) => valuesFor?.(cond.tab, column)}
               />
               <button
                 onClick={() => removeCondition(ci)}

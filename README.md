@@ -763,6 +763,31 @@ two fields, and only with the server's time. **Deploy the rules**
 (`firebase deploy --only firestore:rules`). Until you do, every dot is red,
 with the last sign-in as "last seen".
 
+#### Sending a row
+
+A row in a data table can be sent to somebody in Messages: a send button on
+each row, on each card in card view, and in the row panel. The reader picks who
+it goes to (with the green/red dots, so they can see who is here), what they
+need from them — the same four tones as any message — and can add a note. It
+arrives in that person's chat, and on their banner, as a **card**: the record's
+heading, its values, which table and page it came from, a *Copy as text*
+button, and a link to open the page.
+
+**The admin chooses which columns go.** In the table's settings → *Sharing*,
+switch it on and tick the columns. Nothing else is ever sent — not even as the
+card's heading, which can only be one of the ticked columns. Recipients see those
+values **even if they cannot open the page**, which is why the choice is the
+admin's and not the sender's.
+
+- **It is a snapshot.** The values as they were when it was sent, so a question
+  about yesterday's status is not answered by today's.
+- **It is bounded.** At most 40 fields and 500 characters a value — checked in
+  the app and again in `firestore.rules`.
+- **It is a normal message.** It can be answered, unsent, and it raises the same
+  banner and notification as anything else said in that chat.
+- **Links in a value open in a new tab**, and only `http`/`https` ones become
+  links.
+
 ### Remarks on a row
 
 *"Customer asked to postpone delivery to the 14th."* *"Invoice already
@@ -1775,10 +1800,10 @@ anybody wants to debug.
 
 | Group | What's there |
 |---|---|
-| Logic | `IF` `IFS` `AND` `OR` `NOT` `ISBLANK` `ISNUMBER` `COALESCE` |
+| Logic | `IF` `IFS` `WHEN` `AND` `OR` `NOT` `IN` `NOTIN` `BETWEEN` `ISBLANK` `ISFILLED` `ISNUMBER` `COALESCE` |
 | Numbers | `ROUND` `FLOOR` `CEILING` `ABS` `MIN` `MAX` `NUMBER` `DIVIDE` |
-| Text | `CONCAT` `UPPER` `LOWER` `TRIM` `LEN` `LEFT` `RIGHT` `CONTAINS` `STARTSWITH` `ENDSWITH` `REPLACE` `SPLITPART` |
-| Dates | `TODAY` `DAYSSINCE` `DAYSBETWEEN` `YEAR` `MONTH` `DAY` `MONTHNAME` `WEEKDAY` `ADDDAYS` |
+| Text | `CONCAT` `UPPER` `LOWER` `TRIM` `LEN` `LEFT` `RIGHT` `CONTAINS` `NOTCONTAINS` `CONTAINSALL` `STARTSWITH` `ENDSWITH` `LIKE` `REPLACE` `SPLITPART` |
+| Dates | `TODAY` `DAYSSINCE` `DAYSBETWEEN` `YEAR` `MONTH` `DAY` `MONTHNAME` `WEEKDAY` `ADDDAYS` `ISTODAY` `INLASTDAYS` `INNEXTDAYS` `OLDERTHAN` `THISWEEK` `THISMONTH` `THISYEAR` |
 | Whole table | `TOTAL` `AVERAGE` `MAXOF` `MINOF` `COUNTROWS` `PERCENTOF` `RANK` |
 | Within a group | `TOTALBY` `AVERAGEBY` `COUNTBY` `SHAREOF` `RANKBY` |
 
@@ -1829,6 +1854,92 @@ replaced.
 Formulas are parsed, not `eval`'d: an admin's string never becomes JavaScript,
 which matters both for what a formula could otherwise reach and for what
 running one forty thousand times would cost.
+
+#### The same language as a condition
+
+Any condition (*matches formula (ƒ)*) takes a formula that answers yes or no
+for each row — and **nobody has to write it**.
+
+**Build with clicks** is what the box opens as. Each check is a column, a
+condition said in words, and the values — picked from what that column really
+holds, as chips:
+
+- **Text:** is · is not · contains · does not contain · contains all of ·
+  starts with · ends with · matches a pattern (`*` and `?`)
+- **Numbers and dates:** is more than · is at least · is less than · is at most ·
+  is between
+- **Dates:** is today · is in the last *n* days · is in the next *n* days · is
+  older than *n* days · is this week · this month · this year
+- **Empty or not:** is filled in · is empty
+
+Add as many checks as needed and choose whether **all** or **any** must hold.
+Tick **Only for some rows** to aim the rule at part of the tab and keep every
+other row. The formula it writes is shown underneath, and **In words:** reads
+it back as a sentence — for a formula built with clicks or typed by hand. A
+formula typed in these shapes opens as clicks; one the clicks can't fully show
+stays a formula rather than being half-shown. The choice between clicks and
+writing is remembered per browser.
+
+**Or write it.** Short words cover almost every rule, each taking as many
+values as you like:
+
+| To say | Write |
+| --- | --- |
+| contains any of these words | `CONTAINS([Remarks], "2 FOLL", "3 FOLL")` |
+| contains none of them | `NOTCONTAINS([Remarks], "2 FOLL", "3 FOLL")` |
+| contains every one of them | `CONTAINSALL([Remarks], "tyre", "battery")` |
+| is one of these | `IN([Source], "WALK-IN", "REFERRAL")` |
+| is none of these | `NOTIN([Status], "Lost", "Cancelled")` |
+| only for some rows — keep the rest | `WHEN(test, rule)` |
+| is in a range (numbers or dates) | `BETWEEN([Amount], 10000, 50000)` |
+| has something in it | `ISFILLED([Remarks])` |
+| matches a pattern | `LIKE([Reg No], "KA*", "MH??*")` |
+| is today / in the last or next *n* days | `ISTODAY([Date])` · `INLASTDAYS([Date], 7)` · `INNEXTDAYS([Date], 7)` |
+| is more than *n* days ago | `OLDERTHAN([Date], 30)` |
+| is this week / month / year | `THISWEEK([Date])` · `THISMONTH([Date])` · `THISYEAR([Date])` |
+
+So "for walk-ins, hide anything scheduled for a 2nd to 5th follow-up, and keep
+every other row" is one line:
+
+```
+WHEN([Source] = "WALK-IN", NOTCONTAINS([Scheduled For], "2 FOLL", "3 FOLL", "4 FOLL", "5 FOLL"))
+```
+
+A list in brackets works anywhere one value does: `[Source] = ("WALK-IN",
+"REFERRAL")` is *any of them*, and `<>` is *none of them*. Text comparisons
+ignore capitals on both sides.
+
+**The box makes long formulas short.** A formula that is right but long gets a
+one-click *shorter* button:
+
+| Written | Becomes |
+| --- | --- |
+| `OR(CONTAINS([A], "x"), CONTAINS([A], "y"))` | `CONTAINS([A], "x", "y")` |
+| `AND(CONTAINS([A], "x"), CONTAINS([A], "y"))` | `CONTAINSALL([A], "x", "y")` |
+| `OR([A] = "x", [A] = "y")` | `IN([A], "x", "y")` |
+| `NOT(CONTAINS(…))` | `NOTCONTAINS(…)` |
+| `IF(test, rule, TRUE)` | `WHEN(test, rule)` |
+| `NOT(ISBLANK([A]))` | `ISFILLED([A])` |
+| `AND([A] >= 10, [A] <= 50)` | `BETWEEN([A], 10, 50)` |
+| `DAYSSINCE([Date]) > 30` | `OLDERTHAN([Date], 30)` |
+
+Dates written with slashes (`15/09/2026`) compare as dates everywhere — earlier
+they could compare as long numbers, which put `02/10/2025` after `01/09/2026`.
+
+**And it catches the habits that don't translate**, saying what was meant and
+fixing each in one click:
+
+| Typed | Why it doesn't work | Offered |
+| --- | --- | --- |
+| `CONTAINS([A], OR("x", "y"))` | `OR` gives back TRUE, so it looks for the word "TRUE" | `CONTAINS([A], "x", "y")` |
+| `[Source] = OR("A", "B")` | the same, compared with "TRUE" | `IN([Source], "A", "B")` |
+| `<>CONTAINS("x")` | `<>` compares two things and has nothing on its left | `NOTCONTAINS(…)` |
+| `CONTAINS("x")` | contains in *what* — the column is missing | `CONTAINS([Remarks], "x")` |
+| `IF(test, rule, [Source])` | a blank `[Source]` hides the row | `WHEN(test, rule)` |
+| `IF(test, rule)` | every other row is hidden | `WHEN(test, rule)` |
+| `IF(test, "Yes", "No")` | any text counts as yes, so every row matches | a warning to use yes/no parts |
+
+`NOT`, `TRUE` and `FALSE` are offered while typing, like functions.
 
 ### Blending two tabs in one widget
 

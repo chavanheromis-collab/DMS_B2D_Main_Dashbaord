@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Maximize2, X } from 'lucide-react'
+import { Maximize2, Send, X } from 'lucide-react'
 
 import { mediaOf, tileSize } from '../../lib/media.js'
 import { MediaStrip } from '../MediaViewer.jsx'
@@ -51,6 +51,9 @@ export default function CardGrid({
   selection = [],
   onTick,
   onOpen,
+  // Sending a record to somebody in a message -- absent unless the table
+  // offers it. See lib/rowShare.js.
+  onShare,
 }) {
   const [zoomed, setZoomed] = useState(null)
 
@@ -137,6 +140,22 @@ export default function CardGrid({
                       </p>
                     )}
                   </div>
+                  {onShare && (
+                    <button
+                      type="button"
+                      title="Send this row to someone in Messages"
+                      aria-label="Send this row in a message"
+                      // The card opens its zoom on click; sending must not.
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onShare(row)
+                      }}
+                      className="-mr-0.5 mt-0 shrink-0 rounded p-0.5 opacity-50 transition-opacity hover:bg-white/70 hover:opacity-100"
+                      style={{ color: tone.fg }}
+                    >
+                      <Send size={12} />
+                    </button>
+                  )}
                   <Maximize2
                     size={13}
                     className="mt-0.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-60"
@@ -208,6 +227,7 @@ export default function CardGrid({
           tone={cardTone(rows.findIndex((r) => r._row === zoomRow._row))}
           badgeCols={badgeCols}
           onOpenDetail={onOpen}
+          onShare={onShare}
           onClose={() => setZoomed(null)}
         />
       )}
@@ -223,7 +243,7 @@ export default function CardGrid({
  * body scrolls and the heading does not, so a record with thirty fields
  * can be read without losing track of whose it is.
  */
-function CardZoom({ row, widget, spec, tone, badgeCols, files = [], onViewMedia, onOpenDetail, onClose }) {
+function CardZoom({ row, widget, spec, tone, badgeCols, files = [], onViewMedia, onOpenDetail, onShare, onClose }) {
   useEffect(() => {
     function onKey(e) {
       if (e.key === 'Escape') onClose()
@@ -277,6 +297,16 @@ function CardZoom({ row, widget, spec, tone, badgeCols, files = [], onViewMedia,
             </h3>
             {sub && <p className="mt-0.5 truncate text-xs text-slate-500">{sub}</p>}
           </div>
+          {onShare && (
+            <button
+              type="button"
+              onClick={() => onShare(row)}
+              title="Send this row to someone in Messages"
+              className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-white hover:text-indigo-600"
+            >
+              <Send size={12} /> Send
+            </button>
+          )}
           <button
             onClick={onClose}
             className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-600"

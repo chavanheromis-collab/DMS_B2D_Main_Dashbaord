@@ -175,7 +175,18 @@ service cloud.firestore {
         request.resource.data.audience in ['all', 'people'] &&
         request.resource.data.readBy.size() == 0 &&
         request.resource.data.dismissedBy.size() == 0 &&
-        request.resource.data.replies.size() == 0;
+        request.resource.data.replies.size() == 0 &&
+        // A row sent from a table is a bounded CARD, not a way to store a
+        // spreadsheet in a message (see src/lib/rowShare.js). Which columns
+        // may travel is the admin's choice, applied in the browser where the
+        // columns are known -- a sender writing a card by hand could as
+        // easily type the same values into the body -- so this is the
+        // ceiling on size rather than the gate on content.
+        (!('row' in request.resource.data) || (
+          request.resource.data.row is map &&
+          request.resource.data.row.fields is list &&
+          request.resource.data.row.fields.size() <= 40
+        ));
 
       // A reply may only be APPENDED, and only as yourself.
       //

@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   Rows3,
   Search,
+  Send,
   StickyNote,
   Table as TableIcon,
   X,
@@ -42,6 +43,10 @@ import RowDetailPanel from '../RowDetailPanel.jsx'
 import ColumnFilterMenu from '../ColumnFilterMenu.jsx'
 import { activeFilterColumns, applyColumnFilters, columnIsFiltered } from '../../lib/columnFilters'
 import RowNotePopover from '../RowNotePopover.jsx'
+import ShareRowDialog from '../ShareRowDialog.jsx'
+import { rowSnapshot, sharableColumns, shareEnabled } from '../../lib/rowShare'
+import { canSendMessages } from '../../lib/messages'
+import { useAuth } from '../../context/AuthContext.jsx'
 import { useRowNoteActions, useRowNotes } from '../../hooks/useRowNotes'
 import { countLabel, latestSummary, noteIdFor, notesEnabled, remarkCount, rowKeyOf } from '../../lib/rowNotes'
 import { isStrayValue, optionsForCell } from '../../lib/columnChoices'
@@ -208,6 +213,9 @@ export default function TableWidget({
   onDeleteRows,
   onClearRows,
   onCopyRows,
+  // Where a sent row says it came from: { pageId, pageName }. See
+  // lib/rowShare.js.
+  shareFrom = {},
 }) {
   const defaultSorts = useMemo(
     () => (widget.sortBy ? [{ column: widget.sortBy, dir: widget.sortDir || 'asc' }] : []),
@@ -274,6 +282,22 @@ export default function TableWidget({
   const { notes, error: noteError } = useRowNotes(noteScope, showNotes)
   const { addRemark, editRemark, removeRemark, me } = useRowNoteActions()
   const uid = me.uid
+
+  // --- sending a row in a message -----------------------------------------
+  // Three things before a button exists: the admin switched it on, at least
+  // one of the columns they chose is still on this tab, and this person may
+  // send at all -- an account an admin has stopped from sending gets no
+  // button rather than one that fails. See lib/rowShare.js.
+  const { userDoc } = useAuth()
+  const showShare =
+    shareEnabled(widget) && canSendMessages(userDoc) && sharableColumns(widget, tabHeaders).length > 0
+  // The CARD, taken when the button is pressed rather than a row looked up
+  // again later: what goes is what the sender was looking at when they
+  // decided to send it.
+  const [sharing, setSharing] = useState(null)
+  function shareRow(row) {
+    setSharing(rowSnapshot(row, widget, { headers: tabHeaders, pageId: shareFrom.pageId, pageName: shareFrom.pageName }))
+  }
 
   const pageSize = widget.pageSize || 25
 
@@ -1033,6 +1057,7 @@ export default function TableWidget({
                 selection={selection}
                 onTick={tickRow}
                 onOpen={widget.rowDetail ? setOpenDetail : undefined}
+                onShare={showShare ? shareRow : undefined}
                 dateOrder={dateOrder}
               />
             ) : (
@@ -1062,6 +1087,7 @@ export default function TableWidget({
                     </th>
                   )}
                   {showNotes && <th className="w-10 px-2 py-2" aria-label="Remarks" />}
+                  {showShare && <th className="w-10 px-2 py-2" aria-label="Send" />}
                   {hasDownloadColumn && (
                     <th className="whitespace-nowrap px-2 py-2 font-medium text-slate-500">Files</th>
                   )}
@@ -1170,6 +1196,23 @@ export default function TableWidget({
                             )
                           }
                         />
+                      </td>
+                    )}
+                    {showShare && (
+                      <td className="px-2 py-2 align-middle">
+                        <button
+                          type="button"
+                          title="Send this row to someone in Messages"
+                          aria-label="Send this row in a message"
+                          onClick={(e) => {
+                            // The row opens its detail panel on click.
+                            e.stopPropagation()
+                            shareRow(row)
+                          }}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-300 transition-colors hover:border-indigo-300 hover:text-indigo-500"
+                        >
+                          <Send size={12} />
+                        </button>
                       </td>
                     )}
 
@@ -1365,6 +1408,7 @@ export default function TableWidget({
                         columns.length +
                           (hasDownloadColumn ? 1 : 0) +
                           (showNotes ? 1 : 0) +
+                          (showShare ? 1 : 0) +
                           (selectable ? 1 : 0) || 1
                       }
                       className="py-10 text-center text-slate-300"
@@ -1486,6 +1530,8 @@ export default function TableWidget({
         />
       )}
 
+      {sharing && <ShareRowDialog snapshot={sharing} onClose={() => setSharing(null)} />}
+
       <RowDetailPanel
         open={!!detailRow && !!widget.rowDetail}
         row={detailRow}
@@ -1504,6 +1550,7 @@ export default function TableWidget({
         noteCount={
           detailRow ? remarkCount(notes[noteIdFor(noteScope, detailRow, noteKeyColumn)]) : 0
         }
+        onShare={showShare && detailRow ? () => shareRow(detailRow) : undefined}
         onSaveRow={writeRow}
         // The admin's own rules travel with it: which fields cannot be left
         // empty is a property of the TABLE, not of the reader.

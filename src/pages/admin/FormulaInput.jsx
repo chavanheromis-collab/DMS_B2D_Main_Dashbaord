@@ -11,6 +11,9 @@ import {
 } from '../../lib/conditionFormula'
 import { FUNCTIONS, functionHelp } from '../../lib/formula'
 import { useTypingBuffer } from '../../hooks/useTypingBuffer'
+import { useLocalState } from '../../hooks/usePageData'
+import { explainFormula, formulaToRule } from '../../lib/ruleBuilder'
+import RuleBuilder from './RuleBuilder.jsx'
 
 // ---------------------------------------------------------------------
 // Writing a condition as a formula
@@ -50,6 +53,9 @@ export default function FormulaInput({
   value,
   onChange,
   columns = [],
+  // (column) => every value that column holds, so a rule is built by
+  // picking values rather than spelling them. Absent, the boxes are typed.
+  valuesOf = null,
   className = '',
   placeholder = 'AND([Status] = "Delivered", [Amount] > 0)',
 }) {
@@ -71,6 +77,17 @@ export default function FormulaInput({
     [text, cursor, columns]
   )
   const check = useMemo(() => checkFormula(text, columns), [text, columns])
+
+  // Clicks, or a formula. Remembered per browser -- somebody who writes
+  // formulas should not have to say so on every condition -- but a formula
+  // the clicks cannot fully show is never opened as clicks.
+  const [preferred, setPreferred] = useLocalState('dash.formulaMode', 'build')
+  const readable = useMemo(() => formulaToRule(text) !== null, [text])
+  const building = preferred === 'build'
+  const words = useMemo(
+    () => (check.state === 'ok' || check.state === 'warning' ? explainFormula(text) : ''),
+    [check.state, text]
+  )
   const open = focused && !dismissed && suggest.items.length > 0
 
   // A new list starts at its top, rather than on whatever row the last
@@ -135,6 +152,28 @@ export default function FormulaInput({
 
   return (
     <div className={`relative min-w-[260px] flex-1 ${className}`}>
+      <ModeSwitch building={building} onPick={setPreferred} />
+
+      {building ? (
+        readable ? (
+          <div className="ml-5">
+            <RuleBuilder value={text} onChange={onType} columns={columns} valuesOf={valuesOf} />
+          </div>
+        ) : (
+          <div className="ml-5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800">
+            This formula does more than the clicks can show, so it stays a formula.{' '}
+            <button type="button" onClick={() => setPreferred('write')} className="font-medium underline">
+              Show the formula
+            </button>{' '}
+            or{' '}
+            <button type="button" onClick={() => onType('')} className="font-medium underline">
+              clear it and build a new one with clicks
+            </button>
+            .
+          </div>
+        )
+      ) : (
+      <>
       <div className="flex items-start gap-1.5">
         <Sigma size={13} className="mt-1.5 shrink-0 text-violet-500" aria-hidden />
         <textarea
@@ -228,11 +267,13 @@ export default function FormulaInput({
           {signature.note && <span className="ml-1.5 font-sans text-slate-400">— {signature.note}</span>}
         </p>
       )}
+      </>
+      )}
 
       {/* --- whether it is right ------------------------------------------ */}
       <div className="ml-5 mt-1 flex flex-wrap items-center gap-1.5">
         <CheckLine check={check} />
-        {check.fixes.map((fix) => (
+        {!building && check.fixes.map((fix) => (
           <button
             key={`${fix.kind}-${fix.from}`}
             type="button"
@@ -242,7 +283,9 @@ export default function FormulaInput({
             }}
             className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-px font-mono text-[10px] text-emerald-700 hover:bg-emerald-100"
           >
-            did you mean {fix.label}?
+            {/* A misspelling is a question; a mended shape -- NOT() around
+                a call, TRUE as IF's last part -- is said as what it does. */}
+            {fix.prompt ? fix.prompt : <>did you mean {fix.label}?</>}
           </button>
         ))}
         <button
@@ -254,8 +297,19 @@ export default function FormulaInput({
         </button>
       </div>
 
+      {/* --- what it means ------------------------------------------------ */}
+      {/* Read back in plain words, from the same parse the dashboard runs:
+          the one check anybody can make, whether or not they could have
+          written the formula themselves. */}
+      {words && (
+        <p className="ml-5 mt-1 text-[11px] leading-snug text-slate-600">
+          <span className="font-semibold text-slate-400">In words: </span>
+          {words}
+        </p>
+      )}
+
       {/* --- somewhere to start ------------------------------------------- */}
-      {check.state === 'empty' && (
+      {!building && check.state === 'empty' && (
         <div className="ml-5 mt-1 flex flex-wrap gap-1">
           {FORMULA_STARTERS.map((starter) => (
             <button
@@ -274,6 +328,34 @@ export default function FormulaInput({
       )}
 
       {help && <FormulaHelp columns={columns} onInsert={insertAtCursor} />}
+    </div>
+  )
+}
+
+/**
+ * Clicks or a formula.
+ *
+ * One condition either way: the clicks write a formula, and a formula the
+ * clicks can read opens as clicks, so switching loses nothing. Clicks are
+ * for anybody; the formula is for what clicks cannot say.
+ */
+function ModeSwitch({ building, onPick }) {
+  const pill = (on) =>
+    `inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+      on ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-violet-50 hover:text-violet-700'
+    }`
+  return (
+    <div
+      role="tablist"
+      aria-label="How to write this condition"
+      className="mb-1 ml-5 inline-flex items-center gap-0.5 rounded-full border border-slate-200 bg-white p-0.5"
+    >
+      <button type="button" role="tab" aria-selected={building} onClick={() => onPick('build')} className={pill(building)}>
+        <Wand2 size={10} /> Build with clicks
+      </button>
+      <button type="button" role="tab" aria-selected={!building} onClick={() => onPick('write')} className={pill(!building)}>
+        <Sigma size={10} /> Write a formula
+      </button>
     </div>
   )
 }

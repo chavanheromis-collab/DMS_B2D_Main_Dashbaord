@@ -23,6 +23,7 @@ import {
 import { useAuth } from '../context/AuthContext.jsx'
 import { useMessageActions, useMessages, usePeople } from '../hooks/useMessages'
 import Conversations from './Conversations.jsx'
+import SharedRowCard from './SharedRowCard.jsx'
 import { draftFor } from '../lib/conversations'
 import {
   askIsDue,
@@ -585,6 +586,7 @@ function Banner({ message, uid, people, onRead, onDismiss, onReply, onUnsend, fl
             </span>
           </p>
           <p className="whitespace-pre-wrap break-words text-[13px] leading-snug text-slate-700">{message.body}</p>
+          {message.row && <SharedRowCard row={message.row} compact className="mt-1.5 max-w-sm" />}
 
           {(message.replies || []).length > 0 && (
             <div className="mt-1.5 space-y-1 border-l-2 border-slate-100 pl-2">
@@ -708,6 +710,9 @@ function Blocking({ message, uid, people, onMinimise, onDismiss, onReply }) {
         </div>
 
         <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{message.body}</p>
+        {/* The row the question is about, right under it: answering "is
+            this one done?" should not need the page it came from. */}
+        {message.row && <SharedRowCard row={message.row} compact className="mt-2" />}
 
         {(message.replies || []).length > 0 && (
           <div className="mt-2 space-y-1 border-l-2 border-slate-100 pl-2">
