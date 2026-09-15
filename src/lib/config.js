@@ -348,6 +348,12 @@ export const OPERATORS = [
   { value: 'this_month', label: 'date is this month', arity: 0 },
   { value: 'not_this_month', label: 'date is not this month', arity: 0 },
   { value: 'today', label: 'date is today', arity: 0 },
+  // A condition written as a formula, in the calculated-column language:
+  // AND([Status] = "Delivered", DAYSSINCE([Date]) > 30). The value box
+  // becomes a guided formula editor. The label reads as a sentence both
+  // in the dropdown and in the summaries that strip the bracketed part --
+  // "changing Status so that it matches formula ...".
+  { value: 'formula', label: 'matches formula (ƒ)', arity: 1, formula: true },
 ]
 
 export function operatorMeta(op) {

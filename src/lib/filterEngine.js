@@ -10,6 +10,7 @@ import {
 } from './dataUtils.js'
 import { dateValueIsSet, dateWindow } from './datePresets.js'
 import { isMetaColumn } from './rowMeta.js'
+import { FORMULA_OPERATOR, formulaHolds, isFormulaCondition } from './conditionFormula.js'
 
 // ---------------------------------------------------------------------
 // How filtering works across a multi-tab page
@@ -340,6 +341,13 @@ function matchesFilterValue(row, column, filter, value, dateOrder) {
 // Button conditions
 // ---------------------------------------------------------------------
 export function testCondition(row, cond, dateOrder = 'DMY') {
+  // A formula names its own columns and is asked of the whole row, so it
+  // is answered before anything here reads `row[cond.column]` -- the column
+  // it carries is only there to survive the tidy-up filters. This one line
+  // is what makes a formula work in EVERY place a condition is used: KPIs,
+  // buttons, row limits, clearing rules, stages, blends. See
+  // lib/conditionFormula.js.
+  if (cond?.operator === FORMULA_OPERATOR) return formulaHolds(row, cond.value, dateOrder)
   if (!cond || !cond.column) return true
   const cell = row[cond.column]
   const text = String(cell ?? '').trim()
@@ -470,7 +478,12 @@ export function testCondition(row, cond, dateOrder = 'DMY') {
  * pipeline stages, which are defined the exact same way.
  */
 export function matchesConditions(row, conditions, match = 'all', dateOrder = 'DMY') {
-  const conds = (conditions || []).filter((c) => c.column)
+  // A formula condition is kept even without the column it normally
+  // carries. The builder always gives it one; this is for a condition that
+  // arrived some other way -- hand-edited, imported, or older -- which
+  // would otherwise be dropped here and leave an EMPTY list, and an empty
+  // list matches every row.
+  const conds = (conditions || []).filter((c) => c && (c.column || isFormulaCondition(c)))
   if (conds.length === 0) return true
   return match === 'all'
     ? conds.every((c) => testCondition(row, c, dateOrder))

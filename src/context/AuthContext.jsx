@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import { signInWithPopup, signOut as fbSignOut, onAuthStateChanged } from 'firebase/auth'
 import { doc, getDoc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db, googleProvider } from '../firebase'
+import { PRESENCE_COLLECTION, SIGN_OUT_WAIT_MS, beatFields } from '../lib/presence'
 
 const AuthContext = createContext(null)
 
@@ -103,6 +104,17 @@ export function AuthProvider({ children }) {
   )
 
   const signOut = useCallback(async () => {
+    // Say you have gone BEFORE going. Once signed out, the rules no longer
+    // let this browser write your presence, and colleagues would see a
+    // green dot against your name for another two minutes. Capped, so
+    // signing out while offline is not a button that hangs.
+    const uid = auth.currentUser?.uid
+    if (uid) {
+      await Promise.race([
+        setDoc(doc(db, PRESENCE_COLLECTION, uid), beatFields('closed', serverTimestamp())).catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, SIGN_OUT_WAIT_MS)),
+      ])
+    }
     await fbSignOut(auth)
   }, [])
 

@@ -426,6 +426,15 @@ export default function Dashboard() {
   // filtering rather than merged into it, so nothing -- a saved view, a value
   // left over from before the admin fixed the control -- can quietly
   // override what the page says it is.
+  // Every page control by its id. A rule on a widget names a control
+  // rather than describing one, and answering "is that control in use"
+  // needs the control itself -- in use means something different for
+  // chips, a slider and a button. See lib/pivotRows.js.
+  const pageControlsById = useMemo(
+    () => Object.fromEntries(pageControls.map((c) => [c.id, c])),
+    [pageControls]
+  )
+
   const fixed = useMemo(() => fixedValues(pageControls), [pageControls])
   const effectiveValues = useMemo(() => ({ ...filterValues, ...fixed.values }), [filterValues, fixed])
   const effectiveButtonIds = useMemo(
@@ -2036,6 +2045,13 @@ export default function Dashboard() {
 
                 const myControls = widget.controls || []
                 const myValues = controlValues[widget.id]
+                // The page's controls and this widget's own, together.
+                // The two never share an id, so a rule can name either
+                // without the admin having to remember which panel they
+                // put the control in.
+                const controlsById = myControls.length
+                  ? { ...pageControlsById, ...Object.fromEntries(myControls.map((c) => [c.id, c])) }
+                  : pageControlsById
                 const rows = myControls.length
                   ? applyWidgetControls(preControl, myControls, myValues, dateOrder)
                   : preControl
@@ -2325,7 +2341,21 @@ export default function Dashboard() {
                           />
                         )}
                         {widget.type === 'pivot' && (
-                          <PivotWidget {...common} onCrossFilter={drill} canExport={canExport} dateOrder={dateOrder} />
+                          <PivotWidget
+                            {...common}
+                            onCrossFilter={drill}
+                            canExport={canExport}
+                            dateOrder={dateOrder}
+                            // Everything the reader has set, in one map.
+                            // A page control and a widget control never
+                            // share an id, so a rule can name either
+                            // without having to say which.
+                            controlState={{
+                              values: { ...effectiveValues, ...(myValues || {}) },
+                              buttons: effectiveButtonIds,
+                              byId: controlsById,
+                            }}
+                          />
                         )}
                         {widget.type === 'heatmap' && (
                           <HeatmapWidget {...common} onCrossFilter={drill} dateOrder={dateOrder} />

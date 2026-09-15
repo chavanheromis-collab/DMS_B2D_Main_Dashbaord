@@ -9,6 +9,8 @@ import {
   dayLabel,
   draftFor,
   entriesOf,
+  kindOf,
+  membersOf,
   previewOf,
   replyTarget,
   runsWith,
@@ -16,6 +18,9 @@ import {
 } from '../lib/conversations'
 import { DEFAULT_TONE, MAX_BODY, TONES, canReceiveMessages, toneOf, whenText } from '../lib/messages'
 import { avatarSpec } from '../lib/avatar'
+import { PRESENCE_TICK_MS, groupPresence, groupPresenceText, presenceFor } from '../lib/presence'
+import { usePresenceBeats } from '../hooks/usePresence'
+import { useNow } from '../hooks/useReminders'
 
 /**
  * The message centre, as a chat.
@@ -44,6 +49,16 @@ export default function Conversations({
 
   const rows = useMemo(() => conversationsFor(messages, uid, byId), [messages, uid, byId])
 
+  // Who has the dashboard open. Listened to HERE, while the panel is open,
+  // rather than by the message centre that is always mounted: every open
+  // tab beats once a minute, and a listener on every dashboard all day
+  // would pay a read for each beat to draw dots nobody is looking at. The
+  // clock ticks on its own because a colleague whose beats STOP is never
+  // announced by a snapshot -- without it, their dot would stay green.
+  const beats = usePresenceBeats()
+  const now = useNow(PRESENCE_TICK_MS)
+  const seen = (id) => presenceFor(id, { people: byId, beats, now })
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return
@@ -65,6 +80,7 @@ export default function Conversations({
           <StartNew
             people={people}
             me={uid}
+            seen={seen}
             onBack={() => setStarting(false)}
             onPick={(id) => {
               setStarting(false)
@@ -77,6 +93,7 @@ export default function Conversations({
             messages={messages}
             uid={uid}
             byId={byId}
+            seen={seen}
             maySend={maySend}
             onBack={() => setOpenId(null)}
             onRead={onRead}
@@ -87,6 +104,7 @@ export default function Conversations({
           <List
             rows={rows}
             byId={byId}
+            seen={seen}
             onOpen={setOpenId}
             onClose={onClose}
             onStart={maySend ? () => setStarting(true) : null}
@@ -97,13 +115,24 @@ export default function Conversations({
   )
 }
 
-/** The round picture, from the one place that decides what it looks like. */
-function Avatar({ name, person, size = 40, icon: Icon }) {
+/**
+ * The round picture, from the one place that decides what it looks like.
+ *
+ * `presence`, when given, is the dot in its corner: green while that person
+ * has the dashboard open in a tab, red when they do not -- see
+ * lib/presence.js. Without it there is no dot at all, which is what a
+ * group, "Everyone" and a message bubble get: none of them is one person
+ * who is or is not here.
+ */
+function Avatar({ name, person, size = 40, icon: Icon, presence }) {
   const spec = avatarSpec(name, person)
+  // A quarter of the circle and never under 8px, ringed in white so it
+  // reads against every avatar colour instead of merging into a green one.
+  const dot = Math.max(8, Math.round(size * 0.26))
   return (
     <span
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-full font-bold"
+      className="relative flex shrink-0 items-center justify-center rounded-full font-bold"
       style={{
         width: size,
         height: size,
@@ -113,7 +142,26 @@ function Avatar({ name, person, size = 40, icon: Icon }) {
       }}
     >
       {Icon ? <Icon size={Math.round(size * 0.45)} /> : spec.initials}
+      {presence && (
+        <span
+          title={presence.text}
+          data-presence={presence.online ? 'online' : 'away'}
+          className={`absolute bottom-0 right-0 rounded-full ring-2 ring-white ${
+            presence.online ? 'bg-emerald-500' : 'bg-rose-500'
+          }`}
+          style={{ width: dot, height: dot }}
+        />
+      )}
     </span>
+  )
+}
+
+/** "Active now" in green, or when they were last here, in grey. */
+function PresenceText({ presence }) {
+  return (
+    <p className={`truncate text-[10px] ${presence.online ? 'font-medium text-emerald-600' : 'text-slate-400'}`}>
+      {presence.text}
+    </p>
   )
 }
 
@@ -121,7 +169,7 @@ function Avatar({ name, person, size = 40, icon: Icon }) {
 // Screen one: who you are talking to
 // ---------------------------------------------------------------------
 
-function List({ rows, byId, onOpen, onClose, onStart }) {
+function List({ rows, byId, seen, onOpen, onClose, onStart }) {
   const [query, setQuery] = useState('')
 
   const shown = useMemo(() => {
@@ -188,6 +236,7 @@ function List({ rows, byId, onOpen, onClose, onStart }) {
           <button
             key={row.id}
             onClick={() => onOpen(row.id)}
+            title={row.kind === 'direct' ? seen?.(row.id).text : undefined}
             className={`flex w-full items-center gap-3 border-b border-slate-50 px-3 py-2.5 text-left hover:bg-slate-50 ${
               row.unread > 0 ? 'bg-indigo-50/40' : ''
             }`}
@@ -196,6 +245,11 @@ function List({ rows, byId, onOpen, onClose, onStart }) {
               name={row.title}
               person={row.id}
               icon={row.kind === 'all' ? Megaphone : row.kind === 'group' ? Users : undefined}
+              // A dot only on a chat with ONE other person. On a group it
+              // would have to mean "someone" or "everyone", and either
+              // reading is wrong half the time -- the group's own header
+              // says how many are here instead.
+              presence={row.kind === 'direct' ? seen?.(row.id) : null}
             />
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline justify-between gap-2">
@@ -208,6 +262,7 @@ function List({ rows, byId, onOpen, onClose, onStart }) {
                   }`}
                 >
                   {row.title}
+                  {row.kind === 'direct' && seen && <span className="sr-only"> ({seen(row.id).text})</span>}
                 </strong>
                 <span
                   className={`shrink-0 text-[10px] ${
@@ -249,7 +304,7 @@ function List({ rows, byId, onOpen, onClose, onStart }) {
 // Screen two: the conversation
 // ---------------------------------------------------------------------
 
-function Chat({ id, messages, uid, byId, maySend, onBack, onRead, onSend, onUnsend }) {
+function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, onUnsend }) {
   const [text, setText] = useState('')
   const [tone, setTone] = useState(DEFAULT_TONE)
   const [sending, setSending] = useState(false)
@@ -329,10 +384,20 @@ function Chat({ id, messages, uid, byId, maySend, onBack, onRead, onSend, onUnse
           person={id}
           size={32}
           icon={id === ALL ? Megaphone : id.includes('|') ? Users : undefined}
+          presence={kindOf(id) === 'direct' ? seen?.(id) : null}
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-semibold text-slate-700">{title}</p>
           {id === ALL && <p className="text-[10px] text-slate-400">Everyone with an account</p>}
+          {/* In words as well as the dot: "last seen yesterday at 18:40" is
+              the answer to "will they see this today", and a colour cannot
+              say that. */}
+          {kindOf(id) === 'direct' && seen && <PresenceText presence={seen(id)} />}
+          {kindOf(id) === 'group' && seen && (
+            <p className="truncate text-[10px] text-slate-400">
+              {groupPresenceText(groupPresence(membersOf(id), seen))}
+            </p>
+          )}
         </div>
       </header>
 
@@ -518,9 +583,13 @@ function Bubble({ entry, mine, run, name, onUnsend }) {
 // Starting one
 // ---------------------------------------------------------------------
 
-function StartNew({ people, me, onBack, onPick }) {
+function StartNew({ people, me, seen, onBack, onPick }) {
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState([])
+
+  // For the Everyone row: a broadcast read by five people now and by forty
+  // tomorrow morning is worth knowing about before it is sent.
+  const activeNow = seen ? people.filter((p) => p.id !== me && seen(p.id).online).length : 0
 
   const shown = useMemo(() => {
     // Not yourself, and nobody an admin has switched off. Listing somebody
@@ -582,7 +651,10 @@ function StartNew({ people, me, onBack, onPick }) {
           <Avatar name="Everyone" person={ALL} icon={Megaphone} />
           <span className="min-w-0 flex-1">
             <strong className="block text-[13px] font-semibold text-slate-700">Everyone</strong>
-            <span className="text-[11px] text-slate-400">Everyone with an account</span>
+            <span className="text-[11px] text-slate-400">
+              Everyone with an account
+              {activeNow > 0 && <span className="font-medium text-emerald-600"> · {activeNow} active now</span>}
+            </span>
           </span>
         </button>
 
@@ -599,12 +671,22 @@ function StartNew({ people, me, onBack, onPick }) {
               onDoubleClick={() => onPick(p.id)}
               className="flex w-full items-center gap-3 border-b border-slate-50 px-3 py-2.5 text-left hover:bg-slate-50"
             >
-              <Avatar name={p.name || p.email} person={p.id} />
+              <Avatar name={p.name || p.email} person={p.id} presence={seen?.(p.id)} />
               <span className="min-w-0 flex-1">
                 <strong className="block truncate text-[13px] font-medium text-slate-700">
                   {p.name || p.email || 'Someone'}
                 </strong>
-                <span className="truncate text-[11px] text-slate-400">{p.jobRole || p.email}</span>
+                <span className="block truncate text-[11px] text-slate-400">
+                  {p.jobRole || p.email}
+                  {seen && (
+                    <>
+                      {' · '}
+                      <span className={seen(p.id).online ? 'font-medium text-emerald-600' : ''}>
+                        {seen(p.id).text}
+                      </span>
+                    </>
+                  )}
+                </span>
               </span>
               {on && (
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white">

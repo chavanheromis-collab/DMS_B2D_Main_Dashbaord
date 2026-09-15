@@ -43,6 +43,34 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Who has the dashboard open: presence/{uid}
+    //
+    // Every open tab stamps its owner's document once a minute, and the chat
+    // panel shows a green dot for a recent stamp and a red one otherwise
+    // (see src/lib/presence.js). Its own collection rather than a field on
+    // `users`, because the profile is listened to live by every open tab and
+    // a beat there would be a re-render and a paid read each minute.
+    //
+    // Readable by anybody signed in: whether a colleague has the dashboard
+    // open is exactly what the dot is FOR, and nothing else is stored here.
+    //
+    // Writable by yourself only, and only as a heartbeat:
+    //
+    //   ONLY THESE TWO FIELDS, so this does not become a second profile that
+    //   nobody reviews.
+    //
+    //   ONLY THE SERVER'S TIME. `lastSeenAt` must be the moment of the write
+    //   itself -- `serverTimestamp()` in the SDK, REQUEST_TIME over REST --
+    //   so nobody can stamp a date next year and look online until then.
+    match /presence/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSelf(userId) &&
+        request.resource.data.keys().hasOnly(['presenceState', 'lastSeenAt']) &&
+        request.resource.data.presenceState in ['open', 'closed'] &&
+        request.resource.data.lastSeenAt == request.time;
+      allow delete: if isAdmin();
+    }
+
     // Per-user, per-page grants: access/{uid}_{pageId}
     //
     // NOTE: `get` only. Rules are filters for nobody -- a LIST query over

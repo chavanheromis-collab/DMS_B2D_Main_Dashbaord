@@ -13,6 +13,7 @@ import {
 } from '../../lib/seriesData.js'
 import { normalizeKey } from '../../lib/dataUtils'
 import { pivotMeasures } from '../../lib/pivotMeasures.js'
+import { activeRowRule, defaultRowColumns, ruleNote } from '../../lib/pivotRows.js'
 import { buildRoster, needsRoster } from '../../lib/valueColors.js'
 import {
   Area,
@@ -578,11 +579,24 @@ export function PivotWidget({
   onCrossFilter,
   canExport = false,
   dateOrder = 'DMY',
+  // What the page's controls are currently set to, so the row axis can
+  // follow them -- see lib/pivotRows.js. Absent means no rule can fire,
+  // which is exactly right for a pivot nobody has written one for.
+  controlState = null,
 }) {
   const source = widget.ignoreFilters ? unfilteredRows : rows
 
+  // The row axis is a QUESTION, and the admin can make it several: "while
+  // the Region chips are in use, group by salesman; otherwise by branch".
+  // First match wins and the fallback is whatever the widget was
+  // configured with, so a rule that never fires changes nothing.
+  const rowRule = useMemo(
+    () => (controlState ? activeRowRule(widget, controlState) : null),
+    [widget, controlState]
+  )
+
   // Back-compat: the original single-column props are the one-element case.
-  const rowCols = widget.rowColumns?.length ? widget.rowColumns : [widget.rowColumn].filter(Boolean)
+  const rowCols = rowRule ? rowRule.columns : defaultRowColumns(widget)
   const colCols = widget.colColumns?.length ? widget.colColumns : [widget.colColumn].filter(Boolean)
   const totalsOnly = widget.display === 'totals'
 
@@ -693,6 +707,10 @@ export function PivotWidget({
             {widget.tab} · {rowHeading}
             {!totalsOnly && colCols.length > 0 && ` × ${colCols.join(' / ')}`}
             {totalsOnly && ' · totals only'}
+            {/* A table that regroups itself silently is one somebody
+                reads wrong: the same shape, a different meaning. When a
+                rule has changed the rows, the card says so. */}
+            {rowRule && ` · ${ruleNote(rowRule)}`}
           </p>
         </div>
         {canExport && (

@@ -733,6 +733,36 @@ work here than anywhere else in the file:
 The message centre is mounted on the **shell**, not on a page: a message about
 the workspace should not vanish because somebody navigated to the admin panel.
 
+#### Who is here
+
+Every contact in the chat panel carries a small dot: **green** while that person
+has the dashboard open in a tab — the one in front or one in the background —
+and **red** when they do not. The chat header says it in words: *Active now*,
+*Last seen 12 min ago*, *Last seen yesterday at 18:40*. A group's header says
+how many of its members are active; the *Everyone* row says how many people
+are active in total.
+
+It is a heartbeat, because Firestore has no "connected" signal of its own:
+
+- **Every open tab stamps `presence/{uid}` once a minute**, with the server's
+  clock. Green means a stamp in the last two and a half minutes, so one missed
+  beat or a throttled background tab does not flicker anybody red.
+- **Closing the dashboard says so at once**, as a `keepalive` request that
+  survives the page going. Signing out says so before it signs out.
+- **Tabs of one browser talk to each other.** Five open tabs share one write a
+  minute, and closing one of them does not report its owner gone while others
+  are still open.
+- **Only the open chat panel listens.** A dashboard nobody is chatting on pays
+  for no presence reads. It is a separate collection, not a field on the user
+  profile, because the profile is listened to live by every tab.
+- **Before this shipped, nobody had a heartbeat**, so the last sign-in time
+  stands in for "last seen" until they next open the dashboard.
+
+`firestore.rules` lets you write only your own presence document, only those
+two fields, and only with the server's time. **Deploy the rules**
+(`firebase deploy --only firestore:rules`). Until you do, every dot is red,
+with the last sign-in as "last seen".
+
 ### Remarks on a row
 
 *"Customer asked to postpone delivery to the 14th."* *"Invoice already

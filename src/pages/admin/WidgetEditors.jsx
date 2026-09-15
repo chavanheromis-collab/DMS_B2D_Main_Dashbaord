@@ -1,4 +1,4 @@
-import { Plus, ChevronDown, ChevronUp, X, GripVertical } from 'lucide-react'
+import { Plus, ChevronDown, ChevronUp, X, GripVertical, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import {
   AGGREGATIONS,
@@ -30,6 +30,16 @@ import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIE
 import { clashingPins, nextPinColor } from '../../lib/valueColors'
 import { DEFAULT_REDUCER, GROUP_SORTS, SORT_REDUCERS, sortsByColumn } from '../../lib/groupSort'
 import { defaultMeasureLabel, emptyMeasure } from '../../lib/pivotMeasures'
+import {
+  MAX_ROW_RULES,
+  ROW_RULES,
+  ROW_TESTS,
+  newRowCondition,
+  newRowRule,
+  rowRulesOf,
+  ruleProblem,
+  testNeedsValue,
+} from '../../lib/pivotRows'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import EmojiPicker from './EmojiPicker.jsx'
 
@@ -1357,7 +1367,167 @@ function AxisColumns({ label, hint, chosen, cols, onChange }) {
   )
 }
 
-export function PivotEditor({ widget, cols, set }) {
+/**
+ * Rules that swap the row axis when the page's controls say so.
+ *
+ * The row axis of a pivot is the question it answers, and "by branch"
+ * and "by salesman" are the same table with one column changed. Two
+ * widgets side by side is the alternative, and the second one is the
+ * one nobody keeps in step.
+ *
+ * The rules are the ADMIN's; the controls are the reader's. Nothing
+ * here puts a column picker on the dashboard -- that would be a pivot
+ * builder, and a dashboard that turns into one has stopped being a
+ * dashboard. The reader presses the buttons that were already there.
+ */
+function RowRulesEditor({ widget, cols, controls, set }) {
+  const rules = rowRulesOf(widget)
+  const byId = Object.fromEntries((controls || []).map((c) => [c.id, c]))
+
+  const write = (next) => set({ [ROW_RULES]: next })
+  const update = (id, patch) => write(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+      <div className="flex items-center gap-2">
+        <p className="text-[11px] font-medium text-slate-500">
+          Group the rows differently when a control says so
+        </p>
+        <Btn
+          className="ml-auto"
+          onClick={() => write([...rules, newRowRule()])}
+          disabled={rules.length >= MAX_ROW_RULES}
+        >
+          <Plus size={12} /> Add rule
+        </Btn>
+      </div>
+
+      {rules.length === 0 && (
+        <p className="mt-1 text-[10px] leading-snug text-slate-400">
+          Nothing set — the table always groups by the columns above. A rule lets it re-ask itself: “while the
+          Region chips are in use, group by salesman instead”. The first rule that fits wins, and if none fits the
+          table is exactly what it is now.
+        </p>
+      )}
+
+      {rules.map((rule, index) => {
+        const problem = ruleProblem(rule, byId)
+        return (
+          <div key={rule.id} className="mt-2 rounded-lg border border-slate-200 bg-white p-2">
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">
+                {index + 1}
+              </span>
+              <TextInput
+                value={rule.label}
+                onChange={(v) => update(rule.id, { label: v })}
+                placeholder="What to call this grouping (optional)"
+                className="!py-1 !text-[11px]"
+              />
+              <button
+                onClick={() => write(rules.filter((r) => r.id !== rule.id))}
+                className="shrink-0 rounded p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-500"
+                aria-label="Delete this rule"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+
+            {/* What it groups by. The same picker the fixed axis uses,
+                so the two cannot mean different things. */}
+            <div className="mt-1.5">
+              <AxisColumns
+                label="Group by"
+                hint="While this rule is in force."
+                chosen={rule.columns}
+                cols={cols}
+                onChange={(next) => update(rule.id, { columns: next })}
+              />
+            </div>
+
+            {/* When. */}
+            <div className="mt-1.5 flex items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">While</span>
+              <Select
+                value={rule.match}
+                onChange={(v) => update(rule.id, { match: v })}
+                options={[
+                  { value: 'all', label: 'all of these' },
+                  { value: 'any', label: 'any of these' },
+                ]}
+                className="!py-1 !text-[11px]"
+              />
+              <Btn
+                className="ml-auto"
+                onClick={() => update(rule.id, { when: [...rule.when, newRowCondition()] })}
+              >
+                <Plus size={11} /> Condition
+              </Btn>
+            </div>
+
+            {rule.when.map((condition, i) => (
+              <div key={i} className="mt-1 flex flex-wrap items-center gap-1.5">
+                <Select
+                  value={condition.control}
+                  onChange={(v) =>
+                    update(rule.id, {
+                      when: rule.when.map((c, j) => (j === i ? { ...c, control: v } : c)),
+                    })
+                  }
+                  options={(controls || []).map((c) => ({
+                    value: c.id,
+                    label: c.label || c.column || c.kind,
+                  }))}
+                  placeholder="— which control —"
+                  className="!py-1 !text-[11px]"
+                />
+                <Select
+                  value={condition.test}
+                  onChange={(v) =>
+                    update(rule.id, {
+                      when: rule.when.map((c, j) => (j === i ? { ...c, test: v } : c)),
+                    })
+                  }
+                  options={ROW_TESTS}
+                  className="!py-1 !text-[11px]"
+                />
+                {testNeedsValue(condition.test) && (
+                  <TextInput
+                    value={condition.value}
+                    onChange={(v) =>
+                      update(rule.id, {
+                        when: rule.when.map((c, j) => (j === i ? { ...c, value: v } : c)),
+                      })
+                    }
+                    placeholder="value"
+                    className="w-32 !py-1 !text-[11px]"
+                  />
+                )}
+                <button
+                  onClick={() =>
+                    update(rule.id, { when: rule.when.filter((_, j) => j !== i) })
+                  }
+                  className="rounded p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-500"
+                  aria-label="Delete this condition"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+
+            {/* Said here rather than discovered on the page, where the
+                only symptom is a table that never changes. */}
+            {problem && (
+              <p className="mt-1.5 rounded bg-amber-50 px-1.5 py-1 text-[10px] text-amber-700">{problem}</p>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+export function PivotEditor({ widget, cols, set, pageControls = [] }) {
   // Back-compat: a pivot saved before multi-column support has the single
   // props, which are simply the one-element case.
   const rowColumns = widget.rowColumns?.length ? widget.rowColumns : [widget.rowColumn].filter(Boolean)
@@ -1375,8 +1545,8 @@ export function PivotEditor({ widget, cols, set }) {
           {
             key: 'axes',
             label: 'Axes',
-            badge: rowColumns.length + colColumns.length,
-            hint: 'The columns down the side and across the top',
+            badge: rowColumns.length + colColumns.length + rowRulesOf(widget).length,
+            hint: 'The columns down the side and across the top, and when the rows change',
           },
           {
             key: 'values',
@@ -1487,6 +1657,15 @@ export function PivotEditor({ widget, cols, set }) {
       </div>
 
       <PivotBuckets columns={[...rowColumns, ...colColumns]} widget={widget} set={set} />
+
+      {/* The row axis is a question, and it can be several. See
+          lib/pivotRows.js. */}
+      <RowRulesEditor
+        widget={widget}
+        cols={cols}
+        controls={[...(pageControls || []), ...(widget.controls || [])]}
+        set={set}
+      />
       </>
       )}
     </div>

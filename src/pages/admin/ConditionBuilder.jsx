@@ -1,6 +1,8 @@
-import { X } from 'lucide-react'
+import { Sigma, X } from 'lucide-react'
 import { OPERATORS, operatorMeta } from '../../lib/config'
+import { conditionPatch, isFormulaCondition } from '../../lib/conditionFormula'
 import { Select, TextInput, optValue, toTabOptions, useWorkspaceCtx } from './ui.jsx'
+import FormulaInput from './FormulaInput.jsx'
 import { useId } from 'react'
 
 /**
@@ -24,8 +26,13 @@ import { useId } from 'react'
  * The list is EVERY value in the column, never narrowed by what the page is
  * currently showing: somebody writing a rule is describing what the data
  * CAN say, not what it happens to be saying while they write.
+ *
+ * `columns` is the tab's own column list, for the formula operator: it is
+ * what the guided editor suggests and checks names against. Absent, the
+ * editor still guides the functions and simply does not check the names --
+ * it must not call every column wrong because it was not told them.
  */
-export function OperatorValue({ operator, value, value2, onChange, className = 'w-44', choices = null }) {
+export function OperatorValue({ operator, value, value2, onChange, className = 'w-44', choices = null, columns = null }) {
   const meta = operatorMeta(operator)
   const listId = useId()
   const list = Array.isArray(choices) && choices.length > 0 ? choices : null
@@ -37,24 +44,35 @@ export function OperatorValue({ operator, value, value2, onChange, className = '
         options={OPERATORS}
         className={className}
       />
-      {meta.arity >= 1 && (
-        <>
-          <TextInput
-            type={meta.date ? 'date' : 'text'}
-            value={value}
-            onChange={(v) => onChange({ value: v })}
-            placeholder={list ? `value (${list.length})` : 'value'}
-            className="w-28"
-            list={list ? listId : undefined}
-          />
-          {list && (
-            <datalist id={listId}>
-              {list.map((v) => (
-                <option key={v} value={v} />
-              ))}
-            </datalist>
-          )}
-        </>
+      {meta.formula ? (
+        /* A formula is a sentence, not a value -- it gets the full width of
+           the row and an editor that helps write it. See FormulaInput. */
+        <FormulaInput
+          value={value}
+          onChange={(v) => onChange({ value: v })}
+          columns={columns || []}
+          className="basis-full"
+        />
+      ) : (
+        meta.arity >= 1 && (
+          <>
+            <TextInput
+              type={meta.date ? 'date' : 'text'}
+              value={value}
+              onChange={(v) => onChange({ value: v })}
+              placeholder={list ? `value (${list.length})` : 'value'}
+              className="w-28"
+              list={list ? listId : undefined}
+            />
+            {list && (
+              <datalist id={listId}>
+                {list.map((v) => (
+                  <option key={v} value={v} />
+                ))}
+              </datalist>
+            )}
+          </>
+        )
       )}
       {meta.arity === 2 && (
         <>
@@ -105,6 +123,7 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
     <div>
       <div className="space-y-1.5">
         {conditions.map((cond, ci) => {
+          const formula = isFormulaCondition(cond)
           return (
             <div key={ci} className="flex flex-wrap items-center gap-1.5">
               <span className="w-9 shrink-0 text-[10px] font-semibold uppercase text-slate-400">
@@ -112,25 +131,42 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
               </span>
               <Select
                 value={cond.tab}
-                onChange={(v) => setCondition(ci, { tab: v, column: '' })}
+                onChange={(v) => setCondition(ci, { tab: v, ...(formula ? {} : { column: '' }) })}
                 options={options}
                 className={compact ? 'w-28' : 'w-36'}
               />
-              <Select
-                value={cond.column}
-                onChange={(v) => setCondition(ci, { column: v })}
-                options={columnsOf(cond.tab)}
-                placeholder="— column —"
-                className={compact ? 'w-44' : 'w-52'}
-              />
+              {/* A formula names its columns inside itself, so the column
+                  picker gives way to a marker saying what this row is. */}
+              {formula ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-700"
+                  title="This condition is a formula over the whole row"
+                >
+                  <Sigma size={11} /> formula
+                </span>
+              ) : (
+                <Select
+                  value={cond.column}
+                  onChange={(v) => setCondition(ci, { column: v })}
+                  options={columnsOf(cond.tab)}
+                  placeholder="— column —"
+                  className={compact ? 'w-44' : 'w-52'}
+                />
+              )}
               <OperatorValue
                 operator={cond.operator}
                 value={cond.value}
                 value2={cond.value2}
-                onChange={(patch) => setCondition(ci, patch)}
+                // Choosing "formula" gives the condition the column the
+                // tidy-up filters keep it by; leaving it takes that away.
+                // See conditionPatch.
+                onChange={(patch) => setCondition(ci, conditionPatch(cond, patch))}
                 className={compact ? 'w-40' : 'w-48'}
-                // Everything that is in that column, as of the last sync.
+                // Everything that is in that column, as of the last sync. A
+                // formula row ignores it -- the formula editor takes the
+                // tab's columns instead, below.
                 choices={valuesFor?.(cond.tab, cond.column)}
+                columns={columnsOf(cond.tab)}
               />
               <button
                 onClick={() => removeCondition(ci)}

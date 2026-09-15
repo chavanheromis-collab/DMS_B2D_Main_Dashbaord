@@ -23,6 +23,7 @@
 //   engine in Dashboard.jsx.
 
 import { matchesConditions } from './filterEngine.js'
+import { describeFormula, isFormulaCondition } from './conditionFormula.js'
 
 export const DEFAULT_SCOPE = { match: 'all', conditions: [] }
 
@@ -138,6 +139,12 @@ export function describeScope(scope, labelFor = (t) => t) {
 
   const joiner = scope?.match === 'any' ? ' or ' : ' and '
   return conditions
-    .map((c) => `${labelFor(c.tab)} · ${c.column} ${c.operator || 'equals'} ${c.value ?? ''}`.trim())
+    // A formula carries a placeholder column, and "=formula formula [A] > 1"
+    // reads as a typo in the admin list. It is described as what it is.
+    .map((c) =>
+      isFormulaCondition(c)
+        ? `${labelFor(c.tab)} · ${describeFormula(c)}`
+        : `${labelFor(c.tab)} · ${c.column} ${c.operator || 'equals'} ${c.value ?? ''}`.trim()
+    )
     .join(joiner)
 }

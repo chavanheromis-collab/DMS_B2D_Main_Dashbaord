@@ -137,6 +137,7 @@ test('every live subscription either handles failure or cannot leave a screen wa
     'hooks/useUserPrefs.js',
     'hooks/useMessages.js',
     'hooks/useRowNotes.js',
+    'hooks/usePresence.js',
   ]) {
     const source = read(file)
     let at = source.indexOf('onSnapshot(')

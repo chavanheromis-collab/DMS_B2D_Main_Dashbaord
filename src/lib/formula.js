@@ -241,7 +241,9 @@ function describeArity([min, max]) {
 // ---------------------------------------------------------------------
 const num = (v) => (typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : toNumber(v))
 const text = (v) => (v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : String(v))
-const truthy = (v) => {
+// Exported so a formula CONDITION means true exactly as IF() does -- one
+// definition of truth for the language, not a second one that drifts.
+export const truthy = (v) => {
   if (typeof v === 'boolean') return v
   if (v === null || v === undefined || v === '') return false
   const n = toNumber(v)

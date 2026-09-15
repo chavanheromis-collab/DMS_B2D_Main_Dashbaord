@@ -11,6 +11,7 @@ import SplashScreen, { useSplash } from './components/SplashScreen.jsx'
 import { PageErrorBoundary } from './components/ErrorBoundary.jsx'
 import Booting from './components/Booting.jsx'
 import { applyFavicon, faviconHref } from './lib/favicon'
+import { PresenceHeartbeat } from './hooks/usePresence'
 
 /**
  * The admin panel, fetched only when somebody opens it.
@@ -94,6 +95,10 @@ export default function App() {
   return (
     <>
       {splash.show && <SplashScreen onDone={splash.dismiss} entrance={entrance} />}
+      {/* Up here rather than on the dashboard's shell: App never unmounts on
+          a route change, so opening the admin panel or another page is not,
+          to colleagues, leaving and coming back. See hooks/usePresence.js. */}
+      <PresenceHeartbeat />
       {authLoading ? (
         <Booting label="Signing you in" />
       ) : (

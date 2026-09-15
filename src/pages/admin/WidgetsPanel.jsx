@@ -481,7 +481,9 @@ export default function WidgetsPanel({
               {widget.type === 'chart' && <ChartEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'table' && <TableEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'trend' && <TrendEditor widget={widget} cols={cols} set={set} />}
-              {widget.type === 'pivot' && <PivotEditor widget={widget} cols={cols} set={set} />}
+              {widget.type === 'pivot' && (
+                <PivotEditor widget={widget} cols={cols} pageControls={pageControls} set={set} />
+              )}
               {widget.type === 'gauge' && <GaugeEditor widget={widget} cols={cols} tabs={tabs} tabHeaders={tabHeaders} set={set} />}
               {widget.type === 'activity' && <ActivityFeedEditor widget={widget} cols={cols} set={set} />}
               {widget.type === 'scorecard' && <ScorecardEditor widget={widget} tabs={tabs} tabHeaders={tabHeaders} set={set} />}
@@ -2290,6 +2292,9 @@ function ClearEditor({ widget, set, cols }) {
                   // page is showing -- a rule about "Cancelled" is written
                   // before anything has been cancelled.
                   choices={valuesFor?.(widget.tab, rule.column)}
+                  // For a formula rule: what the guided editor suggests and
+                  // checks names against.
+                  columns={cols}
                 />
               </div>
               <div className="ml-auto pb-1">
