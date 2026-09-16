@@ -319,7 +319,9 @@ test('nothing is stored differently for this', () => {
 test('typing goes through one place that decides what it means', () => {
   assert.ok(centre.includes('const sendInChat = useCallback('))
   assert.ok(centre.includes('if (replyTo) return reply(replyTo, text)'))
-  assert.ok(centre.includes('return send({ ...draftFor(conversationId, tone), body: text })'))
+  // Pictures go the same way words do -- through the one place that turns
+  // what was typed into either a reply or a new message.
+  assert.ok(centre.includes('return send({ ...draftFor(conversationId, tone), body: text, images })'))
 })
 
 test('opening a chat is reading it', () => {
@@ -356,9 +358,12 @@ test('the tone picker is on screen, not folded away', () => {
   // asking of somebody is the one thing about a message that cannot be
   // inferred from its words.
   assert.ok(!chat.includes('showTones'), 'nothing to open, because nothing is shut')
-  assert.ok(chat.includes('{TONES.map((t) => ('))
+  assert.ok(chat.includes('{TONE_CHOICES.map((t) => ('), 'the picker offers only what can be chosen')
   assert.ok(chat.includes('onClick={() => setTone(t.value)}'))
-  assert.ok(chat.includes('useState(DEFAULT_TONE)'), 'and it starts on the quiet one')
+  // It starts on whatever THIS person's messages usually ask for, which is
+  // the quiet one until they pin another -- see defaultToneOf.
+  assert.ok(chat.includes('useState(defaultTone)'), 'and it starts on their own default')
+  assert.ok(chat.includes('const { defaultTone, setDefaultTone } = useMessagePrefs()'))
 })
 
 test('which tone is chosen is readable without clicking anything', () => {
@@ -373,11 +378,21 @@ test('one avatar helper, not one per screen', () => {
   assert.ok(!chat.includes('AVATAR_TINTS'))
 })
 
-test('no media, only words', () => {
-  // Asked for explicitly: chat, and nothing to attach.
-  for (const word of ['type="file"', 'FileReader', 'Paperclip', 'accept="image']) {
+test('pictures, and nothing else to attach', () => {
+  // This began as "chat, and nothing to attach", and was reversed on
+  // request: a screenshot IS the message half the time. What has not
+  // changed is that it takes pictures only -- a chat that accepts any file
+  // becomes a filing cabinet nobody maintains, and this app already has a
+  // place for documents, which is the media columns on a row.
+  // The picker offers exactly the kinds the app accepts, from one list.
+  assert.ok(chat.includes('accept={ACCEPT}'))
+  assert.ok(chat.includes('onPaste={(e) => {'), 'a pasted screenshot is the fastest way to say "look at this"')
+  assert.ok(chat.includes('onDrop={(e) => {'))
+  for (const word of ['accept="*', 'accept=".pdf', 'application/pdf', 'FileReader']) {
     assert.ok(!chat.includes(word), word)
   }
+  // The bytes never go into the message: it keeps a link. See chatImages.
+  assert.ok(!chat.includes('data:image/'), 'a picture inlined in a message is re-read on every reply to it')
 })
 
 // ---------------------------------------------------------------------

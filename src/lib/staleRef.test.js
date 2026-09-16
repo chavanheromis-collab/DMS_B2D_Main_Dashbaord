@@ -61,6 +61,19 @@ test('something that only looks like a setter is left alone', () => {
   assert.deepEqual(findStaleRefReads('reset((v) => drag.current.x)'), [])
 })
 
+test('a timer is not a state updater: reading the ref late is the whole point', () => {
+  // A queued updater runs at a moment nobody chose, which is why reading a
+  // ref inside one is a bug. A timer runs at a moment somebody chose ON
+  // PURPOSE -- "if we are still not connected in six seconds" -- and
+  // caching the ref first, the fix demanded everywhere else, would make it
+  // ask about a connection that has since been replaced or closed.
+  assert.deepEqual(findStaleRefReads('window.setTimeout(() => pc.current.close(), 500)'), [])
+  assert.deepEqual(findStaleRefReads('const t = setInterval(() => { if (!pc.current.x) return }, 100)'), [])
+  assert.deepEqual(findStaleRefReads('setDoc(ref, () => box.current.value)'), [])
+  // And the real thing is still caught, one line below.
+  assert.equal(findStaleRefReads('setView((v) => drag.current.x)').length, 1)
+})
+
 // --- and the codebase itself ---------------------------------------------
 
 const SRC = path.resolve(import.meta.dirname, '..')

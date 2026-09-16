@@ -23,6 +23,7 @@
 // Pure: messages and a uid in, messages out. No Firestore, no React.
 
 import { cleanSharedRow } from './rowShare.js'
+import { cleanImages } from './chatImages.js'
 
 export const AUDIENCES = [
   { value: 'people', label: 'Choose people' },
@@ -43,7 +44,18 @@ export const AUDIENCES = [
  */
 export const TONES = [
   {
+    // RETIRED at the dealership's request, and kept here only so that
+    // messages ALREADY SENT still read as what they were.
+    //
+    // Deleting it outright was the obvious move and the wrong one: every
+    // quiet message ever sent carries `tone: 'fyi'`, `toneOf` falls back to
+    // the first tone in this list for anything it does not recognise, and
+    // that fallback now blocks the page. Last month's notices would have
+    // begun covering people's screens.
+    //
+    // Nothing offers it any more -- see TONE_CHOICES.
     value: 'fyi',
+    retired: true,
     label: 'Can be ignored',
     hint: 'A banner at the top of the page. Nothing has to happen.',
     blocks: false,
@@ -86,7 +98,47 @@ export const TONES = [
   },
 ]
 
-export const DEFAULT_TONE = 'fyi'
+/**
+ * The tones a person can choose.
+ *
+ * Everything that offers a choice reads this; everything that READS a
+ * message reads TONES, which still knows the retired one. That is the
+ * whole difference between removing an option and rewriting history.
+ */
+export const TONE_CHOICES = TONES.filter((t) => !t.retired)
+
+/**
+ * What a message asks for when nobody has said otherwise.
+ *
+ * The mildest one that can still be chosen -- which, now that the quiet
+ * option is gone, is not quiet: every new message covers the reader's page
+ * until they close it. That is what removing "can be ignored" means, and
+ * it is a decision about how much a message is allowed to interrupt rather
+ * than a default anybody should change lightly.
+ */
+export const DEFAULT_TONE = 'seen'
+
+/** Where one person's messaging settings live: userPrefs/{uid}_messaging. */
+export const MESSAGING_PREFS = 'messaging'
+
+/** Is this one of the four things a message can ask for? */
+// A CHOOSABLE tone. Somebody who pinned the retired one as their default
+// before it went falls back to the current default rather than keeping a
+// setting they can no longer see or change.
+export const isTone = (tone) => TONE_CHOICES.some((t) => t.value === tone)
+
+/**
+ * What THIS person's messages start as.
+ *
+ * Whoever spends the day asking for answers should say so once rather than
+ * four times a day, and whoever only ever posts notices should never have
+ * to think about it at all. Anything unrecognised falls back to the mild
+ * default: a tone this build does not know must not become a message that
+ * covers somebody's screen.
+ */
+export function defaultToneOf(prefs) {
+  return isTone(prefs?.defaultTone) ? prefs.defaultTone : DEFAULT_TONE
+}
 
 /** How long the sender's own copy stays up. Long enough to read it back. */
 export const SENT_RECEIPT_MS = 4000
@@ -339,7 +391,10 @@ export function audienceLabel(message, usersById = {}) {
  */
 export function draftProblem(draft) {
   const body = String(draft?.body || '').trim()
-  if (!body) return 'Write something first'
+  // A picture on its own is a message. "Look at this" is the whole point of
+  // sending one, and demanding a caption for it would be the app asking for
+  // words it does not need.
+  if (!body && cleanImages(draft?.images).length === 0) return 'Write something first'
   if (body.length > MAX_BODY) return `Too long by ${body.length - MAX_BODY} characters`
   if (draft?.audience !== 'all' && (draft?.to || []).length === 0) return 'Pick who it goes to'
   return ''
@@ -360,7 +415,10 @@ export function messageDoc(draft, sender) {
     audience,
     to: audience === 'all' ? [] : [...new Set((draft?.to || []).filter(Boolean))],
     body: String(draft?.body || '').trim().slice(0, MAX_BODY),
-    tone: TONES.some((t) => t.value === draft?.tone) ? draft.tone : DEFAULT_TONE,
+    // Only ever one of the choices: a draft carrying the retired tone --
+    // from an old browser tab left open, or a hand-made call -- becomes the
+    // default rather than being stored as something nothing can offer.
+    tone: isTone(draft?.tone) ? draft.tone : DEFAULT_TONE,
     createdAt: new Date().toISOString(),
     readBy: [],
     dismissedBy: [],
@@ -369,6 +427,10 @@ export function messageDoc(draft, sender) {
     // one path every message is built by, so no caller can store a shape
     // the card cannot draw. See lib/rowShare.js.
     ...(cleanSharedRow(draft?.row) ? { row: cleanSharedRow(draft.row) } : {}),
+    // Pictures, as links to what was uploaded. Cleaned on the same one
+    // path, and left out entirely when there are none so a plain message
+    // is exactly the document it always was. See lib/chatImages.js.
+    ...(cleanImages(draft?.images).length > 0 ? { images: cleanImages(draft.images) } : {}),
   }
 }
 

@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, Megaphone, MessageSquarePlus, Search, Send, Trash2, Users, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  Check,
+  ImagePlus,
+  Loader2,
+  Megaphone,
+  MessageSquarePlus,
+  Phone,
+  Pin,
+  Search,
+  Send,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react'
 import {
   ALL,
   clockOf,
@@ -16,13 +30,18 @@ import {
   runsWith,
   titleOf,
 } from '../lib/conversations'
-import { DEFAULT_TONE, MAX_BODY, TONES, canReceiveMessages, toneOf, whenText } from '../lib/messages'
+import { MAX_BODY, TONE_CHOICES, canReceiveMessages, toneOf, whenText } from '../lib/messages'
+import { useMessagePrefs } from '../hooks/useMessages'
 import { avatarSpec } from '../lib/avatar'
 import { PRESENCE_TICK_MS, groupPresence, groupPresenceText, presenceFor } from '../lib/presence'
 import { usePresenceBeats } from '../hooks/usePresence'
 import { useNow } from '../hooks/useReminders'
 import SharedRowCard from './SharedRowCard.jsx'
 import { isDefaultShareBody } from '../lib/rowShare'
+import { requestCall } from '../lib/callBus'
+import { useChatImages } from '../hooks/useChatImages'
+import { ACCEPT, MAX_IMAGES, bubbleSize, imagesFrom, roomFor } from '../lib/chatImages'
+import { supportsCalls } from '../lib/callSignal'
 
 /**
  * The message centre, as a chat.
@@ -48,6 +67,10 @@ export default function Conversations({
 }) {
   const [openId, setOpenId] = useState(null)
   const [starting, setStarting] = useState(false)
+
+  // What this person's messages start as -- theirs, not the app's. See
+  // hooks/useMessages.js.
+  const { defaultTone, setDefaultTone } = useMessagePrefs()
 
   const rows = useMemo(() => conversationsFor(messages, uid, byId), [messages, uid, byId])
 
@@ -97,6 +120,8 @@ export default function Conversations({
             byId={byId}
             seen={seen}
             maySend={maySend}
+            defaultTone={defaultTone}
+            onDefaultTone={setDefaultTone}
             onBack={() => setOpenId(null)}
             onRead={onRead}
             onSend={onSend}
@@ -306,9 +331,13 @@ function List({ rows, byId, seen, onOpen, onClose, onStart }) {
 // Screen two: the conversation
 // ---------------------------------------------------------------------
 
-function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, onUnsend }) {
+function Chat({ id, messages, uid, byId, seen, maySend, defaultTone, onDefaultTone, onBack, onRead, onSend, onUnsend }) {
   const [text, setText] = useState('')
-  const [tone, setTone] = useState(DEFAULT_TONE)
+  // Pictures wait here while the message is written, so pasting three
+  // screenshots and then typing a line is one message rather than four.
+  const pictures = useChatImages()
+  const [zoomed, setZoomed] = useState(null)
+  const [tone, setTone] = useState(defaultTone)
   const [sending, setSending] = useState(false)
   const [failed, setFailed] = useState('')
   const endRef = useRef(null)
@@ -348,9 +377,16 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
     boxRef.current?.focus()
   }, [id])
 
+  // Every chat opens at what this person usually means, and so does the
+  // moment their preference arrives from the database or changes.
+  useEffect(() => {
+    setTone(defaultTone)
+  }, [id, defaultTone])
+
   async function submit() {
     const body = text.trim()
-    if (!body || sending) return
+    // A picture on its own is a message; words on their own still are too.
+    if ((!body && pictures.images.length === 0) || sending || pictures.busy > 0) return
     setSending(true)
     setFailed('')
     try {
@@ -358,9 +394,10 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
       // newest thing here is a question somebody asked you, saying something
       // closes it -- otherwise every answer would leave the question open
       // and the dialogue would keep coming back.
-      await onSend({ conversationId: id, text: body, tone, replyTo: owed })
+      await onSend({ conversationId: id, text: body, tone, replyTo: owed, images: pictures.images })
       setText('')
-      setTone(DEFAULT_TONE)
+      setTone(defaultTone)
+      pictures.clear()
     } catch (e) {
       setFailed(e?.message || 'That could not be sent')
     } finally {
@@ -401,6 +438,21 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
             </p>
           )}
         </div>
+
+        {/* One person only. A call here is two browsers talking directly to
+            each other (see lib/callSignal.js), and three of them would need
+            a server in the middle. The dot above says whether they are
+            there to answer. */}
+        {kindOf(id) === 'direct' && supportsCalls() && (
+          <button
+            onClick={() => requestCall(id)}
+            title={`Call ${title} — talk and share screens`}
+            aria-label={`Call ${title}`}
+            className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 p-2 text-emerald-700 hover:bg-emerald-100"
+          >
+            <Phone size={14} />
+          </button>
+        )}
       </header>
 
       <div className="min-h-0 flex-1 space-y-1 overflow-y-auto bg-slate-50/60 px-3 py-3">
@@ -442,6 +494,7 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
                 mine={mine}
                 run={run}
                 name={byId[e.from]?.name || e.name}
+                onZoom={setZoomed}
                 onUnsend={mine && !e.isReply ? () => onUnsend({ id: e.messageId }) : null}
               />
             </div>
@@ -449,6 +502,8 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
         })}
         <div ref={endRef} />
       </div>
+
+      {zoomed && <Lightbox image={zoomed} onClose={() => setZoomed(null)} />}
 
       {maySend ? (
         <div className="border-t border-slate-100 p-2">
@@ -459,7 +514,7 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
               words. The chosen one is filled in, so the current answer is
               readable without opening anything. */}
           <div className="mb-1.5 flex flex-wrap items-center gap-1">
-            {TONES.map((t) => (
+            {TONE_CHOICES.map((t) => (
               <button
                 key={t.value}
                 onClick={() => setTone(t.value)}
@@ -474,8 +529,65 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
                 {t.label}
               </button>
             ))}
+            {/* Offered exactly when somebody has just made the same choice
+                again: a person who always asks for an answer should say so
+                once rather than four times a day. It disappears once it IS
+                the default, which is how the setting says what it is. */}
+            {tone !== defaultTone && onDefaultTone && (
+              <button
+                onClick={() => onDefaultTone(tone)}
+                title={`Start every message as “${toneOf({ tone }).label}”`}
+                className="inline-flex items-center gap-0.5 rounded-lg border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 hover:border-indigo-300 hover:text-indigo-600"
+              >
+                <Pin size={9} /> make default
+              </button>
+            )}
           </div>
           <p className="mb-1.5 text-[10px] leading-snug text-slate-400">{toneOf({ tone }).hint}</p>
+
+          {/* What is going with it, before it goes. Removing one here takes
+              the uploaded picture with it -- see useChatImages. */}
+          {(pictures.images.length > 0 || pictures.busy > 0) && (
+            <div className="mb-1.5 flex flex-wrap items-center gap-1">
+              {pictures.images.map((image) => (
+                <span key={image.path} className="relative">
+                  <img
+                    src={image.url}
+                    alt=""
+                    className="h-14 w-14 rounded-lg border border-slate-200 object-cover"
+                  />
+                  <button
+                    onClick={() => pictures.remove(image.path)}
+                    aria-label="Remove this picture"
+                    title="Remove"
+                    className="absolute -right-1 -top-1 rounded-full bg-slate-700 p-0.5 text-white hover:bg-rose-600"
+                  >
+                    <X size={9} />
+                  </button>
+                </span>
+              ))}
+              {/* With a number on it. A spinner cannot tell the difference
+                  between an upload that is slow and one that is dead, and
+                  that difference is the whole complaint. */}
+              {pictures.busy > 0 && (
+                <span className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-slate-200 text-slate-400">
+                  <Loader2 size={14} className="animate-spin" />
+                  {pictures.percent > 0 && (
+                    <span className="text-[9px] font-semibold tabular-nums">{pictures.percent}%</span>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
+
+          {pictures.error && (
+            <p className="mb-1.5 flex items-start gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] leading-snug text-rose-600">
+              <span className="flex-1">{pictures.error}</span>
+              <button onClick={pictures.clearError} aria-label="Close" className="shrink-0 text-rose-400">
+                <X size={10} />
+              </button>
+            </p>
+          )}
 
           {owed && (
             <p className="mb-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] leading-snug text-amber-700">
@@ -484,12 +596,50 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
             </p>
           )}
 
-          <div className="flex items-end gap-1.5">
+          <div
+            className="flex items-end gap-1.5"
+            // Dropped anywhere on the box, which is where somebody drags a
+            // screenshot to.
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              const files = imagesFrom(e.dataTransfer?.files, { max: roomFor(pictures.images) })
+              if (files.length === 0) return
+              e.preventDefault()
+              pictures.add(files)
+            }}
+          >
+            <label
+              title={`Send a picture (up to ${MAX_IMAGES})`}
+              className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-600"
+            >
+              <ImagePlus size={15} />
+              <input
+                type="file"
+                accept={ACCEPT}
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  pictures.add(imagesFrom(e.target.files, { max: roomFor(pictures.images) }))
+                  // So choosing the same file twice in a row still counts.
+                  e.target.value = ''
+                }}
+              />
+              <span className="sr-only">Send a picture</span>
+            </label>
             <textarea
               ref={boxRef}
               rows={1}
               value={text}
               onChange={(e) => setText(e.target.value.slice(0, MAX_BODY))}
+              // A screenshot pasted straight into the box: the fastest way
+              // there is to say "look at this", and the reason this feature
+              // exists at all.
+              onPaste={(e) => {
+                const files = imagesFrom(e.clipboardData?.files, { max: roomFor(pictures.images) })
+                if (files.length === 0) return
+                e.preventDefault()
+                pictures.add(files)
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
@@ -501,7 +651,7 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
             />
             <button
               onClick={submit}
-              disabled={!text.trim() || sending}
+              disabled={(!text.trim() && pictures.images.length === 0) || sending || pictures.busy > 0}
               aria-label="Send"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40"
             >
@@ -524,14 +674,53 @@ function Chat({ id, messages, uid, byId, seen, maySend, onBack, onRead, onSend, 
 }
 
 /**
+ * One picture, as big as the screen allows.
+ *
+ * Its own rather than the table's media viewer: that one is built around a
+ * row's file columns -- names, kinds, downloads, paging through a record's
+ * attachments -- and a chat picture is one picture with none of that.
+ */
+function Lightbox({ image, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-[10100] flex items-center justify-center bg-slate-900/80 p-4 backdrop-blur-sm"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Picture"
+    >
+      <img src={image.url} alt="" className="max-h-full max-w-full rounded-lg shadow-2xl" />
+      <button
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute right-4 top-4 rounded-full bg-slate-800/80 p-2 text-white hover:bg-slate-700"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  )
+}
+
+/**
  * One bubble.
  *
  * Mine on the right in indigo, theirs on the left in white -- the shape
  * everybody already knows, so nobody has to learn which side is which.
  */
-function Bubble({ entry, mine, run, name, onUnsend }) {
+function Bubble({ entry, mine, run, name, onZoom, onUnsend }) {
   const tone = entry.tone ? toneOf(entry) : null
-  const marked = tone && tone.value !== 'fyi'
+  // The retired one carried no label, because it asked for nothing. Read
+  // from the tone rather than from its name, so this says what it means
+  // and does not have to be found again the next time the list changes.
+  const marked = tone && !tone.retired
 
   return (
     <div className={`group flex gap-2 ${mine ? 'flex-row-reverse' : ''} ${run ? 'mt-0.5' : 'mt-2'}`}>
@@ -565,6 +754,31 @@ function Bubble({ entry, mine, run, name, onUnsend }) {
               text. The stand-in sentence under a card would only repeat its
               heading, so it is left out when the sender wrote nothing. */}
           {entry.row && <SharedRowCard row={entry.row} className="my-1 w-64 max-w-full" />}
+          {/* Drawn at the shape it was sent at, so the chat does not jump
+              as each picture arrives. */}
+          {(entry.images || []).map((image) => {
+            const box = bubbleSize(image)
+            return (
+              <button
+                key={image.url}
+                type="button"
+                onClick={() => onZoom?.(image)}
+                title="Open the picture"
+                className="my-1 block overflow-hidden rounded-lg border border-white/30 bg-slate-100"
+                style={{ width: box.width, maxWidth: '100%' }}
+              >
+                <img
+                  src={image.url}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  width={box.width}
+                  height={box.height}
+                  className="block h-auto w-full object-cover"
+                />
+              </button>
+            )
+          })}
           {!(entry.row && isDefaultShareBody({ row: entry.row, body: entry.text })) && (
             <span className="whitespace-pre-wrap break-words">{entry.text}</span>
           )}

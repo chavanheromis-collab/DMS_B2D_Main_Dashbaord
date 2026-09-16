@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Bell, BellRing, Check, CornerUpLeft, Eye, Megaphone, Minus, Send, Trash2, X } from 'lucide-react'
 import {
   AUDIENCES,
-  DEFAULT_TONE,
   MAX_BODY,
   MAX_REPLY,
   TONES,
@@ -124,9 +123,12 @@ export default function MessageCenter() {
    * Otherwise it is a new message to the same people.
    */
   const sendInChat = useCallback(
-    ({ conversationId, text, tone, replyTo }) => {
+    ({ conversationId, text, tone, replyTo, images }) => {
+      // A reply is text only: it is appended to somebody else's message,
+      // and a picture belongs to a message of its own rather than inside
+      // one that has already been read and answered.
       if (replyTo) return reply(replyTo, text)
-      return send({ ...draftFor(conversationId, tone), body: text })
+      return send({ ...draftFor(conversationId, tone), body: text, images })
     },
     [reply, send]
   )

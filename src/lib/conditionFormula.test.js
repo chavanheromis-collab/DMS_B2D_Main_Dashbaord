@@ -393,7 +393,7 @@ test('the condition builder gives the condition its column, and says it is a for
 test('the guided editor talks back, and does not lag the typing', () => {
   const input = read('pages/admin/FormulaInput.jsx')
   // The shared buffer, so a page editor does not re-render per letter.
-  assert.ok(input.includes("useTypingBuffer(value || '', onChange)"))
+  assert.ok(input.includes("useTypingBuffer(value || '', onChange"))
   assert.ok(input.includes('suggestionsAt(text, cursor ?? text.length, columns)'))
   assert.ok(input.includes('checkFormula(text, columns)'))
   // mousedown, or the blur closes the list before the click lands.

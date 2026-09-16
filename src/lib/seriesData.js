@@ -238,6 +238,12 @@ export function timeSeriesBy(
     maxBuckets = 36,
     maxSeries = 6,
     seriesSort = 'total',
+    // The span to draw, when the caller has one in mind -- a reader who has
+    // gone inside a period. Without it the axis runs from the first row to
+    // the last, which is right for "everything there is" and wrong for
+    // "inside this quarter": see below.
+    from = null,
+    to = null,
   }
 ) {
   if (!dateColumn) return { data: [], series: [], rolled: [] }
@@ -283,7 +289,10 @@ export function timeSeriesBy(
     if (max === null || key > max) max = key
   }
 
-  if (min === null) return { data: [], series: [], rolled: [] }
+  // Nothing at all -- unless a span was asked for, which is a period in its
+  // own right. Going inside a month that turned out to be empty should show
+  // that month, empty, rather than an error where a chart was.
+  if (min === null && from === null) return { data: [], series: [], rolled: [] }
 
   // Series are chosen on their TOTAL over the whole window, not on any one
   // bucket -- otherwise a one-off spike in March could evict a series that
@@ -340,9 +349,16 @@ export function timeSeriesBy(
     return { data, series: picked.series, rolled: picked.rolled, otherLabel: picked.otherLabel, cyclical: true }
   }
 
+  // An asked-for span is drawn whole, whatever the rows happen to hold. Go
+  // into a quarter whose July and August are empty and they must come out
+  // as zeros: "nothing happened then" is the finding, and an axis that
+  // starts at the first row it can find hides exactly that.
+  const first = from === null ? min : bucketStart(new Date(from), grain).getTime()
+  const last = to === null ? max : new Date(to).getTime()
+
   const data = []
-  let cursor = new Date(min)
-  while (cursor.getTime() <= max && data.length < maxBuckets * 4) {
+  let cursor = new Date(first)
+  while (cursor.getTime() <= last && data.length < maxBuckets * 4) {
     const key = cursor.getTime()
     const next = nextBucket(cursor, grain)
     data.push(

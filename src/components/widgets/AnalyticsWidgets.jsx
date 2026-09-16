@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ExportButton from '../ExportButton.jsx'
 import {
+  ALL_TIME_GRAINS,
   asPercent,
   modeStacks,
   stackOffsetFor,
@@ -41,6 +42,16 @@ import {
   toNumber,
 } from '../../lib/dataUtils'
 import { matchesConditions } from '../../lib/filterEngine'
+import {
+  backTo,
+  canZoom,
+  crumbs,
+  rowsInWindow,
+  stepInto,
+  trailGrain,
+  zoomBlocked,
+  zoomWindow,
+} from '../../lib/trendZoom'
 import { gridProps } from '../../lib/chartVisuals.js'
 import { MousePointerClick } from 'lucide-react'
 
@@ -76,10 +87,37 @@ export function TrendWidget({
   const [hidden, setHidden] = useState(() => new Set())
   const [hover, setHover] = useState(null)
 
+  // Where the reader has gone, and what they are looking at it by. Theirs
+  // alone: it changes nothing for anybody else and nothing the admin saved,
+  // and it lasts as long as the page is open. See lib/trendZoom.js.
+  const [trail, setTrail] = useState([])
+  const [picked, setPicked] = useState('')
+
+  const adminGrain = picked || widget.grain || 'month'
+  const grain = trailGrain(trail, adminGrain)
+  // Memoised: `zoomWindow` builds a fresh object, and a new one on every
+  // render would rebuild the whole series on every render with it.
+  const window = useMemo(() => zoomWindow(trail), [trail])
+
+  // The admin changing the bucket, or the column, is a different chart --
+  // standing inside last year's September would be showing a period nobody
+  // asked for.
+  useEffect(() => {
+    setTrail([])
+    setPicked('')
+  }, [widget.grain, widget.dateColumn])
+
+  // Everything inside the period being looked at, which at the top is
+  // everything.
+  const inWindow = useMemo(
+    () => rowsInWindow(source, widget.dateColumn, window, dateOrder),
+    [source, widget.dateColumn, window, dateOrder]
+  )
+
   const shape = (input) =>
     timeSeriesBy(input, {
       dateColumn: widget.dateColumn,
-      grain: widget.grain || 'month',
+      grain,
       breakdown,
       breakdownGrain: widget.breakdownGrain || '',
       valueColumn: widget.column,
@@ -87,14 +125,19 @@ export function TrendWidget({
       order: dateOrder,
       maxSeries: Number(widget.maxSeries) > 0 ? Number(widget.maxSeries) : 6,
       seriesSort: widget.seriesSort || 'total',
+      // Inside a period, the axis is that period -- so an empty week in the
+      // middle of the month reads as a dip rather than disappearing.
+      from: window ? window.from : null,
+      to: window ? window.to : null,
     })
 
   const built = useMemo(
-    () => shape(source),
+    () => shape(inWindow),
     [
-      source,
+      inWindow,
+      window,
       widget.dateColumn,
-      widget.grain,
+      grain,
       breakdown,
       widget.breakdownGrain,
       widget.column,
@@ -154,6 +197,11 @@ export function TrendWidget({
 
     const bucket = data.find((d) => d.name === bucketName)
     if (!bucket) return
+
+    // Inside the period, if there is an inside to go to. The page filter
+    // below happens either way: the zoom is what this chart does, the
+    // cross-filter is what the rest of the dashboard does.
+    if (canZoom(grain, bucket)) setTrail((current) => stepInto(current, bucket, grain))
 
     // A cyclical bucket is not a span -- "March" is three Marches from three
     // different years, and no date range covers it. What it IS, exactly, is
@@ -341,14 +389,56 @@ export function TrendWidget({
         <div className="min-w-0">
           <h2 className="widget-title"><span className="widget-icon">📅</span> {widget.title}</h2>
           <p className="widget-caption truncate text-[11px] text-slate-400">
-            {widget.tab} · {widget.dateColumn || '—'} by {widget.grain || 'month'}
+            {widget.tab} · {widget.dateColumn || '—'} by {grain}
             {breakdown && ` · split by ${breakdown}`}
             {widget.cumulative && ' · cumulative'}
-            {isCyclical(widget.grain) && ' · every year folded onto one cycle'}
+            {isCyclical(grain) && ' · every year folded onto one cycle'}
             {onCrossFilter && ' · click a period to drill in'}
           </p>
+
+          {/* Where you are, and the way back. Drawn at the top even at the
+              top level, so it is a place rather than something that appears
+              only once somebody is lost inside it. */}
+          {trail.length > 0 && (
+            <nav aria-label="Zoom trail" className="mt-1 flex flex-wrap items-center gap-1 text-[11px]">
+              {crumbs(trail).map((crumb, i) => (
+                <span key={`${crumb.label}-${crumb.index}`} className="flex items-center gap-1">
+                  {i > 0 && <span className="text-slate-300">›</span>}
+                  {crumb.index === trail.length - 1 ? (
+                    <span className="font-semibold text-indigo-700">{crumb.label}</span>
+                  ) : (
+                    <button
+                      onClick={() => setTrail(backTo(trail, crumb.index))}
+                      className="rounded px-1 text-slate-500 underline-offset-2 hover:text-indigo-600 hover:underline"
+                    >
+                      {crumb.label}
+                    </button>
+                  )}
+                </span>
+              ))}
+            </nav>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* Every bucket the language has, not only the one the admin
+              chose: "by day of week" is a question a reader asks of a chart
+              they are already looking at, and it was an admin-panel trip. */}
+          <select
+            value={picked || widget.grain || 'month'}
+            onChange={(e) => {
+              setPicked(e.target.value)
+              setTrail([])
+            }}
+            aria-label="Bucket this by"
+            title="Bucket this by — yours only, and only until the page is reloaded"
+            className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-600 focus:border-indigo-400 focus:outline-none"
+          >
+            {ALL_TIME_GRAINS.map((g) => (
+              <option key={g.value} value={g.value}>
+                {g.label}
+              </option>
+            ))}
+          </select>
           {canExport && (
             <ExportButton
               name={widget.title || widget.tab}

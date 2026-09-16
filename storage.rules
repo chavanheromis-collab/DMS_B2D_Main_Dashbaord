@@ -1,0 +1,52 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------
+// Files, which here means pictures in a chat
+// ---------------------------------------------------------------------
+// The only thing this project stores as a file. Everything else it shows --
+// a photo on a row, an invoice PDF -- lives in Google Drive or on the
+// spreadsheet's own links and is never uploaded here.
+//
+// Deploy with: firebase deploy --only storage
+// (Storage must be enabled for the project first, in the Firebase console.)
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // chatImages/{uid}/{file}
+    //
+    // WRITTEN BY ITS OWNER, AND NOBODY ELSE. The path carries the sender's
+    // uid and the rule checks it, so nobody can put a file in somebody
+    // else's folder or overwrite what they sent.
+    //
+    // READ BY ANYONE SIGNED IN. A picture is sent to colleagues, and the
+    // recipients are named on the message rather than in the path -- a rule
+    // here cannot know them without reading the message, and there is no
+    // message yet when the picture is uploaded. The link itself also
+    // carries an unguessable token. So: everyone with an account on this
+    // dashboard can open a chat picture if they have its link, and nothing
+    // sensitive should be sent in one. Deliberate, and the reason it is
+    // written down here.
+    //
+    // ONLY PICTURES, AND ONLY SMALL ONES. The app shrinks before it uploads
+    // -- 1600px on the long edge -- so anything arriving near this ceiling
+    // is something that did not come from the app.
+    match /chatImages/{userId}/{file} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Nothing else is stored, so nothing else is allowed.
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

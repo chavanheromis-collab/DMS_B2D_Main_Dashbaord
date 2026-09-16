@@ -71,6 +71,39 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // One call: calls/{callId}
+    //
+    // Not the call itself -- voice and screen go browser to browser and
+    // never pass through here (see src/lib/callSignal.js). This document is
+    // only the handshake: each side's description of how it can be reached,
+    // and the network candidates to try. It is deleted when the call ends.
+    //
+    // ONLY THE TWO PEOPLE IN IT, on every verb. A call document names both
+    // of them, so the rule is the same question each time: is the person
+    // asking one of the two?
+    //
+    // A CALL COMES FROM ITS CALLER. `from` must be the writer's own uid, so
+    // nobody can make a phone ring with somebody else's name on it.
+    //
+    // NEITHER OF THEM CAN CHANGE WHO IS IN IT. Everything else on the
+    // document -- the offer, the answer, the candidates, who is sharing,
+    // the ending -- is written by both sides as the call goes on, which is
+    // what a handshake is.
+    match /calls/{callId} {
+      function mine() {
+        return isSignedIn() && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+      }
+      allow read, delete: if mine();
+      allow create: if isSignedIn() &&
+        request.resource.data.from == request.auth.uid &&
+        request.resource.data.to is string &&
+        request.resource.data.to != request.auth.uid &&
+        request.resource.data.status == 'ringing';
+      allow update: if mine() &&
+        request.resource.data.from == resource.data.from &&
+        request.resource.data.to == resource.data.to;
+    }
+
     // Per-user, per-page grants: access/{uid}_{pageId}
     //
     // NOTE: `get` only. Rules are filters for nobody -- a LIST query over
@@ -167,11 +200,20 @@ service cloud.firestore {
           .data.get('canSendMessages', true) == true;
       }
 
+      // A message carries words, or pictures, or both -- "look at this" is
+      // a whole message, and demanding a caption for a screenshot would be
+      // the rule asking for words nobody needs. Pictures themselves live in
+      // Storage (see storage.rules); what is kept here is a link each.
+      function pictures() {
+        return request.resource.data.get('images', []);
+      }
+
       allow create: if isSignedIn() && maySend() &&
         request.resource.data.from == request.auth.uid &&
         request.resource.data.body is string &&
-        request.resource.data.body.size() > 0 &&
+        (request.resource.data.body.size() > 0 || pictures().size() > 0) &&
         request.resource.data.body.size() <= 600 &&
+        pictures().size() <= 4 &&
         request.resource.data.audience in ['all', 'people'] &&
         request.resource.data.readBy.size() == 0 &&
         request.resource.data.dismissedBy.size() == 0 &&

@@ -4,10 +4,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   AUDIENCES,
+  TONE_CHOICES,
   MAX_BODY,
   TONES,
   addressedTo,
   audienceLabel,
+  defaultToneOf,
   draftProblem,
   hasReplied,
   inboxFor,
@@ -137,6 +139,11 @@ test('a tone is an obligation, not a volume', () => {
   // What the reader has to DO is the thing they need to know: may I carry
   // on, do I have to look, do I have to answer.
   assert.deepEqual(TONES.map((t) => t.value), ['fyi', 'seen', 'ask', 'urgent'])
+  // "Can be ignored" is no longer offered anywhere -- but it is still
+  // KNOWN, because messages sent before it went still carry it and must go
+  // on reading as the quiet thing they were.
+  assert.deepEqual(TONE_CHOICES.map((t) => t.value), ['seen', 'ask', 'urgent'])
+  assert.equal(TONES[0].retired, true)
   assert.equal(toneOf(msg({ tone: 'fyi' })).blocks, false, 'the one that can be ignored covers nothing')
   assert.equal(toneOf(msg({ tone: 'seen' })).blocks, true)
   assert.equal(toneOf(msg({ tone: 'ask' })).needsReply, true)
@@ -298,8 +305,11 @@ test('a stored message is trimmed, deduped and stamped', () => {
 test('an unknown tone asks the least, rather than the most', () => {
   // A message stored with a tone nobody recognises must not end up covering
   // everybody's screen because the fallback happened to be the loud one.
-  assert.equal(messageDoc({ body: 'x', audience: 'all', tone: 'siren' }, {}).tone, 'fyi')
-  assert.equal(messageDoc({ body: 'x', audience: 'all' }, {}).tone, 'fyi')
+  assert.equal(messageDoc({ body: 'x', audience: 'all', tone: 'siren' }, {}).tone, DEFAULT_TONE)
+  assert.equal(messageDoc({ body: 'x', audience: 'all' }, {}).tone, DEFAULT_TONE)
+  // And a draft still carrying the retired tone -- an old tab left open --
+  // is stored as the default rather than as something nothing offers.
+  assert.equal(messageDoc({ body: 'x', audience: 'all', tone: 'fyi' }, {}).tone, DEFAULT_TONE)
 })
 
 test('a reply carries who said it and when', () => {
@@ -601,7 +611,11 @@ test('the chat opens on a tone that exists', () => {
   // hint under the picker was blank, and messageDoc normalised it to fyi on
   // the way out -- so the screen and the send disagreed.
   assert.ok(TONES.some((t) => t.value === DEFAULT_TONE))
-  assert.ok(chat.includes('useState(DEFAULT_TONE)'))
+  // The chat now opens on the person's own default, and that is where a
+  // tone which is not one of the four is caught: `defaultToneOf` refuses
+  // anything it does not know rather than handing it to the picker.
+  assert.ok(chat.includes('useState(defaultTone)'))
+  assert.equal(defaultToneOf({ defaultTone: 'note' }), DEFAULT_TONE)
   assert.ok(!chat.includes("tone: 'note'"))
 })
 

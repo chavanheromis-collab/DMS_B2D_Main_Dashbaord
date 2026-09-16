@@ -10,7 +10,7 @@ import {
   suggestionsAt,
 } from '../../lib/conditionFormula'
 import { FUNCTIONS, functionHelp } from '../../lib/formula'
-import { useTypingBuffer } from '../../hooks/useTypingBuffer'
+import { SLOW_TYPING_PAUSE, useTypingBuffer } from '../../hooks/useTypingBuffer'
 import { useLocalState } from '../../hooks/usePageData'
 import { explainFormula, formulaToRule } from '../../lib/ruleBuilder'
 import RuleBuilder from './RuleBuilder.jsx'
@@ -62,7 +62,12 @@ export default function FormulaInput({
   // The same buffer every other text box in the admin panel uses: a
   // condition's owner is a whole page editor, and re-rendering it on every
   // letter is how a formula box comes to lag behind the typing.
-  const [text, onType, flush] = useTypingBuffer(value || '', onChange)
+  // And it waits longer than an ordinary box before doing so: a condition
+  // is not previewed live anywhere, its owner is a whole widget editor,
+  // and a formula is typed with thinking in the middle of it -- which the
+  // ordinary pause read as "finished" over and over. See
+  // hooks/useTypingBuffer.js.
+  const [text, onType, flush] = useTypingBuffer(value || '', onChange, { pause: SLOW_TYPING_PAUSE })
 
   const ref = useRef(null)
   const pendingCursor = useRef(null)

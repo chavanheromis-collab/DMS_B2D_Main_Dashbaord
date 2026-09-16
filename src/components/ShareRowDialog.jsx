@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Search, Send, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
-import { useMessageActions, usePeople } from '../hooks/useMessages'
+import { useMessageActions, useMessagePrefs, usePeople } from '../hooks/useMessages'
 import { usePresenceBeats } from '../hooks/usePresence'
 import { useNow } from '../hooks/useReminders'
-import { DEFAULT_TONE, TONES, audienceLabel, canReceiveMessages, canSendMessages, toneOf } from '../lib/messages'
+import { TONE_CHOICES, audienceLabel, canReceiveMessages, canSendMessages, toneOf } from '../lib/messages'
 import { MAX_SHARE_NOTE, shareBody, shareProblem } from '../lib/rowShare'
 import { PRESENCE_TICK_MS, presenceFor } from '../lib/presence'
 import { avatarSpec } from '../lib/avatar'
@@ -36,11 +36,14 @@ export default function ShareRowDialog({ snapshot, onClose }) {
   // this one" in a minute, and that is worth seeing while choosing.
   const beats = usePresenceBeats()
   const now = useNow(PRESENCE_TICK_MS)
+  // A row goes out asking for whatever this person's messages usually ask
+  // for -- the same setting the chat composer uses.
+  const { defaultTone } = useMessagePrefs()
 
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState([])
   const [note, setNote] = useState('')
-  const [tone, setTone] = useState(DEFAULT_TONE)
+  const [tone, setTone] = useState(defaultTone)
   const [sending, setSending] = useState(false)
   const [failed, setFailed] = useState('')
   const [sentTo, setSentTo] = useState('')
@@ -52,6 +55,11 @@ export default function ShareRowDialog({ snapshot, onClose }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // The dialog can open before the preference has arrived.
+  useEffect(() => {
+    setTone(defaultTone)
+  }, [defaultTone])
 
   // Sent is shown long enough to be read, then it gets out of the way.
   useEffect(() => {
@@ -218,7 +226,7 @@ export default function ShareRowDialog({ snapshot, onClose }) {
               <div>
                 <p className="mb-1 text-[11px] font-medium text-slate-500">What you need from them</p>
                 <div className="flex flex-wrap gap-1">
-                  {TONES.map((t) => (
+                  {TONE_CHOICES.map((t) => (
                     <button
                       key={t.value}
                       onClick={() => setTone(t.value)}

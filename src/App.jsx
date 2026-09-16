@@ -12,6 +12,7 @@ import { PageErrorBoundary } from './components/ErrorBoundary.jsx'
 import Booting from './components/Booting.jsx'
 import { applyFavicon, faviconHref } from './lib/favicon'
 import { PresenceHeartbeat } from './hooks/usePresence'
+import CallCenter from './components/CallCenter.jsx'
 
 /**
  * The admin panel, fetched only when somebody opens it.
@@ -99,6 +100,11 @@ export default function App() {
           a route change, so opening the admin panel or another page is not,
           to colleagues, leaving and coming back. See hooks/usePresence.js. */}
       <PresenceHeartbeat />
+      {/* Here rather than on the dashboard's shell, and for a stronger
+          reason than the heartbeat: App never unmounts on a route change,
+          so walking from a page to the admin panel mid-call does not hang
+          up on the person you are talking to. */}
+      <CallCenter />
       {authLoading ? (
         <Booting label="Signing you in" />
       ) : (

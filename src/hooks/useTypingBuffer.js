@@ -9,6 +9,24 @@ import { useEffect, useRef, useState } from 'react'
 export const TYPING_PAUSE = 140
 
 /**
+ * The same, for a box whose owner is enormous and whose value nothing
+ * watches live.
+ *
+ * The default reads as live because it commits 140ms after the last
+ * keystroke -- which, for continuous typing, is once at the end. But
+ * typing is not continuous. An ordinary typist leaves more than 140ms
+ * between letters while deciding what the next one is, and a formula is
+ * decided the whole way through; every one of those gaps then re-rendered
+ * the largest editor in the app, mid-word, and the next letter arrived
+ * while the browser was still busy.
+ *
+ * Half a second is longer than the gaps inside a word and shorter than the
+ * pause before a new thought -- and because the buffer also flushes on the
+ * way out, waiting longer never loses anything.
+ */
+export const SLOW_TYPING_PAUSE = 500
+
+/**
  * A text field that types at the speed of the keyboard, not the speed of
  * the page.
  *

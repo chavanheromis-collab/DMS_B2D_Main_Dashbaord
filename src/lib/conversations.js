@@ -30,6 +30,7 @@
 
 import { addressedTo, isRead, toneOf } from './messages.js'
 import { sharePreview } from './rowShare.js'
+import { imagesOf, photoText } from './chatImages.js'
 
 /** The channel everybody is in. */
 export const ALL = 'all'
@@ -107,6 +108,8 @@ export function entriesOf(messages, uid, conversationId) {
       at: m.createdAt || '',
       tone: m.tone,
       isReply: false,
+      // Only when there are any, so a plain bubble is the shape it was.
+      ...(imagesOf(m).length > 0 ? { images: imagesOf(m) } : {}),
       // Only when there is one, so a plain message's entry is exactly what
       // it always was.
       ...(m.row ? { row: m.row } : {}),
@@ -152,6 +155,7 @@ export function conversationsFor(messages, uid, usersById = {}) {
       lastText: '',
       lastFrom: '',
       lastMine: false,
+      lastPhotos: 0,
       unread: 0,
       owed: false,
     }
@@ -160,8 +164,14 @@ export function conversationsFor(messages, uid, usersById = {}) {
     // reply somebody left on it an hour later.
     const said = [
       // A row says it is a row in the list, not only "Shared a row: …" or
-      // a note that reads as if it came with nothing.
-      { at: m.createdAt || '', text: m.row ? sharePreview(m) : m.body || '', from: m.from },
+      // a note that reads as if it came with nothing. A picture says so the
+      // same way, and for the same reason.
+      {
+        at: m.createdAt || '',
+        text: m.row ? sharePreview(m) : m.body || '',
+        from: m.from,
+        photos: imagesOf(m).length,
+      },
       ...(Array.isArray(m.replies) ? m.replies : []).map((r) => ({
         at: r.at || '',
         text: r.text || '',
@@ -174,6 +184,7 @@ export function conversationsFor(messages, uid, usersById = {}) {
         row.lastText = one.text
         row.lastFrom = one.from
         row.lastMine = one.from === uid
+        row.lastPhotos = one.photos || 0
       }
     }
 
@@ -297,6 +308,12 @@ export function clockOf(iso) {
 /** One line of preview under a conversation's name. */
 export function previewOf(row, limit = 48) {
   const text = String(row?.lastText || '').replace(/\s+/g, ' ').trim()
+  // A picture with no caption still happened: the list must not read "no
+  // messages yet" for a chat somebody just sent three screenshots to.
+  if (!text && row?.lastPhotos > 0) {
+    const said = photoText(row.lastPhotos)
+    return row?.lastMine ? `You: ${said}` : said
+  }
   if (!text) return 'No messages yet'
   const short = text.length > limit ? `${text.slice(0, limit - 1)}…` : text
   return row?.lastMine ? `You: ${short}` : short

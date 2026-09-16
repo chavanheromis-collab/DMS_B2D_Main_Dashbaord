@@ -25,6 +25,22 @@ import { blankOut } from './tdz.js'
 /** `useRef` handles that are only ever read, never a moving target. */
 const SETTLED = new Set(['measure', 'ref', 'hostRef', 'viewportRef', 'searchRef', 'plateRef', 'rootRef', 'itemRefs'])
 
+/**
+ * Spelt like a setter, and not one.
+ *
+ * `setTimeout(() => pc.current.close())` is not a queued state update: it
+ * is a callback that runs later ON PURPOSE, and reading the ref when it
+ * fires -- rather than capturing it now -- is the correct thing to do. The
+ * Firestore writer is here for the same reason: its name begins with "set"
+ * and it updates a document, not a piece of React state.
+ *
+ * Without this, the scanner asks an author to cache a ref in the one place
+ * where caching it would BE the bug. It was already half-blind to them:
+ * timers reading `thing.current` followed by a comma slipped through,
+ * while the same read followed by a dot did not.
+ */
+const NOT_A_SETTER = new Set(['setTimeout', 'setInterval', 'setImmediate', 'setDoc'])
+
 const SETTER = /\bset[A-Z][\w$]*\s*\(/g
 
 /**
@@ -38,6 +54,7 @@ export function findStaleRefReads(source) {
 
   SETTER.lastIndex = 0
   for (const match of text.matchAll(SETTER)) {
+    if (NOT_A_SETTER.has(match[0].replace(/\s*\($/, ''))) continue
     // The argument list of this setter call.
     let depth = 0
     let end = text.length

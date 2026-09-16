@@ -463,10 +463,20 @@ else follows from that one field.
 
 | | what it does | comes back |
 |---|---|---|
-| **Can be ignored** | a toast in the corner; gone in 9 seconds; nothing has to happen | never |
 | **Should be seen** | covers the page until they close it | never |
 | **Should reply** | covers the page until they **answer** | **after 5 minutes** |
 | **Urgent — reply now** | the same | after 1 minute |
+
+There used to be a fourth, *Can be ignored*, which asked for nothing and went
+by itself. It was **removed at the dealership's request**, so the mildest thing
+a message can now do is cover the reader's page until they close it — every
+message interrupts, and the choice is only how much.
+
+It is still in the model, marked `retired`, and offered nowhere. Messages sent
+before it went still carry it and still read as the quiet things they were:
+deleting it outright would have made every one of them fall back to the first
+tone in the list, and last month's notices would have started covering people's
+screens.
 
 #### Toasts, not a stack down the page
 
@@ -479,10 +489,11 @@ neither shortens the page nor pushes the widget somebody is reading down the
 screen. A column of notices along the top of a dashboard is a column of
 dashboard nobody can see.
 
-**They go by themselves — when they asked for nothing.** *Can be ignored*
-lasts 9 seconds, *should be seen* 6 (which it only ever gets while something
-louder is covering the page ahead of it). A notice that can be ignored and then
-sits there for ever is being ignored **and** taking up room. The timer
+**They go by themselves — when they asked for nothing.** *Should be seen*
+lasts 6 seconds as a toast, which it only ever gets while something louder is
+covering the page ahead of it (a retired *can be ignored* message lasts 9). A
+notice that can be ignored and then sits there for ever is being ignored
+**and** taking up room. The timer
 **pauses while the pointer is over the card or the cursor is in its reply
 box**: a message that vanishes mid-sentence is a message that has to be
 found again in the inbox.
@@ -687,8 +698,8 @@ along a row of tabs. Capped at 9+, for the same reason the bell is.
 **A desktop notification**, which arrives whatever the browser is doing. The
 sender's name is the title, because *"Ravi"* tells somebody more than *"New
 message"* does, and the obligation follows the message out of the app: a
-**Should reply** notification stays on screen until it is dealt with, while
-one that **can be ignored** arrives silently.
+**Should reply** notification stays on screen until it is dealt with, while one
+that asks for nothing back arrives silently.
 
 Four rules keep that from becoming the thing people switch off:
 
@@ -729,6 +740,16 @@ work here than anywhere else in the file:
 - **A new message arrives unread, unclosed and unanswered**, so it cannot be
   posted pre-dismissed for everybody.
 - **Unsending is the sender's**, and an admin's.
+
+**Everyone picks their own starting tone.** The four buttons above the box are
+what you are asking of the reader; whichever one you choose, a **make default**
+pin appears beside it. Press it and every message you write from then on starts
+there — in the chat and when sending a row — until you pin a different one. It
+is stored per person (`userPrefs/{uid}_messaging`), so it follows you to another
+device rather than being set again per browser, and it changes nothing for
+anybody else. Unset, messages start as *Should be seen*, the mildest one left.
+Somebody who had pinned the retired tone as their default falls back to that
+too, rather than keeping a setting they can no longer see.
 
 The message centre is mounted on the **shell**, not on a page: a message about
 the workspace should not vanish because somebody navigated to the admin panel.
@@ -787,6 +808,109 @@ admin's and not the sender's.
   banner and notification as anything else said in that chat.
 - **Links in a value open in a new tab**, and only `http`/`https` ones become
   links.
+
+#### Pictures
+
+A chat takes **pictures** — paste a screenshot straight into the box, press the
+image button, or drop one on it. Up to **four to a message**, and a picture on
+its own is a message: *"look at this"* needs no caption.
+
+- **They are shrunk in the browser first**, to 1600px on the long edge. A 4MB
+  phone photo becomes a couple of hundred kilobytes, which is the difference
+  between a send that takes a moment and one somebody cancels.
+- **The message keeps a link, never the picture.** Every message addressed to
+  you is held by your open tab and re-read whenever any of them changes; a
+  photo inlined there would be downloaded again on every reply to it. The bytes
+  go to Firebase Storage under `chatImages/{uid}/`.
+- **Removing one before sending deletes it**, including mid-upload.
+- **Pictures only.** Not attachments: a chat that takes any file becomes a
+  filing cabinet nobody maintains, and documents belong on a row's media
+  columns, where they are named and findable.
+- Clicking one opens it full size.
+
+**This needs Storage, which is a one-time setup:**
+
+1. Firebase console → **Storage** → enable it for the project.
+2. Deploy the new rules file: `firebase deploy --only storage`.
+
+Until both are done, sending a picture says what is missing rather than failing
+silently. The text chat is unaffected.
+
+**If a picture sits there uploading and never finishes**, it is not the size —
+a shrunk picture is a couple of hundred kilobytes and one request. It means the
+browser cannot reach the bucket, and there are three things to check:
+
+1. **Storage is enabled** for the project (Firebase console → Storage).
+2. **The rules are deployed**: `firebase deploy --only storage`.
+3. **The bucket allows this site to upload to it.** A bucket created recently
+   may refuse browser uploads from your domain until its CORS is set. Save this
+   as `cors.json` — with your own origins — and apply it:
+
+   ```json
+   [{ "origin": ["https://your-dashboard.vercel.app", "http://localhost:5173"],
+      "method": ["GET", "PUT", "POST", "HEAD"],
+      "responseHeader": ["Content-Type", "Authorization", "Content-Length", "User-Agent", "x-goog-resumable"],
+      "maxAgeSeconds": 3600 }]
+   ```
+
+   ```
+   gcloud storage buckets update gs://YOUR-BUCKET --cors-file=cors.json
+   ```
+
+   The bucket name is `VITE_FIREBASE_STORAGE_BUCKET` in your `.env`.
+
+The app no longer waits this out: an upload that stops moving for twenty
+seconds is cancelled and says which of the three above to look at, and the
+thumbnail shows a percentage while it runs so a slow upload and a dead one no
+longer look the same.
+
+**Who can see them:** `storage.rules` lets only the sender write in their own
+folder, and **anyone signed in to this dashboard read** a picture if they have
+its link. The recipients are named on the message, not on the file, and there
+is no message yet when the picture is uploaded — so the file itself cannot be
+narrowed to them. Links carry an unguessable token, but treat a chat picture as
+visible to colleagues, and do not send anything that must not be.
+
+#### Talking, and showing your screen
+
+A **phone button** in any one-to-one chat starts a call: voice both ways, and
+either person can share their screen. It is for the sentence that costs four
+messages and a screenshot — *"look at this row"*.
+
+- **Ringing takes the whole screen** on the other side, with a tone, and raises
+  a desktop notification if they are on another tab. A call expires if nobody
+  answers within 45 seconds.
+- **The call itself sits in the corner** and can be made smaller, because the
+  point of sharing a dashboard is that both people keep using it. A shared
+  screen is drawn large.
+- **It survives changing pages.** The call lives above the routes, so walking
+  from a page to the admin panel does not hang up on anybody.
+- **It reconnects by itself** if the network wobbles — a lift, a Wi-Fi
+  handover — instead of dropping, and closing the tab mid-call asks first.
+- **Sharing starts and stops without renegotiating** the connection: the video
+  slot is opened when the call begins and the screen is swapped into it. That
+  moment is the commonest way a call drops, and here it cannot.
+- **Hanging up stops the microphone**, on every path out of a call.
+
+**Nothing spoken or shown passes through this app.** The two browsers talk
+directly to each other (WebRTC). Firestore carries only the handshake — how
+each side can be reached — in one `calls/{callId}` document that only those two
+people can read, and that is deleted when the call ends. There is no media
+server and no per-minute cost.
+
+**What it will not do:**
+
+- **One person at a time.** Three or more would need a media server in the
+  middle, which is a paid service.
+- **No screen sharing on phones.** Android Chrome and every browser on iOS have
+  no screen capture at all. Voice still works; the button is simply not there.
+- **Strict networks need a relay.** Most connect directly with STUN alone. Behind
+  some corporate firewalls and mobile networks the only way through is a TURN
+  relay — a paid service. Set `VITE_TURN_URL` (one or several, comma separated),
+  `VITE_TURN_USER` and `VITE_TURN_PASS`, and it is used automatically. Without
+  one, those calls say *"Could not connect"* rather than connecting badly.
+- **Deploy the rules** (`firebase deploy --only firestore:rules`), or the `calls`
+  collection is unwritable and no call can be placed.
 
 ### Remarks on a row
 
@@ -3165,6 +3289,38 @@ compare than a pie once there are more than a handful of slices. A
 what keeps twenty categories readable. A **histogram** is the one style that
 bins a numeric column instead of grouping by a category, so it gets its own
 fields (column, bin count, optional fixed range).
+
+### Going inside a period on a trend
+
+A trend answers *how much, over time*. The question it always provokes is the
+next one: **2026 is down — which part of it?**
+
+**Click a period and the chart goes inside it.** A year becomes its quarters, a
+quarter its months, a month its weeks, a week its days. A trail along the top
+says where you are — *All time › 2026 › Q3* — and any crumb takes you back.
+
+- **The window comes from the bucket, not its label.** The series already knows
+  where each period starts and ends, leap years and all; reverse-engineering
+  "Sep 26" back into dates is how a drill lands on the wrong month every
+  February.
+- **Clicking still filters the dashboard**, exactly as before. The zoom is what
+  happens to *this* chart; the cross-filter is what happens to the others — and
+  both describe the same period, from the same dates.
+- **Folded buckets cannot be opened.** *March* is three Marches from three
+  different years — a way of reading the whole span, not a slice of it. Clicking
+  one filters the page as it always did, and the chart does not pretend to zoom.
+- **Days are the floor**, since a spreadsheet date column rarely carries a time.
+
+**And the bucket itself is now the reader's to change.** A dropdown beside the
+chart offers *every* bucket — year, quarter, month, week, day, and the folded
+ones: month of year, quarter of year, day of week. Asking "what does this look
+like by day of week?" used to mean opening the admin panel, changing the
+setting, looking, and changing it back.
+
+Both the zoom and that dropdown are **yours alone**: they change nothing for
+anybody else, nothing the admin saved, and they last until the page is
+reloaded. Editing the widget's own bucket or date column resets them, because
+that is a different chart.
 
 ### Bucketing, everywhere a column is grouped
 

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 
 import {
@@ -148,7 +148,10 @@ function CheckRow({ check, columns, valuesOf, onChange, onRemove }) {
   const listId = useId()
   const test = testOf(check.test)
   const known = check.column && valuesOf ? valuesOf(check.column) : null
-  const options = Array.isArray(known) ? known.map((v) => String(v)) : []
+  // The stored list is the same array between renders, so this is one map
+  // per column rather than one per keystroke -- and, more to the point, it
+  // keeps the same identity, which is what lets the list below it be kept.
+  const options = useMemo(() => (Array.isArray(known) ? known.map((v) => String(v)) : []), [known])
   const problem = checkProblem(check)
   // A column the tab no longer has stays selectable rather than silently
   // becoming a different column.
@@ -213,16 +216,22 @@ function CheckRow({ check, columns, valuesOf, onChange, onRemove }) {
 
 /** The value box a condition needs: several, one, a range, days, or none. */
 function Values({ test, values, options, listId, onChange }) {
-  if (test.takes === 'none') return null
+  // Kept as one element across renders. A column with two hundred values
+  // is two hundred <option>s, and rebuilding them on every keystroke in
+  // the box beside them is most of what typing there used to cost.
+  const suggestions = useMemo(
+    () =>
+      options.length > 0 ? (
+        <datalist id={listId}>
+          {options.slice(0, 300).map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+      ) : null,
+    [options, listId]
+  )
 
-  const suggestions =
-    options.length > 0 ? (
-      <datalist id={listId}>
-        {options.slice(0, 300).map((v) => (
-          <option key={v} value={v} />
-        ))}
-      </datalist>
-    ) : null
+  if (test.takes === 'none') return null
 
   if (test.takes === 'many') {
     return (
@@ -296,7 +305,23 @@ function Values({ test, values, options, listId, onChange }) {
  */
 function Chips({ values, options, listId, placeholder, onChange }) {
   const [draft, setDraft] = useState('')
-  const unpicked = options.filter((v) => !values.some((x) => String(x).toLowerCase() === v.toLowerCase()))
+  // Both kept across renders: typing a chip changes `draft` on every
+  // letter, and neither the remaining values nor their list depend on it.
+  const unpicked = useMemo(
+    () => options.filter((v) => !values.some((x) => String(x).toLowerCase() === v.toLowerCase())),
+    [options, values]
+  )
+  const suggestions = useMemo(
+    () =>
+      unpicked.length > 0 ? (
+        <datalist id={listId}>
+          {unpicked.slice(0, 300).map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+      ) : null,
+    [unpicked, listId]
+  )
 
   function add(raw) {
     const parts = splitValues(raw)
@@ -346,13 +371,7 @@ function Chips({ values, options, listId, placeholder, onChange }) {
         aria-label="Values"
         className="min-w-[6rem] flex-1 bg-transparent px-1 py-0.5 text-[11px] outline-none"
       />
-      {unpicked.length > 0 && (
-        <datalist id={listId}>
-          {unpicked.slice(0, 300).map((v) => (
-            <option key={v} value={v} />
-          ))}
-        </datalist>
-      )}
+      {suggestions}
     </span>
   )
 }

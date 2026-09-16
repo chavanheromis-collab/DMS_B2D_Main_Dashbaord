@@ -31,6 +31,7 @@
 
 import { avatarSpec } from './avatar.js'
 import { conversationIdOf, kindOf, titleOf } from './conversations.js'
+import { imagesOf, photoText } from './chatImages.js'
 
 /**
  * The tab title, when nothing is waiting.
@@ -167,7 +168,9 @@ export function notificationFor(message, tone, { uid = '', usersById = {}, reply
   // A reply is from whoever wrote the REPLY, which in a group is very often
   // not whoever started the thread.
   const name = (reply ? reply.name : message?.fromName) || 'New message'
-  const body = reply ? reply.text : message?.body
+  // A picture sent with nothing said arrives as "Photo" rather than as an
+  // empty notification, which reads as a bug in the app that sent it.
+  const body = reply ? reply.text : message?.body || photoText(imagesOf(message).length)
   // Only where it ADDS something. In a one-to-one chat the conversation IS
   // the sender, so appending it gives "Ravi · Ravi" -- or, for somebody with
   // no name on their account, the nonsense "New message · Someone".
@@ -278,10 +281,14 @@ export function titleWithBadge(count, base = BASE_TITLE) {
  * clock goes FIRST: an alarm outranks a count, and it is the leftmost
  * character that survives a tab narrowed to nothing.
  */
-export function tabTitle({ unread = 0, alarms = 0 } = {}, base = BASE_TITLE) {
+export function tabTitle({ unread = 0, alarms = 0, calls = 0 } = {}, base = BASE_TITLE) {
   const marks = []
   const ringing = Number(alarms) || 0
   const waiting = Number(unread) || 0
+  const talking = Number(calls) || 0
+  // A call goes first of all: it is the only one of the three that expires
+  // while you are deciding whether to look.
+  if (talking > 0) marks.push('📞')
   if (ringing > 0) marks.push(ringing > 1 ? `⏰${ringing}` : '⏰')
   // Capped at 9 for the same reason the bell is: past that the number
   // stops being information and starts being width.
@@ -292,7 +299,7 @@ export function tabTitle({ unread = 0, alarms = 0 } = {}, base = BASE_TITLE) {
 // The live parts, as module state -- the same lifetime the document title
 // itself has. Each writer owns its own key and nothing else, so neither
 // can erase the other by rendering.
-let titleParts = { unread: 0, alarms: 0 }
+let titleParts = { unread: 0, alarms: 0, calls: 0 }
 
 /**
  * Contribute one part and repaint. The impure half of `tabTitle`.
@@ -309,7 +316,7 @@ export function setTitlePart(patch, doc = typeof document === 'undefined' ? null
 
 /** For tests, and for a sign-out that should leave nothing behind. */
 export function resetTitleParts() {
-  titleParts = { unread: 0, alarms: 0 }
+  titleParts = { unread: 0, alarms: 0, calls: 0 }
 }
 
 /**

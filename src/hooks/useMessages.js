@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { addDoc, collection, deleteDoc, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../context/AuthContext.jsx'
-import { messageDoc, replyDoc, withId } from '../lib/messages'
+import { MESSAGING_PREFS, defaultToneOf, isTone, messageDoc, replyDoc, withId } from '../lib/messages'
 
 /**
  * The messages this person can see, live.
@@ -176,4 +176,52 @@ export function usePeople() {
 
   const byId = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people])
   return { people, byId }
+}
+
+/**
+ * What this person usually means by a message.
+ *
+ * In `userPrefs/{uid}_messaging`, which the rules already let each person
+ * write for themselves -- the id begins with their own uid, the same as
+ * their widget order and their sticky notes -- so this needs no new
+ * collection and no new rule.
+ *
+ * Firestore rather than this browser, deliberately: somebody whose every
+ * message asks for an answer means that at the counter and on their phone,
+ * and a preference that has to be set again per device is one people set
+ * once and then resent.
+ *
+ * A preference is never a gate. Unreadable means the mild default, not an
+ * error and not a blocked composer.
+ */
+export function useMessagePrefs() {
+  const { user } = useAuth()
+  const uid = user?.uid
+  const [prefs, setPrefs] = useState(null)
+  const id = uid ? `${uid}_${MESSAGING_PREFS}` : null
+
+  useEffect(() => {
+    if (!id) {
+      setPrefs(null)
+      return undefined
+    }
+    return onSnapshot(
+      doc(db, 'userPrefs', id),
+      (snap) => setPrefs(snap.exists() ? snap.data() : null),
+      () => setPrefs(null)
+    )
+  }, [id])
+
+  const setDefaultTone = useCallback(
+    async (tone) => {
+      // Only one of the four. A stored value the app does not know would
+      // read back as the fallback for ever, which looks like the setting
+      // not working rather than the value being wrong.
+      if (!id || !isTone(tone)) return
+      await setDoc(doc(db, 'userPrefs', id), { defaultTone: tone }, { merge: true }).catch(() => {})
+    },
+    [id]
+  )
+
+  return { defaultTone: defaultToneOf(prefs), setDefaultTone }
 }
