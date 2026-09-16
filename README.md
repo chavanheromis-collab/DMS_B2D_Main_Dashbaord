@@ -821,55 +821,50 @@ its own is a message: *"look at this"* needs no caption.
 - **The message keeps a link, never the picture.** Every message addressed to
   you is held by your open tab and re-read whenever any of them changes; a
   photo inlined there would be downloaded again on every reply to it. The bytes
-  go to Firebase Storage under `chatImages/{uid}/`.
+  go to **Google Drive**, into a folder called **CUS Chat Images**.
 - **Removing one before sending deletes it**, including mid-upload.
 - **Pictures only.** Not attachments: a chat that takes any file becomes a
   filing cabinet nobody maintains, and documents belong on a row's media
   columns, where they are named and findable.
 - Clicking one opens it full size.
 
-**This needs Storage, which is a one-time setup:**
+**How it gets there.** Your browser has no access to Drive — the **service
+account** does, the same one that reads the spreadsheets. So the shrunk picture
+is posted to this app's own `/api/chatImage`, which checks you are signed in and
+puts the file in Drive. The folder is **found by name and created if it is not
+there**, so an admin can make it themselves, share it, and the app will use
+exactly that one.
 
-1. Firebase console → **Storage** → enable it for the project.
-2. Deploy the new rules file: `firebase deploy --only storage`.
+**Where the folder lives — the one setting worth getting right:**
 
-Until both are done, sending a picture says what is missing rather than failing
-silently. The text chat is unaffected.
+- Set **`GOOGLE_DRIVE_CHAT_PARENT`** to the id of a folder inside a **Shared
+  Drive**, and add the service account to that Shared Drive as a *Content
+  manager*. The files then belong to the Shared Drive, and uploads keep working.
+- Leave it unset and the folder is created in the service account's own Drive.
+  That works for a trial and then stops: **a service account has almost no
+  storage of its own**, and uploads begin failing with a quota error that reads
+  like a bug. The app says so in as many words — *"The picture folder is out of
+  space. It needs to be in a Shared Drive"* — rather than leaving you to guess.
 
-**If a picture sits there uploading and never finishes**, it is not the size —
-a shrunk picture is a couple of hundred kilobytes and one request. It means the
-browser cannot reach the bucket, and there are three things to check:
+Both credentials are the ones already in your `.env` for spreadsheets:
+`GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_PRIVATE_KEY`. Nothing else to set up,
+and **no Firebase Storage** — the bucket is not used for this any more.
 
-1. **Storage is enabled** for the project (Firebase console → Storage).
-2. **The rules are deployed**: `firebase deploy --only storage`.
-3. **The bucket allows this site to upload to it.** A bucket created recently
-   may refuse browser uploads from your domain until its CORS is set. Save this
-   as `cors.json` — with your own origins — and apply it:
+**Who can see a chat picture.** Each uploaded file is set to **anyone with the
+link can view**. That is what lets an `<img>` show it: the tag carries no
+sign-in, and a private Drive file answers it with a 403 no matter how the URL is
+written. It is the same bargain as before — a long, unguessable link — but treat
+a chat picture as visible to anyone who gets hold of its link, and do not send
+anything that must not be.
 
-   ```json
-   [{ "origin": ["https://your-dashboard.vercel.app", "http://localhost:5173"],
-      "method": ["GET", "PUT", "POST", "HEAD"],
-      "responseHeader": ["Content-Type", "Authorization", "Content-Length", "User-Agent", "x-goog-resumable"],
-      "maxAgeSeconds": 3600 }]
-   ```
+**If a picture never finishes uploading**, it is not the size: a shrunk picture
+is a couple of hundred kilobytes and one request. The app gives up after twenty
+seconds of silence and names the cause — folder not shared, out of space, signed
+out, connection dropped — and the thumbnail shows a percentage while it runs, so
+a slow upload and a dead one no longer look the same.
 
-   ```
-   gcloud storage buckets update gs://YOUR-BUCKET --cors-file=cors.json
-   ```
-
-   The bucket name is `VITE_FIREBASE_STORAGE_BUCKET` in your `.env`.
-
-The app no longer waits this out: an upload that stops moving for twenty
-seconds is cancelled and says which of the three above to look at, and the
-thumbnail shows a percentage while it runs so a slow upload and a dead one no
-longer look the same.
-
-**Who can see them:** `storage.rules` lets only the sender write in their own
-folder, and **anyone signed in to this dashboard read** a picture if they have
-its link. The recipients are named on the message, not on the file, and there
-is no message yet when the picture is uploaded — so the file itself cannot be
-narrowed to them. Links carry an unguessable token, but treat a chat picture as
-visible to colleagues, and do not send anything that must not be.
+**Pictures sent before this moved to Drive still work.** They are ordinary links
+and are drawn exactly as they were.
 
 #### Talking, and showing your screen
 

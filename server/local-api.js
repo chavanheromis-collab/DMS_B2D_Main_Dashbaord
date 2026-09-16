@@ -9,11 +9,14 @@ import 'dotenv/config'
 import express from 'express'
 import sheetsHandler from '../api/sheets.js'
 import driveHandler from '../api/drive.js'
+import chatImageHandler from '../api/chatImage.js'
 
 const PORT = process.env.LOCAL_API_PORT || 3001
 
 const app = express()
-app.use(express.json())
+// A shrunk chat picture is a few hundred kilobytes, and base64 adds a
+// third: the default 100kb body limit refuses every one of them.
+app.use(express.json({ limit: '12mb' }))
 
 // Vercel's (req, res) shape for Node functions is Express-compatible
 // (res.status().json(), res.setHeader(), req.query, req.body, req.headers),
@@ -31,6 +34,16 @@ app.all('/api/sheets', (req, res) => {
 app.all('/api/drive', (req, res) => {
   driveHandler(req, res).catch((err) => {
     console.error('Unhandled error in /api/drive:', err)
+    if (!res.headersSent) res.status(500).json({ error: 'Internal error' })
+  })
+})
+
+// Pictures sent in a chat, into the "CUS Chat Images" folder. Mounted here
+// for the same reason as the listing above: a chat that takes pictures when
+// deployed and not on a developer's machine is one nobody can fix.
+app.all('/api/chatImage', (req, res) => {
+  chatImageHandler(req, res).catch((err) => {
+    console.error('Unhandled error in /api/chatImage:', err)
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' })
   })
 })

@@ -11,7 +11,8 @@
 //   message addressed to somebody is held in memory by their open tab and
 //   re-read whenever any of them changes; a photo inlined there would be
 //   downloaded again on every reply to it, for ever. So the bytes go to
-//   Firebase Storage and the document keeps a URL.
+//   Google Drive -- one folder, "CUS Chat Images" -- and the document keeps
+//   a link.
 //
 //   IT IS SHRUNK IN THE BROWSER FIRST. A phone photo is three to six
 //   megabytes of something nobody will ever look at full size in a chat
@@ -40,48 +41,64 @@ export const MAX_EDGE = 1600
 /** Enough that a screenshot of a table stays readable. */
 export const QUALITY = 0.82
 
-/** Where one person's chat pictures live. */
-export const IMAGE_FOLDER = 'chatImages'
-
 /**
  * How long an upload may go without moving before it is given up on.
  *
- * A picture this size is one request over a second or two. When the bucket
- * will not take it -- Storage never switched on, rules never deployed, the
- * bucket refusing the browser -- the request does not fail, it STALLS, and
- * the SDK quietly retries it. What that looks like from the outside is a
- * 400KB photo "uploading" for twenty minutes, which is the report this was
- * written for. Twenty seconds of silence is a dead upload.
+ * A picture this size is one request over a second or two. When it cannot
+ * be stored -- the folder never shared, the credentials wrong, the network
+ * gone -- the request often does not fail, it STALLS. What that looks like
+ * from the outside is a 400KB photo "uploading" for twenty minutes, which
+ * is the report this was written for. Twenty seconds of silence is a dead
+ * upload, and saying so beats waiting it out.
  */
 export const STALL_MS = 20 * 1000
-
-/** How long the SDK itself may spend retrying before it gives up. */
-export const RETRY_MS = 20 * 1000
 
 /**
  * What a failed upload actually means, in words that name the cause.
  *
- * Firebase's codes are precise and invisible; "that picture could not be
- * sent" is neither. The difference matters because the three likely causes
- * have three different fixes, and only one of them is anybody's fault here.
+ * The likely causes have different fixes and only one of them is anybody's
+ * fault here, so "that picture could not be sent" is the least useful thing
+ * the app could say.
  */
-export function uploadProblem(code) {
-  switch (String(code || '')) {
-    case 'storage/unauthorized':
-      return 'Pictures are not set up yet — an admin needs to deploy the storage rules (firebase deploy --only storage)'
-    case 'storage/unauthenticated':
-      return 'You have been signed out — sign in again to send pictures'
-    case 'storage/quota-exceeded':
-      return 'The picture store is full — an admin needs to look at Firebase Storage'
-    case 'storage/canceled':
-    case 'storage/retry-limit-exceeded':
-    case 'storage/unknown':
-      // One message for the three that arrive when the request never gets
-      // anywhere: the browser could not reach the bucket at all.
-      return 'That picture could not reach the picture store. An admin needs to enable Storage for this project and allow this site to upload to it — see the README.'
-    default:
-      return 'That picture could not be sent'
+export function uploadProblem(failure) {
+  if (failure?.stalled) {
+    return 'That picture stopped uploading. Check the connection, or ask an admin to check the Drive folder is shared with the dashboard.'
   }
+  if (failure?.offline) return 'That picture could not be sent — the connection dropped'
+
+  const status = Number(failure?.status) || 0
+  const said = String(failure?.message || '')
+
+  if (status === 401) return 'You have been signed out — sign in again to send pictures'
+  if (status === 413) return 'That picture is too big to send'
+  // Drive's own quota failure, which means one specific misconfiguration
+  // and is worth naming: the folder is not in a Shared Drive.
+  if (status === 507) return 'The picture folder is out of space. It needs to be in a Shared Drive — see the README.'
+  if (status === 403 || status === 404) {
+    return `Pictures are not set up yet — an admin needs to share the Drive folder with the dashboard. (${said})`
+  }
+  return said || 'That picture could not be sent'
+}
+
+/**
+ * A blob as base64, for the one hop to this app's own server.
+ *
+ * The browser holds no Drive access -- the service account does -- so the
+ * bytes go through the API rather than straight to Google. JSON is what
+ * that route speaks, and base64 is how bytes travel in it.
+ */
+export function toBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('That picture could not be read'))
+    reader.onload = () => {
+      const text = String(reader.result || '')
+      // A data: URL is "data:<type>;base64,<payload>" and only the payload
+      // is wanted.
+      resolve(text.slice(text.indexOf(',') + 1))
+    }
+    reader.readAsDataURL(blob)
+  })
 }
 
 /**
@@ -132,15 +149,17 @@ export function imagesFrom(list, { max = MAX_IMAGES } = {}) {
 export const roomFor = (already = [], max = MAX_IMAGES) => Math.max(0, max - (already?.length || 0))
 
 /**
- * Where one picture is stored.
+ * What one picture is called in the Drive folder.
  *
- * Under the sender's own uid, which is what the storage rule checks: a
- * person may write in their own folder and nowhere else.
+ * The sender's uid leads the name because that folder is a flat list an
+ * admin will one day open, and "who sent this?" should be answerable there
+ * rather than only by searching the chat. The stamp is what keeps two
+ * screenshots both called Screenshot.png from being indistinguishable.
  */
-export function storagePathFor(uid, name = '') {
+export function driveNameFor(uid, name = '') {
   const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
   const ext = /\.(png|jpe?g|gif|webp|avif|heic|heif|bmp)$/i.exec(String(name || ''))?.[1] || 'jpg'
-  return `${IMAGE_FOLDER}/${uid}/${stamp}.${ext.toLowerCase()}`
+  return `${uid || 'unknown'}-${stamp}.${ext.toLowerCase()}`
 }
 
 /**

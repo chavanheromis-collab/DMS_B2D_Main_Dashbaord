@@ -41,6 +41,7 @@ import { isDefaultShareBody } from '../lib/rowShare'
 import { requestCall } from '../lib/callBus'
 import { useChatImages } from '../hooks/useChatImages'
 import { ACCEPT, MAX_IMAGES, bubbleSize, imagesFrom, roomFor } from '../lib/chatImages'
+import { useImageFallback } from '../hooks/useImageFallback'
 import { supportsCalls } from '../lib/callSignal'
 
 /**
@@ -551,11 +552,7 @@ function Chat({ id, messages, uid, byId, seen, maySend, defaultTone, onDefaultTo
             <div className="mb-1.5 flex flex-wrap items-center gap-1">
               {pictures.images.map((image) => (
                 <span key={image.path} className="relative">
-                  <img
-                    src={image.url}
-                    alt=""
-                    className="h-14 w-14 rounded-lg border border-slate-200 object-cover"
-                  />
+                  <ChatImage image={image} width={56} className="h-14 w-14 rounded-lg border border-slate-200 object-cover" />
                   <button
                     onClick={() => pictures.remove(image.path)}
                     aria-label="Remove this picture"
@@ -674,6 +671,42 @@ function Chat({ id, messages, uid, byId, seen, maySend, defaultTone, onDefaultTo
 }
 
 /**
+ * A picture in a chat, drawn wherever it is stored.
+ *
+ * Through the fallback hook, which matters now that they live in Google
+ * Drive: no single Drive endpoint serves every file, so a link yields
+ * several candidates and this walks them rather than giving up on the
+ * first refusal. `referrerPolicy` is not decoration either -- Google
+ * refuses an image request carrying a referrer from an origin it does not
+ * know, which is every deployment of this, and a perfectly public file
+ * 403s without it.
+ *
+ * A picture sent before this moved to Drive is an ordinary link and passes
+ * through untouched, which is why those messages still work.
+ */
+function ChatImage({ image, width, className }) {
+  const { url, exhausted, onError } = useImageFallback(image?.url, width)
+  if (!url || exhausted) {
+    return (
+      <span className={`flex items-center justify-center bg-slate-100 text-[10px] text-slate-400 ${className}`}>
+        Picture unavailable
+      </span>
+    )
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={onError}
+      referrerPolicy="no-referrer"
+      className={className}
+    />
+  )
+}
+
+/**
  * One picture, as big as the screen allows.
  *
  * Its own rather than the table's media viewer: that one is built around a
@@ -697,7 +730,7 @@ function Lightbox({ image, onClose }) {
       aria-modal="true"
       aria-label="Picture"
     >
-      <img src={image.url} alt="" className="max-h-full max-w-full rounded-lg shadow-2xl" />
+      <ChatImage image={image} width={1600} className="max-h-full max-w-full rounded-lg shadow-2xl" />
       <button
         onClick={onClose}
         aria-label="Close"
@@ -767,15 +800,7 @@ function Bubble({ entry, mine, run, name, onZoom, onUnsend }) {
                 className="my-1 block overflow-hidden rounded-lg border border-white/30 bg-slate-100"
                 style={{ width: box.width, maxWidth: '100%' }}
               >
-                <img
-                  src={image.url}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  width={box.width}
-                  height={box.height}
-                  className="block h-auto w-full object-cover"
-                />
+                <ChatImage image={image} width={box.width} className="block h-auto w-full object-cover" />
               </button>
             )
           })}

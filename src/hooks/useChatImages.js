@@ -1,15 +1,14 @@
 import { useCallback, useRef, useState } from 'react'
-import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage'
-import { storage } from '../firebase'
-import { useAuth } from '../context/AuthContext.jsx'
+import { auth } from '../firebase'
 import {
   MAX_IMAGES,
   STALL_MS,
   cleanImage,
+  driveNameFor,
   imageProblem,
   roomFor,
   shrinkImage,
-  storagePathFor,
+  toBase64,
   uploadProblem,
 } from '../lib/chatImages'
 
@@ -23,11 +22,13 @@ import {
  * They are uploaded AS THEY ARE CHOSEN rather than on send, so pressing
  * send is instant and the wait happens while the person is still typing.
  * The cost of that is an abandoned draft leaving files behind, which is
- * why removing one deletes it and why the folder is the sender's own.
+ * why removing one deletes it too.
+ *
+ * The bytes go to Google Drive, through this app's own server -- the
+ * browser holds no Drive access, the service account does. See
+ * api/chatImage.js.
  */
 export function useChatImages() {
-  const { user } = useAuth()
-  const uid = user?.uid
   const [images, setImages] = useState([])
   const [busy, setBusy] = useState(0)
   const [percent, setPercent] = useState(0)
@@ -39,7 +40,7 @@ export function useChatImages() {
   const add = useCallback(
     async (files) => {
       const list = Array.from(files || [])
-      if (!uid || list.length === 0) return
+      if (list.length === 0) return
       setError('')
 
       const room = roomFor(images)
@@ -54,37 +55,46 @@ export function useChatImages() {
 
       for (const file of wanted) {
         if (imageProblem(file)) continue
-        const path = storagePathFor(uid, file.name)
         setBusy((n) => n + 1)
+        const mine = `${Date.now()}-${file.name}`
         try {
           const { blob, width, height } = await shrinkImage(file)
-          const where = ref(storage, path)
-          await send(where, blob, setPercent)
-          const url = await getDownloadURL(where)
-          const image = cleanImage({ url, width, height, path })
+          const { id, link } = await send(blob, file.name, setPercent)
+          const image = cleanImage({ url: link, width, height, path: id })
           if (!image) continue
-          if (dropped.current.has(path)) {
-            deleteObject(where).catch(() => {})
+          if (dropped.current.has(mine)) {
+            remove(image.path)
             continue
           }
           setImages((current) => (current.length >= MAX_IMAGES ? current : [...current, image]))
         } catch (e) {
           // Named rather than shrugged at: the likely causes have different
           // fixes, and only one of them is anybody's fault here.
-          setError(uploadProblem(e?.code))
+          setError(uploadProblem(e))
         } finally {
           setBusy((n) => Math.max(0, n - 1))
           setPercent(0)
         }
       }
     },
-    [uid, images]
+    [images]
   )
 
-  const remove = useCallback((path) => {
-    dropped.current.add(path)
-    setImages((current) => current.filter((image) => image.path !== path))
-    if (path) deleteObject(ref(storage, path)).catch(() => {})
+  const remove = useCallback((id) => {
+    dropped.current.add(id)
+    setImages((current) => current.filter((image) => image.path !== id))
+    if (!id) return
+    auth.currentUser
+      ?.getIdToken()
+      .then((token) =>
+        fetch(`/api/chatImage?id=${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      )
+      // A picture nobody will ever see again, still in a folder: worth
+      // trying to tidy, never worth an error in front of somebody.
+      .catch(() => {})
   }, [])
 
   /** After a send: the pictures belong to the message now, not to the box. */
@@ -100,42 +110,62 @@ export function useChatImages() {
 /**
  * One upload, watched.
  *
- * `uploadBytesResumable` rather than `uploadBytes` for one reason: it
- * reports progress, and progress is the difference between an upload that
- * is slow and one that is dead. A bucket that will not take the file does
- * not refuse it -- the request stalls, the SDK retries, and from the
- * outside a 400KB photo "uploads" for twenty minutes.
- *
- * So silence is treated as failure. If nothing moves for STALL_MS the task
- * is cancelled, which surfaces as `storage/canceled` and is turned into a
- * sentence naming what to check.
+ * XMLHttpRequest rather than fetch for one reason: it reports progress, and
+ * progress is the difference between an upload that is slow and one that is
+ * dead. Silence is treated as failure -- if nothing moves for STALL_MS the
+ * request is abandoned and says so, rather than being waited out.
  */
-function send(where, blob, onPercent) {
+function send(blob, name, onPercent) {
   return new Promise((resolve, reject) => {
-    const task = uploadBytesResumable(where, blob, { contentType: blob.type || 'image/jpeg' })
-    let moved = Date.now()
+    ;(async () => {
+      const user = auth.currentUser
+      const token = await user?.getIdToken()
+      if (!token) throw Object.assign(new Error('Not signed in'), { status: 401 })
 
-    const watchdog = window.setInterval(() => {
-      if (Date.now() - moved > STALL_MS) {
+      const request = new XMLHttpRequest()
+      let moved = Date.now()
+
+      const watchdog = window.setInterval(() => {
+        if (Date.now() - moved > STALL_MS) {
+          window.clearInterval(watchdog)
+          request.abort()
+        }
+      }, 2000)
+
+      const done = (fn, value) => {
         window.clearInterval(watchdog)
-        task.cancel()
+        onPercent(0)
+        fn(value)
       }
-    }, 2000)
 
-    const done = (fn, value) => {
-      window.clearInterval(watchdog)
-      onPercent(0)
-      fn(value)
-    }
-
-    task.on(
-      'state_changed',
-      (snap) => {
+      request.upload.onprogress = (e) => {
         moved = Date.now()
-        onPercent(snap.totalBytes ? Math.round((snap.bytesTransferred / snap.totalBytes) * 100) : 0)
-      },
-      (e) => done(reject, e),
-      () => done(resolve)
-    )
+        if (e.lengthComputable) onPercent(Math.round((e.loaded / e.total) * 100))
+      }
+      request.onabort = () => done(reject, Object.assign(new Error('The upload stopped'), { stalled: true }))
+      request.onerror = () => done(reject, Object.assign(new Error('The upload failed'), { offline: true }))
+      request.onload = () => {
+        let body = {}
+        try {
+          body = JSON.parse(request.responseText || '{}')
+        } catch {
+          // A response that is not JSON is a proxy or a crash, not an answer.
+        }
+        if (request.status >= 200 && request.status < 300 && body.link) return done(resolve, body)
+        done(reject, Object.assign(new Error(body.error || 'That picture could not be sent'), { status: request.status }))
+      }
+
+      request.open('POST', '/api/chatImage')
+      request.setRequestHeader('Authorization', `Bearer ${token}`)
+      request.setRequestHeader('Content-Type', 'application/json')
+      request.send(
+        JSON.stringify({
+          // Named for the sender, so the folder can be read by a person.
+          name: driveNameFor(user.uid, name),
+          mimeType: blob.type || 'image/jpeg',
+          data: await toBase64(blob),
+        })
+      )
+    })().catch(reject)
   })
 }

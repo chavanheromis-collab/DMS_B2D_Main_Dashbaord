@@ -5,10 +5,9 @@ import path from 'node:path'
 
 import {
   ACCEPT,
-  IMAGE_FOLDER,
   IMAGE_TYPES,
-  RETRY_MS,
   STALL_MS,
+  driveNameFor,
   uploadProblem,
   MAX_EDGE,
   MAX_IMAGES,
@@ -24,7 +23,6 @@ import {
   isImageFile,
   photoText,
   roomFor,
-  storagePathFor,
 } from './chatImages.js'
 import { draftProblem, messageDoc } from './messages.js'
 import { conversationsFor, entriesOf, previewOf } from './conversations.js'
@@ -87,15 +85,15 @@ test('four to a message, and the room left is what may still be added', () => {
 
 // --- where it goes -----------------------------------------------------------
 
-test('a picture is stored under the person who sent it', () => {
-  // Which is exactly what the storage rule checks: your folder, nobody
-  // else's.
-  const where = storagePathFor('u_ravi', 'Screenshot 2026.PNG')
-  assert.ok(where.startsWith(`${IMAGE_FOLDER}/u_ravi/`))
-  assert.ok(where.endsWith('.png'), 'the kind is kept, in lower case')
-  assert.ok(storagePathFor('u_ravi', 'no-extension').endsWith('.jpg'))
-  // Never the same twice, or two screenshots in one minute overwrite.
-  assert.notEqual(storagePathFor('u_ravi', 'a.png'), storagePathFor('u_ravi', 'a.png'))
+test('a picture is named after the person who sent it', () => {
+  // The folder is a flat list somebody will open one day, and "who sent
+  // this?" should be answerable there.
+  const name = driveNameFor('u_ravi', 'Screenshot 2026.PNG')
+  assert.ok(name.startsWith('u_ravi-'))
+  assert.ok(name.endsWith('.png'), 'the kind is kept, in lower case')
+  assert.ok(driveNameFor('u_ravi', 'no-extension').endsWith('.jpg'))
+  // Never the same twice, or two screenshots in one minute are one file.
+  assert.notEqual(driveNameFor('u_ravi', 'a.png'), driveNameFor('u_ravi', 'a.png'))
 })
 
 // --- what a message carries -----------------------------------------------------
@@ -186,34 +184,30 @@ const read = (p) =>
 
 test('an upload that stops moving is given up on, not waited out', () => {
   // The report this was written for: a 416KB photo "uploading" for twenty
-  // minutes. It was not uploading -- the request had stalled and the SDK
-  // was retrying it in silence.
+  // minutes. It was not uploading -- the request had stalled, and nothing
+  // on screen could tell that apart from slow.
   assert.ok(STALL_MS <= 30 * 1000, 'silence for longer than this is a dead upload')
-  assert.ok(RETRY_MS <= 30 * 1000, 'the SDK retries for two minutes by default')
 
   const hook = read('hooks/useChatImages.js')
-  // Progress, which is the only thing that tells slow apart from dead.
-  assert.ok(hook.includes('uploadBytesResumable(where, blob, { contentType: blob.type || \'image/jpeg\' })'))
-  assert.ok(hook.includes("task.on( 'state_changed'"))
+  // XHR rather than fetch for one reason: it reports progress, and progress
+  // is the only thing that tells a slow upload from a dead one.
+  assert.ok(hook.includes('const request = new XMLHttpRequest()'))
+  assert.ok(hook.includes('request.upload.onprogress'))
   assert.ok(hook.includes('if (Date.now() - moved > STALL_MS) {'))
-  assert.ok(hook.includes('task.cancel()'))
-  // And the ceiling on the SDK's own retrying.
-  const firebase = read('firebase.js')
-  assert.ok(firebase.includes('storage.maxUploadRetryTime = RETRY_MS'))
-  assert.ok(firebase.includes('storage.maxOperationRetryTime = RETRY_MS'))
+  assert.ok(hook.includes('request.abort()'))
 })
 
 test('a failed upload names the cause, because the fixes are different', () => {
-  // Rules not deployed is an admin task; a bucket the browser cannot reach
-  // is a different admin task; being signed out is neither.
-  assert.match(uploadProblem('storage/unauthorized'), /deploy the storage rules/)
-  assert.match(uploadProblem('storage/unauthenticated'), /signed out/)
-  assert.match(uploadProblem('storage/quota-exceeded'), /full/)
-  // The three that mean "the request never got anywhere" say one thing.
-  for (const code of ['storage/canceled', 'storage/retry-limit-exceeded', 'storage/unknown']) {
-    assert.match(uploadProblem(code), /could not reach the picture store/, code)
-  }
-  assert.equal(uploadProblem(''), 'That picture could not be sent')
+  // A folder not shared is an admin task; a folder out of space is a
+  // different admin task; being signed out is neither.
+  assert.match(uploadProblem({ stalled: true }), /stopped uploading/)
+  assert.match(uploadProblem({ offline: true }), /connection dropped/)
+  assert.match(uploadProblem({ status: 401 }), /signed out/)
+  assert.match(uploadProblem({ status: 413 }), /too big/)
+  // The one that means "in the wrong kind of Drive" rather than "broken".
+  assert.match(uploadProblem({ status: 507 }), /Shared Drive/)
+  assert.match(uploadProblem({ status: 403, message: 'Drive: no access' }), /share the Drive folder/)
+  assert.equal(uploadProblem({}), 'That picture could not be sent')
   assert.equal(uploadProblem(undefined), 'That picture could not be sent')
 })
 
@@ -222,31 +216,69 @@ test('the picture is shrunk in the browser before it is ever uploaded', () => {
   // full size in a bubble.
   const hook = read('hooks/useChatImages.js')
   assert.ok(hook.includes('const { blob, width, height } = await shrinkImage(file)'))
-  assert.ok(hook.includes('await send(where, blob, setPercent)'))
-  assert.ok(hook.includes('const url = await getDownloadURL(where)'))
+  assert.ok(hook.includes('const { id, link } = await send(blob, file.name, setPercent)'))
+  // Through this app's own server: the browser holds no Drive access, the
+  // service account does.
+  assert.ok(hook.includes("request.open('POST', '/api/chatImage')"))
+  assert.ok(hook.includes("request.setRequestHeader('Authorization', `Bearer ${token}`)"))
 })
 
 test('removing one takes the uploaded file with it, even mid-upload', () => {
   const hook = read('hooks/useChatImages.js')
-  assert.ok(hook.includes('dropped.current.add(path)'))
-  assert.ok(hook.includes('if (dropped.current.has(path)) { deleteObject(where).catch(() => {}) continue }'))
-  assert.ok(hook.includes('deleteObject(ref(storage, path)).catch(() => {})'))
+  assert.ok(hook.includes('dropped.current.add(id)'))
+  assert.ok(hook.includes('if (dropped.current.has(mine)) { remove(image.path) continue }'))
+  assert.ok(hook.includes("fetch(`/api/chatImage?id=${encodeURIComponent(id)}`, { method: 'DELETE'"))
 })
 
-test('storage not being switched on says so, rather than failing silently', () => {
-  assert.ok(read('hooks/useChatImages.js').includes('setError(uploadProblem(e?.code))'))
+test('a folder that is not set up says so, rather than failing silently', () => {
+  assert.ok(read('hooks/useChatImages.js').includes('setError(uploadProblem(e))'))
   // And the box shows how far it has got, not just that it is trying.
   assert.ok(read('components/Conversations.jsx').includes('{pictures.percent}%'))
 })
 
-test('only the sender may write in their folder, and only pictures', () => {
-  const rules = fs.readFileSync(path.join(ROOT, 'storage.rules'), 'utf8')
-  assert.ok(rules.includes('match /chatImages/{userId}/{file}'))
-  assert.ok(rules.includes('request.auth.uid == userId'))
-  assert.ok(rules.includes("request.resource.contentType.matches('image/.*')"))
-  assert.ok(rules.includes('request.resource.size < 8 * 1024 * 1024'))
-  // Nothing else is stored, so nothing else is allowed.
-  assert.ok(rules.includes('match /{path=**} { allow read, write: if false; }'.replace(/\s+/g, ' ')) || rules.includes('allow read, write: if false;'))
+// --- the folder they go to ------------------------------------------------
+
+test('they go to one Drive folder, found before it is made, named exactly', () => {
+  const drive = fs.readFileSync(path.join(ROOT, 'api/_lib/chatDrive.js'), 'utf8')
+  assert.ok(drive.includes("export const CHAT_FOLDER = 'CUS Chat Images'"))
+  // Found first, so an admin who made and shared it themselves gets theirs
+  // rather than a second folder with the same name.
+  assert.ok(drive.includes("mimeType = 'application/vnd.google-apps.folder'"))
+  assert.ok(drive.includes("mimeType: 'application/vnd.google-apps.folder',"))
+  // A Shared Drive is invisible to a plain query, and is the arrangement
+  // that does not run out of space.
+  assert.ok(drive.includes("supportsAllDrives: 'true'"))
+  assert.ok(drive.includes('GOOGLE_DRIVE_CHAT_PARENT'))
+  // Its own client and its own scope: the listing next door stays readonly,
+  // as its own comment insists.
+  assert.ok(drive.includes("scopes: ['https://www.googleapis.com/auth/drive']"))
+  assert.ok(fs.readFileSync(path.join(ROOT, 'api/_lib/googleDrive.js'), 'utf8').includes('drive.readonly'))
+})
+
+test('the route is behind sign-in, takes pictures only, and is bounded', () => {
+  const route = fs.readFileSync(path.join(ROOT, 'api/chatImage.js'), 'utf8')
+  assert.ok(route.includes('await requireUser(req)'))
+  assert.ok(route.includes('if (!IMAGE.test(String(mimeType'))
+  assert.ok(route.includes('bytes.length > MAX_BYTES'))
+  // Deleting is the dangerous one: a file id arriving from a browser must
+  // not be able to delete anything else the service account can reach --
+  // which is every spreadsheet this dashboard runs on.
+  const drive = fs.readFileSync(path.join(ROOT, 'api/_lib/chatDrive.js'), 'utf8')
+  assert.ok(drive.includes('if (!file?.parents?.includes(parent))'))
+  // And it exists locally too, or pictures work deployed and nowhere else.
+  assert.ok(fs.readFileSync(path.join(ROOT, 'server/local-api.js'), 'utf8').includes("app.all('/api/chatImage'"))
+})
+
+test('a Drive picture is drawn through the fallback, carrying no referrer', () => {
+  // No single Drive endpoint serves every file, and Google refuses an image
+  // request carrying a referrer from an origin it does not know -- which is
+  // every deployment of this. A perfectly public file 403s without it.
+  const chat = read('components/Conversations.jsx')
+  assert.ok(chat.includes('const { url, exhausted, onError } = useImageFallback(image?.url, width)'))
+  assert.ok(chat.includes('referrerPolicy="no-referrer"'))
+  // All three places draw the same way -- the composer, the bubble, the
+  // lightbox -- so none of them is the one that quietly stops working.
+  assert.equal((chat.match(/<ChatImage image=\{image\}/g) || []).length, 3)
 })
 
 test('a message may be pictures alone, and no more than four', () => {
