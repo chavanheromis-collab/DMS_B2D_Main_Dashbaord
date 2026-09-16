@@ -12,6 +12,7 @@ import {
   iceServers,
   incomingFor,
   isOver,
+  mediaProblem,
   newCall,
   offerFields,
   roleOf,
@@ -187,7 +188,10 @@ export function useCallSession() {
         await connectionOf.setLocalDescription(offer)
         await patch(offerFields(offer, 0))
       } catch (e) {
-        setError(e?.name === 'NotAllowedError' ? 'The microphone is blocked for this site' : 'That call could not be started')
+        // Logged as well as shown: the sentence is for the person, the error
+        // is for whoever they end up asking about it.
+        console.error('[call] could not start', e)
+        setError(mediaProblem(e) || 'That call could not be started')
         await hangUp('failed')
       } finally {
         busy.current = false
@@ -212,7 +216,8 @@ export function useCallSession() {
       answeredRound.current = Number(ringing.round) || 0
       await patch(answerFields(answer))
     } catch (e) {
-      setError(e?.name === 'NotAllowedError' ? 'The microphone is blocked for this site' : 'That call could not be answered')
+      console.error('[call] could not answer', e)
+      setError(mediaProblem(e) || 'That call could not be answered')
       await hangUp('failed')
     } finally {
       busy.current = false

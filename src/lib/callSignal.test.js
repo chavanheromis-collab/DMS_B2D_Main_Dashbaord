@@ -19,6 +19,7 @@ import {
   incomingFor,
   isOver,
   isRinging,
+  mediaProblem,
   newCall,
   offerFields,
   otherName,
@@ -286,4 +287,34 @@ test('only the two people in a call can read or write it', () => {
   // And neither side can change who is in it.
   assert.ok(block.includes('request.resource.data.to == resource.data.to'))
   assert.equal(CALLS, 'calls')
+})
+
+// --- when it will not start ----------------------------------------------
+
+test('a call that will not start says which of the causes it was', () => {
+  // The report this was written for: "call could not be started", on a
+  // computer whose only audio device was an output. One sentence for five
+  // different problems is a sentence that tells nobody anything.
+  assert.match(mediaProblem({ name: 'NotFoundError' }), /No microphone was found/)
+  assert.match(mediaProblem({ name: 'DevicesNotFoundError' }), /No microphone was found/)
+  assert.match(mediaProblem({ name: 'NotAllowedError' }), /blocked for this site/)
+  assert.match(mediaProblem({ name: 'NotReadableError' }), /another app/)
+  assert.match(mediaProblem({ name: 'SecurityError' }), /secure connection/)
+  // A refused write is not a media fault at all, and is an admin's job.
+  assert.match(mediaProblem({ code: 'permission-denied' }), /deploy the Firestore rules/)
+})
+
+test('an unrecognised failure leaves the caller its own words', () => {
+  // Better a plain sentence than a confident wrong diagnosis.
+  assert.equal(mediaProblem({ name: 'SomethingNew' }), '')
+  assert.equal(mediaProblem(undefined), '')
+  assert.equal(mediaProblem(null), '')
+})
+
+test('both ends of a call name the cause, and log it for whoever is asked', () => {
+  const session = read('hooks/useCallSession.js')
+  assert.ok(session.includes("setError(mediaProblem(e) || 'That call could not be started')"))
+  assert.ok(session.includes("setError(mediaProblem(e) || 'That call could not be answered')"))
+  // Swallowed entirely, a failure leaves nothing to diagnose from.
+  assert.ok(session.includes("console.error('[call] could not start', e)"))
 })

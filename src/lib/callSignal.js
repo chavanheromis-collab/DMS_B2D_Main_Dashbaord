@@ -265,3 +265,43 @@ export function callProblem({ supported = true, person = null, me = '' } = {}) {
   if (person === me) return 'You cannot call yourself'
   return ''
 }
+
+/**
+ * What actually went wrong when a call would not start, in words.
+ *
+ * Every failure used to arrive as the same sentence -- "that call could not
+ * be started" -- which is true and useless. A microphone the site is
+ * blocked from, a computer with no microphone at all, and a headset another
+ * app is holding are three different problems with three different fixes,
+ * and only one of them is anybody's fault here. The browser already tells
+ * them apart by error name; this turns that into something a person can act
+ * on without opening a console.
+ *
+ * Returns '' for anything unrecognised, so the caller keeps its own
+ * sentence rather than this inventing a confident wrong one.
+ */
+export function mediaProblem(failure) {
+  switch (String(failure?.name || '')) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+      return 'The microphone is blocked for this site. Allow it in the padlock menu, then try again.'
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'No microphone was found on this computer. Plug in a headset or microphone to make calls.'
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return 'The microphone is being used by another app. Close that app, then try again.'
+    case 'SecurityError':
+      return 'Calls need a secure connection. Open the dashboard over https, or on localhost.'
+    case 'OverconstrainedError':
+      return 'That microphone could not be used. Pick a different one in the browser settings.'
+    default:
+      // A refused write looks nothing like a media error, and means the
+      // rules that let two people share a call document never reached the
+      // project -- an admin's job, not something to retry.
+      if (String(failure?.code || '') === 'permission-denied') {
+        return 'Calls are not set up yet — an admin needs to deploy the Firestore rules.'
+      }
+      return ''
+  }
+}

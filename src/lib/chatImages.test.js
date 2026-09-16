@@ -265,6 +265,10 @@ test('the route is behind sign-in, takes pictures only, and is bounded', () => {
   // which is every spreadsheet this dashboard runs on.
   const drive = fs.readFileSync(path.join(ROOT, 'api/_lib/chatDrive.js'), 'utf8')
   assert.ok(drive.includes('if (!file?.parents?.includes(parent))'))
+  // Trashed rather than destroyed. Not a nicety: in a Shared Drive only a
+  // Manager may delete outright, and this app asks for no more than Content
+  // manager -- files.delete answers that with a 404 on our own file.
+  assert.ok(drive.includes('JSON.stringify({ trashed: true })'))
   // And it exists locally too, or pictures work deployed and nowhere else.
   assert.ok(fs.readFileSync(path.join(ROOT, 'server/local-api.js'), 'utf8').includes("app.all('/api/chatImage'"))
 })

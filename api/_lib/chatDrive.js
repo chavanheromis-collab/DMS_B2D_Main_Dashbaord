@@ -173,9 +173,16 @@ export async function uploadChatImage({ bytes, mimeType, name }) {
  * Remove one, and ONLY one of ours.
  *
  * The parent is checked first. Without that, an endpoint that takes a file
- * id from the browser and deletes it is an endpoint for deleting anything
+ * id from the browser and removes it is an endpoint for removing anything
  * this service account can reach -- which is every spreadsheet the
  * dashboard runs on.
+ *
+ * TRASHED, NOT DESTROYED, and not by preference. In a Shared Drive only a
+ * MANAGER may delete a file outright; a Content manager -- all this app
+ * asks to be -- gets a bare 404 from files.delete on a file it created
+ * itself and can plainly see. Trashing is the operation the role actually
+ * has, and it is the better default regardless: "I changed my mind about
+ * that picture" should be undoable from the Drive trash rather than final.
  */
 export async function deleteChatImage(fileId) {
   const id = String(fileId || '').trim()
@@ -189,6 +196,10 @@ export async function deleteChatImage(fileId) {
     throw err
   }
 
-  await driveFetch(`${BASE}/files/${id}?supportsAllDrives=true`, { method: 'DELETE' })
+  await driveFetch(`${BASE}/files/${id}?supportsAllDrives=true`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trashed: true }),
+  })
   return true
 }

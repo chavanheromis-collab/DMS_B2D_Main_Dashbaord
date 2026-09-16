@@ -822,7 +822,9 @@ its own is a message: *"look at this"* needs no caption.
   you is held by your open tab and re-read whenever any of them changes; a
   photo inlined there would be downloaded again on every reply to it. The bytes
   go to **Google Drive**, into a folder called **CUS Chat Images**.
-- **Removing one before sending deletes it**, including mid-upload.
+- **Removing one before sending takes it out of Drive too**, including
+  mid-upload. It goes to the Drive trash rather than being destroyed, so a
+  picture removed by accident is recoverable for 30 days.
 - **Pictures only.** Not attachments: a chat that takes any file becomes a
   filing cabinet nobody maintains, and documents belong on a row's media
   columns, where they are named and findable.
