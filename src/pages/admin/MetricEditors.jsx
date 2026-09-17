@@ -42,7 +42,7 @@ const MATCH_OPTIONS = [
  * that a set of conditions is OPTIONAL, and four hand-rolled copies of it
  * would be four slightly different shades of the same promise.
  */
-function ConditionPanel({ title, conditions, match, tab, tabHeaders, onConditions, onMatch, tone = 'indigo' }) {
+function ConditionPanel({ title, conditions, match, tab, tabHeaders, onConditions, onMatch, name, onName, tone = 'indigo' }) {
   const colors = {
     indigo: 'border-indigo-100 bg-indigo-50/40 text-indigo-700',
     emerald: 'border-emerald-100 bg-emerald-50/40 text-emerald-700',
@@ -60,6 +60,8 @@ function ConditionPanel({ title, conditions, match, tab, tabHeaders, onCondition
         tabs={[tab]}
         tabHeaders={tabHeaders}
         onChange={onConditions}
+        name={name}
+        onName={onName}
         compact
       />
     </div>
@@ -215,6 +217,8 @@ export function StatGridEditor({ widget, cols, tabHeaders, set }) {
                 tab={widget.tab}
                 tabHeaders={tabHeaders}
                 onConditions={(conditions) => ops.update(stat.id, { conditions })}
+                name={stat.conditionsName}
+                onName={(conditionsName) => ops.update(stat.id, { conditionsName })}
                 onMatch={(v) => ops.update(stat.id, { match: v })}
               />
               {stat.compare === 'conditions' && (
@@ -226,6 +230,8 @@ export function StatGridEditor({ widget, cols, tabHeaders, set }) {
                   tab={widget.tab}
                   tabHeaders={tabHeaders}
                   onConditions={(compareConditions) => ops.update(stat.id, { compareConditions })}
+                  name={stat.compareConditionsName}
+                  onName={(compareConditionsName) => ops.update(stat.id, { compareConditionsName })}
                   onMatch={(v) => ops.update(stat.id, { compareMatch: v })}
                 />
               )}
@@ -391,6 +397,8 @@ export function BulletEditor({ widget, cols, tabHeaders, set }) {
                 tab={widget.tab}
                 tabHeaders={tabHeaders}
                 onConditions={(conditions) => ops.update(line.id, { conditions })}
+                name={line.conditionsName}
+                onName={(conditionsName) => ops.update(line.id, { conditionsName })}
                 onMatch={(v) => ops.update(line.id, { match: v })}
               />
               {line.targetMode === 'measured' && (
@@ -402,6 +410,8 @@ export function BulletEditor({ widget, cols, tabHeaders, set }) {
                   tab={widget.tab}
                   tabHeaders={tabHeaders}
                   onConditions={(targetConditions) => ops.update(line.id, { targetConditions })}
+                  name={line.targetConditionsName}
+                  onName={(targetConditionsName) => ops.update(line.id, { targetConditionsName })}
                   onMatch={(v) => ops.update(line.id, { targetMatch: v })}
                 />
               )}
@@ -493,6 +503,8 @@ export function MoversEditor({ widget, cols, tabHeaders, set }) {
             tab={widget.tab}
             tabHeaders={tabHeaders}
             onConditions={(conditionsNow) => set({ conditionsNow })}
+            name={widget.conditionsNowName}
+            onName={(conditionsNowName) => set({ conditionsNowName })}
             onMatch={(v) => set({ matchNow: v })}
           />
           <ConditionPanel
@@ -503,6 +515,8 @@ export function MoversEditor({ widget, cols, tabHeaders, set }) {
             tab={widget.tab}
             tabHeaders={tabHeaders}
             onConditions={(conditionsBefore) => set({ conditionsBefore })}
+            name={widget.conditionsBeforeName}
+            onName={(conditionsBeforeName) => set({ conditionsBeforeName })}
             onMatch={(v) => set({ matchBefore: v })}
           />
         </div>

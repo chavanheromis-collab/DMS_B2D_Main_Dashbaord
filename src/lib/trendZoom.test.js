@@ -4,21 +4,29 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import {
+  DEFAULT_GRAIN_BUTTONS,
+  GRAIN_BUTTONS,
+  GRAIN_BUTTON_GROUPS,
   ZOOM_LADDER,
   backTo,
   canZoom,
+  cleanGrainButtons,
   crumbs,
+  drillSummary,
   finerGrain,
+  grainButtonsFor,
   isZoomable,
+  regrain,
   rowsInWindow,
   stepInto,
   trailGrain,
   windowConditions,
   zoomBlocked,
+  zoomLadderFor,
   zoomNote,
   zoomWindow,
 } from './trendZoom.js'
-import { timeSeriesBy } from './seriesData.js'
+import { ALL_TIME_GRAINS, timeSeriesBy } from './seriesData.js'
 import { matchesConditions } from './filterEngine.js'
 
 // ---------------------------------------------------------------------
@@ -193,6 +201,104 @@ test('the trail says where you are and takes you back', () => {
   assert.equal(zoomNote([], 'month'), '')
 })
 
+// --- the buttons -----------------------------------------------------------
+
+const values = (buttons) => buttons.map((b) => b.value)
+const year2026 = () => series('year').data.find((d) => d.name === '2026')
+
+test('a button exists for every bucket the chart can draw, and fits on one', () => {
+  // Two lists that drift apart is a bucket the admin can choose and no
+  // reader can ever press.
+  assert.deepEqual([...values(GRAIN_BUTTONS)].sort(), ALL_TIME_GRAINS.map((g) => g.value).sort())
+  for (const b of GRAIN_BUTTONS) assert.ok(b.label.length <= 8, `${b.label} is a sentence, not a button`)
+  // The timeline first and coarsest first, which is the way a click drills.
+  assert.deepEqual(values(GRAIN_BUTTON_GROUPS[0].buttons), ZOOM_LADDER)
+  assert.equal(GRAIN_BUTTON_GROUPS[1].buttons.length, GRAIN_BUTTONS.length - ZOOM_LADDER.length)
+  assert.deepEqual(DEFAULT_GRAIN_BUTTONS, ZOOM_LADDER)
+})
+
+test('a chart nobody has configured offers the timeline, and drills as it always did', () => {
+  assert.deepEqual(values(grainButtonsFor({ grain: 'month' })), ['year', 'quarter', 'month', 'week', 'day'])
+  assert.deepEqual(zoomLadderFor({ grain: 'month' }), ZOOM_LADDER)
+  assert.deepEqual(zoomLadderFor({}), ZOOM_LADDER)
+  assert.equal(
+    drillSummary({ grain: 'month' }),
+    'Clicking a period drills Year → Quarter → Month → Week → Day, and filters the page.'
+  )
+})
+
+test('the admin’s buttons are what a reader sees, and the chart’s own bucket is always one', () => {
+  // Without its own bucket, a reader who pressed Week could never get back
+  // to the Month the chart opened on.
+  assert.deepEqual(values(grainButtonsFor({ grain: 'month', grainButtons: ['day', 'week'] })), ['month', 'week', 'day'])
+  assert.deepEqual(
+    values(grainButtonsFor({ grain: 'month', grainButtons: ['dayOfWeek', 'year'] })),
+    ['year', 'month', 'dayOfWeek']
+  )
+  // What was saved is cleaned on the way out, whatever it was.
+  assert.deepEqual(cleanGrainButtons(['day', 'bogus', 'day', 'year']), ['year', 'day'])
+  assert.deepEqual(cleanGrainButtons('nonsense'), [])
+  // None is a real answer, and one button is not a choice.
+  assert.deepEqual(grainButtonsFor({ grain: 'month', grainButtons: [] }), [])
+  assert.deepEqual(grainButtonsFor({ grain: 'month', grainButtons: ['month'] }), [])
+})
+
+test('a click steps to the next button the reader can see', () => {
+  const widget = { grain: 'year', grainButtons: ['year', 'month', 'day'] }
+  const ladder = zoomLadderFor(widget)
+  assert.deepEqual(ladder, ['year', 'month', 'day'])
+  // Never onto a Quarter or a Week nobody offered.
+  assert.equal(finerGrain('year', ladder), 'month')
+  assert.equal(finerGrain('month', ladder), 'day')
+  assert.equal(finerGrain('day', ladder), '')
+  assert.equal(finerGrain('dayOfWeek', ladder), '')
+
+  const trail = stepInto([], year2026(), 'year', ladder)
+  assert.equal(trail[0].grain, 'month')
+  assert.equal(trail[0].span, 'year')
+  assert.equal(inside(trail, 'month').data.length, 12, 'the year, read by its months')
+  assert.equal(drillSummary(widget), 'Clicking a period drills Year → Month → Day, and filters the page.')
+
+  // A chart whose finest button is Month says so rather than doing nothing.
+  const monthly = zoomLadderFor({ grain: 'month', grainButtons: ['year'] })
+  assert.equal(canZoom('month', year2026(), monthly), false)
+  assert.match(zoomBlocked('month', year2026(), monthly), /Months are as fine as this chart goes/)
+})
+
+test('without two timeline buttons a click filters and does not drill, and the admin is told', () => {
+  for (const grainButtons of [[], ['dayOfWeek', 'monthOfYear']]) {
+    const widget = { grain: 'month', grainButtons }
+    assert.deepEqual(zoomLadderFor(widget), ['month'])
+    assert.equal(canZoom('month', year2026(), zoomLadderFor(widget)), false)
+    assert.match(drillSummary(widget), /^Clicking a period filters the page\./)
+  }
+})
+
+test('a button pressed inside a period re-reads that period where it can', () => {
+  const trail = stepInto([], year2026(), 'year')
+
+  // Finer: 2026, by month.
+  const byMonth = regrain(trail, 'month')
+  assert.equal(byMonth.length, 1)
+  assert.equal(byMonth[0].grain, 'month')
+  assert.equal(byMonth[0].from, trail[0].from)
+  assert.equal(inside(byMonth, 'month').data.length, 12)
+
+  // Folded: 2026, by weekday -- all of 2026's rows and nothing else.
+  const byWeekday = regrain(trail, 'dayOfWeek')
+  assert.equal(byWeekday[0].grain, 'dayOfWeek')
+  const weekdays = inside(byWeekday, 'dayOfWeek').data
+  assert.equal(weekdays.length, 7)
+  assert.equal(weekdays.reduce((sum, d) => sum + d.count, 0), 4, 'the 2025 row is not in 2026')
+
+  // As coarse as the period itself: a year by years is one bar, so out.
+  assert.deepEqual(regrain(trail, 'year'), [])
+  // At the top there is nothing to re-read; the caller changes the bucket.
+  assert.deepEqual(regrain([], 'week'), [])
+  // And something that is not a button changes nothing.
+  assert.deepEqual(regrain(trail, 'bogus'), trail)
+})
+
 // --- wiring ----------------------------------------------------------------
 
 const SRC = path.resolve(import.meta.dirname, '..')
@@ -217,15 +323,38 @@ test('the chart draws the period it is standing in, at the grain in force', () =
 })
 
 test('a click goes in, and still filters the page as it always did', () => {
-  assert.ok(widget.includes('if (canZoom(grain, bucket)) setTrail((current) => stepInto(current, bucket, grain))'))
+  assert.ok(
+    widget.includes('if (canZoom(grain, bucket, ladder)) setTrail((current) => stepInto(current, bucket, grain, ladder))')
+  )
+  assert.ok(widget.includes('const ladder = useMemo(() => zoomLadderFor(widget), [widget.grainButtons, widget.grain])'))
   // The cross-filter below it is untouched: the zoom is this chart, the
   // filter is the rest of the dashboard.
   assert.ok(widget.includes("id: `trend_${widget.id}`"))
 })
 
-test('there is a way back, and every bucket is reachable without an admin', () => {
+test('there is a way back, and the admin’s buckets are buttons rather than a dropdown', () => {
   assert.ok(widget.includes('setTrail(backTo(trail, crumb.index))'))
-  assert.ok(widget.includes('{ALL_TIME_GRAINS.map((g) => ('))
-  // The admin changing the chart resets where the reader was standing.
-  assert.ok(widget.includes('}, [widget.grain, widget.dateColumn])'))
+
+  const trend = widget.slice(widget.indexOf('export function TrendWidget('), widget.indexOf('function TrendTooltip('))
+  assert.ok(trend.length > 0, 'the trend widget moved')
+  assert.ok(trend.includes('const buttons = useMemo(() => grainButtonsFor(widget), [widget.grainButtons, widget.grain])'))
+  assert.ok(trend.includes('{buttons.map((b) => {'))
+  assert.ok(trend.includes('onClick={() => chooseGrain(b.value)}'))
+  assert.ok(trend.includes('aria-pressed={on}'))
+  assert.ok(trend.includes('const on = b.value === grain'), 'the lit button is the grain in force')
+  assert.ok(!trend.includes('<select'), 'the dropdown is back')
+  // Pressed inside a period, it re-reads that period.
+  assert.ok(trend.includes('const next = regrain(trail, value)'))
+  // The admin changing the chart -- its buttons included -- resets where the
+  // reader was standing.
+  assert.ok(trend.includes('}, [widget.grain, widget.dateColumn, offered])'))
+})
+
+test('the admin picks the buttons, and is told what a click will do', () => {
+  const editor = read('pages/admin/WidgetEditors.jsx')
+  assert.ok(editor.includes("{part === 'buttons' && <GrainButtonsEditor widget={widget} set={set} />}"))
+  assert.ok(editor.includes('const choose = (list) => set({ grainButtons: cleanGrainButtons(list) })'))
+  assert.ok(editor.includes('{drillSummary(widget)}'))
+  // The chart's own bucket cannot be switched off.
+  assert.ok(editor.includes('disabled={fixed}'))
 })

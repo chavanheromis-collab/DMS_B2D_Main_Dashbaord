@@ -354,6 +354,9 @@ export const OPERATORS = [
   // in the dropdown and in the summaries that strip the bracketed part --
   // "changing Status so that it matches formula ...".
   { value: 'formula', label: 'matches formula (ƒ)', arity: 1, formula: true },
+  // Another widget's named conditions, picked as a widget and then one of
+  // its filters rather than written again. See lib/namedFilters.js.
+  { value: 'in_filter', label: 'is in a named filter (from a widget)', arity: 0, filterRef: true },
 ]
 
 export function operatorMeta(op) {

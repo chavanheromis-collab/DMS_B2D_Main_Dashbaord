@@ -219,7 +219,8 @@ test('the overlay goes on before anything else reads the rows', () => {
   assert.ok(overlay >= 0, 'the overlay is still applied')
   assert.ok(overlay < DASH.indexOf('const computedByRef = useMemo('), 'and applied first')
   assert.match(DASH, /for \(const \[ref, data\] of Object\.entries\(editedByRef\)\)/)
-  assert.match(DASH, /\}, \[editedByRef, sourcesById, dateOrder\]\)/, 'and recomputed when it changes')
+  // namedFilters too: a calculated column can ask one. See namedFilters.test.js.
+  assert.match(DASH, /\}, \[editedByRef, sourcesById, dateOrder, namedFilters\]\)/, 'and recomputed when it changes')
 })
 
 test('every write goes down one path, and shows before it sends', () => {

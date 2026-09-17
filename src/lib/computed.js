@@ -19,6 +19,8 @@
 // per-user row scope has to be able to hide rows by it.
 
 import { buildAggregates, aggregateKeys, evaluateFormula, formulaColumns, parseFormula } from './formula.js'
+import { isFormulaCondition } from './conditionFormula.js'
+import { isFilterCondition, namedFilterByName, namedFilterByRef } from './namedFilters.js'
 
 /** `{ [tabName]: [ {id, name, formula} ] }` on a data source. */
 export function computedFor(source, tab) {
@@ -27,6 +29,63 @@ export function computedFor(source, tab) {
 
 export function newComputedId() {
   return `c_${Math.random().toString(36).slice(2, 9)}`
+}
+
+// ---------------------------------------------------------------------
+// Named filters inside a formula
+// ---------------------------------------------------------------------
+
+/** Every filter a formula names -- INFILTER("…") with the name written out. */
+export function filterNamesIn(ast, into = new Set()) {
+  if (!ast || typeof ast !== 'object') return into
+  if (ast.kind === 'call' && ast.name === 'INFILTER' && ast.args?.[0]?.kind === 'literal') {
+    into.add(String(ast.args[0].value ?? ''))
+  }
+  for (const key of ['arg', 'left', 'right']) if (ast[key]) filterNamesIn(ast[key], into)
+  for (const arg of [...(ast.args || []), ...(ast.items || [])]) filterNamesIn(arg, into)
+  return into
+}
+
+/**
+ * The columns a named filter reads -- through any formula or other named
+ * filter inside it, and never twice round a loop.
+ */
+export function namedFilterColumns(filter, into = new Set(), seen = new Set()) {
+  if (!filter || seen.has(filter.ref)) return into
+  seen.add(filter.ref)
+  for (const condition of filter.conditions || []) {
+    if (isFilterCondition(condition)) {
+      namedFilterColumns(namedFilterByRef(condition.value), into, seen)
+    } else if (isFormulaCondition(condition)) {
+      const { ast } = parseFormula(String(condition.value ?? ''))
+      if (!ast) continue
+      formulaColumns(ast, into)
+      for (const name of filterNamesIn(ast)) namedFilterColumns(namedFilterByName(name), into, seen)
+    } else if (condition?.column) {
+      into.add(condition.column)
+    }
+  }
+  return into
+}
+
+/**
+ * What a formula waits for because of the filters it names.
+ *
+ * Kept apart from the columns it reads directly: it decides ORDER only. A
+ * filter written about a column this tab lacks is a filter that says no,
+ * not a reason to throw the whole calculated column away.
+ */
+function filterDependencies(ast) {
+  const out = new Set()
+  for (const name of filterNamesIn(ast)) namedFilterColumns(namedFilterByName(name), out)
+  return out
+}
+
+/** Names a formula uses that no widget has given a filter -- for the editor. */
+export function unknownFilterNames(formula) {
+  const { ast } = parseFormula(String(formula ?? ''))
+  if (!ast) return []
+  return [...filterNamesIn(ast)].filter((name) => !namedFilterByName(name))
 }
 
 /**
@@ -58,7 +117,9 @@ export function compileComputed(defs, headers = []) {
       errors.push({ id: def.id, name: def.name, error })
       continue
     }
-    parsed.push({ ...def, ast, needs: formulaColumns(ast) })
+    // `after`: a column built from INFILTER("Big deals") must wait for any
+    // calculated column that filter reads.
+    parsed.push({ ...def, ast, needs: formulaColumns(ast), after: filterDependencies(ast) })
   }
 
   // --- dependency order -------------------------------------------------
@@ -79,7 +140,7 @@ export function compileComputed(defs, headers = []) {
     }
 
     state.set(node.name, 'busy')
-    for (const need of node.needs) {
+    for (const need of [...node.needs, ...node.after]) {
       const upstream = byName.get(need)
       if (upstream && upstream !== node) {
         if (!visit(upstream, [...trail, upstream.name])) {

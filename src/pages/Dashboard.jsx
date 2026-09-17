@@ -73,6 +73,7 @@ import {
   widgetsAt,
 } from '../lib/widgetNest'
 import { applyComputed, computedFor, computedHeaders } from '../lib/computed'
+import { useNamedFilters } from '../hooks/useNamedFilters'
 import { blendIsReady, blendRows, blendedHeaders, describeBlend } from '../lib/blend'
 import { flowBlendRefs, mapFlowBlendRefs } from '../lib/flow'
 import { normalizeKey } from '../lib/dataUtils'
@@ -184,6 +185,9 @@ export default function Dashboard() {
   // its own sheet connections and its own entrance -- see lib/spaces.js.
   const { spaceId, chooseSpace, spaces } = useSpace()
   const { pages, allPages, sourcesById, sources, loading: wsLoading } = useWorkspace(spaceId)
+  // Every widget's named conditions, so a condition or a calculated column
+  // on any page can use one by name. See lib/namedFilters.js.
+  const namedFilters = useNamedFilters(allPages)
   // Grants for EVERY page in the account, not just this dashboard's: which
   // dashboards this person may open is decided by the pages they can see in
   // each, so the answer needs all of them.
@@ -611,7 +615,9 @@ export default function Dashboard() {
       }
     }
     return out
-  }, [editedByRef, sourcesById, dateOrder])
+    // A calculated column can ask a named filter, so a filter edited
+    // anywhere is a reason to work the columns out again.
+  }, [editedByRef, sourcesById, dateOrder, namedFilters])
 
   const tabColumns = useMemo(() => {
     const out = {}
@@ -1702,8 +1708,9 @@ export default function Dashboard() {
       // The same value pickers the admin panel has: every condition written
       // on the page gets the column's real values instead of a blank box.
       valuesFor: (ref, column) => valuesForRef(sourcesById, ref, column),
+      namedFilters,
     }),
-    [allTabOptions, allTabHeaders, pageSources, labelFor, sourcesById]
+    [allTabOptions, allTabHeaders, pageSources, labelFor, sourcesById, namedFilters]
   )
 
   /**

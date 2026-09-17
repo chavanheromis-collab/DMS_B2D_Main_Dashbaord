@@ -378,7 +378,9 @@ test('every starter is a correct yes/no, written with the tab own columns', () =
 
 test('the value box becomes the guided editor for a formula', () => {
   const builder = read('pages/admin/ConditionBuilder.jsx')
-  assert.ok(builder.includes('{meta.formula ? ('))
+  // Second in line: a named filter is asked about first, and is picked
+  // rather than written. See namedFilters.test.js.
+  assert.ok(builder.includes(') : meta.formula ? ('))
   assert.ok(builder.includes('<FormulaInput'))
   assert.ok(builder.includes('columns={columns || []}'))
 })

@@ -11,6 +11,13 @@ import {
 import { dateValueIsSet, dateWindow } from './datePresets.js'
 import { isMetaColumn } from './rowMeta.js'
 import { FORMULA_OPERATOR, formulaHolds, isFormulaCondition } from './conditionFormula.js'
+import {
+  FILTER_OPERATOR,
+  isFilterCondition,
+  namedFilterByRef,
+  registerFilterTester,
+  rowInNamedFilter,
+} from './namedFilters.js'
 
 // ---------------------------------------------------------------------
 // How filtering works across a multi-tab page
@@ -348,6 +355,9 @@ export function testCondition(row, cond, dateOrder = 'DMY') {
   // buttons, row limits, clearing rules, stages, blends. See
   // lib/conditionFormula.js.
   if (cond?.operator === FORMULA_OPERATOR) return formulaHolds(row, cond.value, dateOrder)
+  // Another widget's named conditions, asked of this row -- the same way,
+  // and with the same one-line reach. See lib/namedFilters.js.
+  if (cond?.operator === FILTER_OPERATOR) return rowInNamedFilter(namedFilterByRef(cond.value), row, dateOrder)
   if (!cond || !cond.column) return true
   const cell = row[cond.column]
   const text = String(cell ?? '').trim()
@@ -483,12 +493,17 @@ export function matchesConditions(row, conditions, match = 'all', dateOrder = 'D
   // arrived some other way -- hand-edited, imported, or older -- which
   // would otherwise be dropped here and leave an EMPTY list, and an empty
   // list matches every row.
-  const conds = (conditions || []).filter((c) => c && (c.column || isFormulaCondition(c)))
+  const conds = (conditions || []).filter((c) => c && (c.column || isFormulaCondition(c) || isFilterCondition(c)))
   if (conds.length === 0) return true
   return match === 'all'
     ? conds.every((c) => testCondition(row, c, dateOrder))
     : conds.some((c) => testCondition(row, c, dateOrder))
 }
+
+// A named filter is answered by this same function. Lent rather than
+// imported by lib/namedFilters.js, because the formula language asks named
+// filters too and neither of them may import this file without a loop.
+registerFilterTester(matchesConditions)
 
 /**
  * Applies a button to ONE tab's rows. Only the conditions that name this

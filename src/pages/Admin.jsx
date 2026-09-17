@@ -11,6 +11,7 @@ import { inSpace, stampSpace } from '../lib/spaces'
 import { useSpace } from '../context/SpaceContext.jsx'
 import { normalizeControls } from '../lib/pageControls'
 import { computedFor, computedHeaders } from '../lib/computed'
+import { useNamedFilters } from '../hooks/useNamedFilters'
 import { stripUndefined } from '../lib/firestoreSafe'
 import { Btn, Select, WorkspaceCtx, stableEqual } from './admin/ui.jsx'
 import DataSourcesPanel from './admin/DataSourcesPanel.jsx'
@@ -142,9 +143,18 @@ export default function Admin() {
   const sourcesById = useMemo(() => Object.fromEntries(sources.map((s) => [s.id, s])), [sources])
   const valuesFor = useCallback((ref, column) => valuesForRef(sourcesById, ref, column), [sourcesById])
 
+  // Every widget's named filters -- with the page being edited as it stands
+  // in the editor, so a filter named a moment ago can be picked before the
+  // layout is published. See lib/namedFilters.js.
+  const livePages = useMemo(
+    () => allPages.map((p) => (p.id === page?.id ? { ...p, widgets: draft.widgets || [] } : p)),
+    [allPages, page?.id, draft.widgets]
+  )
+  const namedFilters = useNamedFilters(livePages)
+
   const ctx = useMemo(
-    () => ({ tabOptions, tabHeaders, sources, labelFor, valuesFor }),
-    [tabOptions, tabHeaders, sources, labelFor, valuesFor]
+    () => ({ tabOptions, tabHeaders, sources, labelFor, valuesFor, namedFilters }),
+    [tabOptions, tabHeaders, sources, labelFor, valuesFor, namedFilters]
   )
 
   // --- Writes ------------------------------------------------------------

@@ -587,6 +587,8 @@ export default function WidgetsPanel({
                     tabs={[widget.tab]}
                     tabHeaders={tabHeaders}
                     onChange={(rowConditions) => set({ rowConditions })}
+                    name={widget.rowConditionsName}
+                    onName={(rowConditionsName) => set({ rowConditionsName })}
                   />
 
                   <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
@@ -1048,6 +1050,8 @@ function KpiEditor({ widget, cols, tabs, tabHeaders, set }) {
           tabs={[widget.tab]}
           tabHeaders={tabHeaders}
           onChange={(conditions) => set({ conditions })}
+          name={widget.conditionsName}
+          onName={(conditionsName) => set({ conditionsName })}
           compact
         />
         <p className="mt-1 text-[10px] text-slate-400">
@@ -1078,6 +1082,8 @@ function KpiEditor({ widget, cols, tabs, tabHeaders, set }) {
             tabs={[widget.secondaryTab]}
             tabHeaders={tabHeaders}
             onChange={(conditions) => set({ secondaryConditions: conditions })}
+            name={widget.secondaryConditionsName}
+            onName={(secondaryConditionsName) => set({ secondaryConditionsName })}
             compact
           />
         </div>

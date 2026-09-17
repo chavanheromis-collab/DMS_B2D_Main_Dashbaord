@@ -27,6 +27,7 @@
 //     [Amount] / TOTAL([Amount]) * 100
 
 import { isBlank, toDate, toNumber } from './dataUtils.js'
+import { namedFilterByName, rowInNamedFilter } from './namedFilters.js'
 
 // ---------------------------------------------------------------------
 // Tokens
@@ -388,6 +389,8 @@ export const FUNCTIONS = {
     hint: 'BETWEEN(value, low, high) — from low to high, both included; numbers or dates',
   },
   ISFILLED: { arity: [1, Infinity], group: 'Logic', hint: 'ISFILLED([Column], …) — has something in it (every one, if several)' },
+  // A widget's named conditions, by name -- see lib/namedFilters.js.
+  INFILTER: { arity: [1, 1], group: 'Logic', hint: 'INFILTER("Walk-ins pending") — this row is in that widget filter' },
 
   // --- numbers
   ROUND: { arity: [1, 2], group: 'Numbers', hint: 'ROUND(value, decimals)' },
@@ -634,6 +637,10 @@ export function evaluateFormula(ast, row, ctx = {}) {
 
     switch (node.name) {
       // --- logic
+      case 'INFILTER':
+        // A name nobody has given a filter is NO, not an error: the column
+        // stays, and the editor says which name it could not find.
+        return rowInNamedFilter(namedFilterByName(s(0)), row, dateOrder)
       case 'IF':
         return truthy(v(0)) ? v(1) : A.length > 2 ? v(2) : null
       case 'IFS': {

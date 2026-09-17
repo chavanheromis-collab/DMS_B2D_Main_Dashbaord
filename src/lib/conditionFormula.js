@@ -37,6 +37,7 @@
 //   a condition at all, and an empty box must not blank the page.
 
 import { FUNCTIONS, evaluateFormula, formulaColumns, parseFormula, truthy } from './formula.js'
+import { FILTER_COLUMN, FILTER_OPERATOR } from './namedFilters.js'
 
 export const FORMULA_OPERATOR = 'formula'
 
@@ -127,7 +128,15 @@ export function formulaHolds(row, text, dateOrder = 'DMY') {
  */
 export function conditionPatch(condition, patch) {
   if (!patch || !('operator' in patch)) return patch
-  if (patch.operator === FORMULA_OPERATOR) return { ...patch, column: FORMULA_COLUMN }
+  const wasFilter = condition?.column === FILTER_COLUMN
+  if (patch.operator === FORMULA_OPERATOR) {
+    // A named filter's value is a widget's id, which is not a formula.
+    return { ...patch, column: FORMULA_COLUMN, ...(wasFilter ? { value: '' } : {}) }
+  }
+  // A named filter carries its own sentinel -- see lib/namedFilters.js --
+  // and starts unchosen: whatever the row held before is not a filter's id.
+  if (patch.operator === FILTER_OPERATOR) return { ...patch, column: FILTER_COLUMN, value: '' }
+  if (wasFilter) return { ...patch, column: '', value: '' }
   if (condition?.column === FORMULA_COLUMN) return { ...patch, column: '' }
   return patch
 }
@@ -167,6 +176,7 @@ const YES_NO_FUNCTIONS = new Set([
   'THISWEEK',
   'THISMONTH',
   'THISYEAR',
+  'INFILTER',
   'IF',
   'IFS',
 ])

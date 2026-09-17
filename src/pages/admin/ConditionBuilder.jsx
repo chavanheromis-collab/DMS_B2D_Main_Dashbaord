@@ -1,6 +1,14 @@
-import { Sigma, X } from 'lucide-react'
+import { Bookmark, Sigma, X } from 'lucide-react'
 import { OPERATORS, operatorMeta } from '../../lib/config'
 import { conditionPatch, isFormulaCondition } from '../../lib/conditionFormula'
+import {
+  filterNameProblem,
+  filterOptionsIn,
+  filterWidgetOptions,
+  installedFilters,
+  isFilterCondition,
+  namedFilterByRef,
+} from '../../lib/namedFilters'
 import { Select, TextInput, optValue, toTabOptions, useWorkspaceCtx } from './ui.jsx'
 import FormulaInput from './FormulaInput.jsx'
 import { useId } from 'react'
@@ -42,6 +50,9 @@ export function OperatorValue({
   columns = null,
   // (column) => that column's values, for the formula builder's pickers.
   valuesOf = null,
+  // The condition's tab, so a named filter is picked from the ones written
+  // about the same columns.
+  tab = '',
 }) {
   const meta = operatorMeta(operator)
   const listId = useId()
@@ -54,7 +65,11 @@ export function OperatorValue({
         options={OPERATORS}
         className={className}
       />
-      {meta.formula ? (
+      {meta.filterRef ? (
+        /* Another widget's named conditions: picked, never typed. See
+           lib/namedFilters.js. */
+        <NamedFilterPicker value={value} onChange={(v) => onChange({ value: v })} tab={tab} />
+      ) : meta.formula ? (
         /* A formula is a sentence, not a value -- it gets the full width of
            the row and an editor that helps write it. See FormulaInput. */
         <FormulaInput
@@ -111,7 +126,7 @@ export function OperatorValue({
  * one tab). Both are normalised here so a raw "src_a1::MASTER" never reaches
  * the screen.
  */
-export default function ConditionBuilder({ conditions, match = 'all', tabs, tabHeaders, onChange, compact }) {
+export default function ConditionBuilder({ conditions, match = 'all', tabs, tabHeaders, onChange, compact, name, onName }) {
   const { labelFor, valuesFor } = useWorkspaceCtx()
   const options = toTabOptions(tabs, labelFor)
   const columnsOf = (tab) => tabHeaders?.[tab] || []
@@ -135,6 +150,7 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
       <div className="space-y-1.5">
         {conditions.map((cond, ci) => {
           const formula = isFormulaCondition(cond)
+          const named = isFilterCondition(cond)
           return (
             <div key={ci} className="flex flex-wrap items-center gap-1.5">
               <span className="w-9 shrink-0 text-[10px] font-semibold uppercase text-slate-400">
@@ -142,13 +158,20 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
               </span>
               <Select
                 value={cond.tab}
-                onChange={(v) => setCondition(ci, { tab: v, ...(formula ? {} : { column: '' }) })}
+                onChange={(v) => setCondition(ci, { tab: v, ...(formula || named ? {} : { column: '' }) })}
                 options={options}
                 className={compact ? 'w-28' : 'w-36'}
               />
               {/* A formula names its columns inside itself, so the column
                   picker gives way to a marker saying what this row is. */}
-              {formula ? (
+              {named ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700"
+                  title="This condition is another widget’s named filter"
+                >
+                  <Bookmark size={11} /> named filter
+                </span>
+              ) : formula ? (
                 <span
                   className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-700"
                   title="This condition is a formula over the whole row"
@@ -181,6 +204,7 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
                 // Every column's own values, so a formula built with clicks
                 // picks "WALK-IN" rather than spelling it.
                 valuesOf={(column) => valuesFor?.(cond.tab, column)}
+                tab={cond.tab}
               />
               <button
                 onClick={() => removeCondition(ci)}
@@ -202,6 +226,82 @@ export default function ConditionBuilder({ conditions, match = 'all', tabs, tabH
       <button onClick={addCondition} className="mt-1.5 text-[11px] text-indigo-600 underline">
         + add condition
       </button>
+
+      {onName && <FilterNameField name={name} onName={onName} />}
+    </div>
+  )
+}
+
+/**
+ * A widget, then one of its named filters.
+ *
+ * Two steps because that is how a person finds one: "the Walk-ins KPI, its
+ * pending filter". Choosing the widget chooses its first filter straight
+ * away, so a half-made pick never leaves the condition empty -- and an
+ * empty named-filter condition would match nothing.
+ */
+export function NamedFilterPicker({ value, onChange, tab = '' }) {
+  const { namedFilters } = useWorkspaceCtx()
+  const registry = namedFilters || installedFilters()
+  const chosen = namedFilterByRef(value, registry)
+  const widgets = filterWidgetOptions(registry, { tab })
+  const widgetId = chosen?.widgetId || ''
+  const filters = widgetId ? filterOptionsIn(registry, widgetId, { tab }) : []
+
+  return (
+    <>
+      <Select
+        value={widgetId}
+        onChange={(id) => onChange(filterOptionsIn(registry, id, { tab })[0]?.value || '')}
+        options={widgets}
+        placeholder={widgets.length ? '— widget —' : '— no named filters yet —'}
+        disabled={widgets.length === 0}
+        className="w-56"
+      />
+      <Select
+        value={chosen ? value : ''}
+        onChange={onChange}
+        options={filters}
+        placeholder="— its filter —"
+        disabled={filters.length === 0}
+        className="w-44"
+      />
+      {value && !chosen && (
+        <span className="text-[10px] text-rose-600">That filter no longer exists, so this matches nothing.</span>
+      )}
+      {widgets.length === 0 && (
+        <span className="text-[10px] text-slate-400">
+          Name a widget’s conditions first — the name box sits under them.
+        </span>
+      )}
+    </>
+  )
+}
+
+/**
+ * The name that makes these conditions reusable.
+ *
+ * Optional, and said to be: most conditions are only ever about their own
+ * widget. Once named, the line underneath says where it can now be used,
+ * with the exact formula to type -- or what is wrong with the name.
+ */
+function FilterNameField({ name, onName }) {
+  const { namedFilters } = useWorkspaceCtx()
+  const text = String(name ?? '').trim()
+  const problem = filterNameProblem(text, namedFilters || installedFilters())
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-1.5">
+      <span className="inline-flex w-9 shrink-0 items-center text-slate-400" title="Name these conditions to reuse them">
+        <Bookmark size={12} />
+      </span>
+      <TextInput value={name || ''} onChange={onName} placeholder="Name this filter to reuse it" className="w-52" />
+      <span className={`text-[10px] ${problem ? 'text-rose-600' : 'text-slate-400'}`}>
+        {problem ||
+          (text
+            ? `Reuse it anywhere: pick “is in a named filter” in any condition, or write INFILTER("${text}") in a calculated column.`
+            : 'Optional. A named filter can be picked by other widgets and used in calculated columns.')}
+      </span>
     </div>
   )
 }

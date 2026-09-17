@@ -24,6 +24,7 @@
 
 import { matchesConditions } from './filterEngine.js'
 import { describeFormula, isFormulaCondition } from './conditionFormula.js'
+import { describeFilterRef, isFilterCondition } from './namedFilters.js'
 
 export const DEFAULT_SCOPE = { match: 'all', conditions: [] }
 
@@ -144,7 +145,9 @@ export function describeScope(scope, labelFor = (t) => t) {
     .map((c) =>
       isFormulaCondition(c)
         ? `${labelFor(c.tab)} · ${describeFormula(c)}`
-        : `${labelFor(c.tab)} · ${c.column} ${c.operator || 'equals'} ${c.value ?? ''}`.trim()
+        : isFilterCondition(c)
+          ? `${labelFor(c.tab)} · ${describeFilterRef(c.value)}`
+          : `${labelFor(c.tab)} · ${c.column} ${c.operator || 'equals'} ${c.value ?? ''}`.trim()
     )
     .join(joiner)
 }

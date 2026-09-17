@@ -22,6 +22,10 @@ export const WorkspaceCtx = createContext({
   // where nothing was indexed -- a column of fifty thousand VINs has no
   // useful dropdown, and the caller falls back to a plain box.
   valuesFor: () => null,
+  // Every widget's named filters (lib/namedFilters.js), for the pickers.
+  // Null outside a screen that holds the pages; the pickers then read the
+  // set that screen last installed.
+  namedFilters: null,
 })
 
 export function useWorkspaceCtx() {

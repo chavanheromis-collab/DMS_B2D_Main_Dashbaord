@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { AlertCircle, BookOpen, Calculator, Check, Plus, Trash2 } from 'lucide-react'
-import { compileComputed, newComputedId, previewComputed } from '../../lib/computed'
+import { compileComputed, newComputedId, previewComputed, unknownFilterNames } from '../../lib/computed'
 import { aggregateKeys, functionHelp, parseFormula } from '../../lib/formula'
-import { Select, TextInput } from './ui.jsx'
+import { filterOptionsIn, filterWidgetOptions, installedFilters } from '../../lib/namedFilters'
+import { makeRef } from '../../lib/refs'
+import { Select, TextInput, useWorkspaceCtx } from './ui.jsx'
 
 /**
  * Calculated columns for one tab.
@@ -86,7 +88,7 @@ function cellText(value) {
   return String(value)
 }
 
-export default function ComputedColumns({ tabs, tabHeaders, computed, sampleRows, dateOrder, onChange }) {
+export default function ComputedColumns({ tabs, tabHeaders, computed, sampleRows, dateOrder, onChange, sourceId = '' }) {
   const [tab, setTab] = useState(tabs[0] || '')
   const [helpOpen, setHelpOpen] = useState(false)
 
@@ -254,6 +256,18 @@ export default function ComputedColumns({ tabs, tabHeaders, computed, sampleRows
                     </span>
                   )}
                 </div>
+
+                {/* A widget's named filter, picked rather than spelled. */}
+                <FilterInsert
+                  tab={makeRef(sourceId, tab)}
+                  onInsert={(name) => update(def.id, { formula: `${def.formula || ''}INFILTER("${name}")` })}
+                />
+                {unknownFilterNames(def.formula).map((name) => (
+                  <p key={name} className="mt-1 flex items-start gap-1 text-[11px] text-amber-700">
+                    <AlertCircle size={11} className="mt-0.5 shrink-0" />
+                    No widget has a filter called “{name}”, so INFILTER says no for every row until one does.
+                  </p>
+                ))}
               </div>
             )
           })}
@@ -306,6 +320,47 @@ export default function ComputedColumns({ tabs, tabHeaders, computed, sampleRows
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * A widget, then one of its named filters, into the formula.
+ *
+ * Only filters written about THIS tab are offered: one about another tab's
+ * columns would be asked of rows that do not have them, and say no to all
+ * of them. Nothing is drawn when there are none, rather than an empty
+ * picker on every column.
+ */
+function FilterInsert({ tab, onInsert }) {
+  const { namedFilters } = useWorkspaceCtx()
+  const registry = namedFilters || installedFilters()
+  const [widgetId, setWidgetId] = useState('')
+  const widgets = filterWidgetOptions(registry, { tab })
+  if (widgets.length === 0) return null
+  const filters = widgetId ? filterOptionsIn(registry, widgetId, { tab }) : []
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      <span className="text-[10px] text-slate-400">Use a widget’s filter:</span>
+      <Select
+        value={widgetId}
+        onChange={setWidgetId}
+        options={widgets}
+        placeholder="— widget —"
+        className="w-56"
+      />
+      <Select
+        value=""
+        onChange={(ref) => {
+          const picked = filters.find((f) => f.value === ref)
+          if (picked) onInsert(picked.name)
+        }}
+        options={filters}
+        placeholder={widgetId ? '— insert its filter —' : '— pick a widget first —'}
+        disabled={!widgetId}
+        className="w-48"
+      />
     </div>
   )
 }

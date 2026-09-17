@@ -1976,6 +1976,40 @@ Formulas are parsed, not `eval`'d: an admin's string never becomes JavaScript,
 which matters both for what a formula could otherwise reach and for what
 running one forty thousand times would cost.
 
+#### Named filters: write a condition once, use it everywhere
+
+A widget's conditions have a **Name** box underneath them. That covers *Only
+count rows where*, *Only the rows where*, a stat's or a line's conditions, a
+comparison side, and a pipeline stage or its KPI. Give the conditions a name
+(say *Walk-ins pending*) and the rest of the dashboard can use them:
+
+- **In another widget, a page button or a user's row limit:** add a condition,
+  choose **is in a named filter (from a widget)**, then pick the **widget** and
+  **its filter**. The condition matches exactly the rows that filter matches.
+- **In a calculated column:** under each formula, **Use a widget's filter**
+  lets you pick the widget and the filter, and writes
+  `INFILTER("Walk-ins pending")` for you. It is true for rows in the filter
+  and false for the rest, and it works inside a formula condition too.
+
+Change the conditions on the original widget and everything that uses them
+follows. A few rules keep this predictable:
+
+- **Names must be unique** across the account, because a formula refers to a
+  filter by name. The Name box warns when a name is already taken. A name also
+  cannot contain a double quote.
+- **Renaming is safe for conditions**, which remember the widget rather than
+  the name. It does break `INFILTER("old name")` in formulas, just as renaming
+  a column would. The calculated-column editor warns about any name that no
+  widget has.
+- **Only filters on the same tab are offered.** A filter about another tab's
+  columns would say no to every row.
+- **A deleted filter, or one that ends up using itself, matches nothing.**
+  This is the same rule as a broken formula condition, so a mistake shows up
+  as a zero rather than as every row.
+- **In the admin panel, unsaved names count.** You can pick a filter you named
+  a moment ago before publishing the layout. The dashboard uses what has been
+  published.
+
 #### The same language as a condition
 
 Any condition (*matches formula (ƒ)*) takes a formula that answers yes or no

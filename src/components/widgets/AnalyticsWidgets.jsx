@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import ExportButton from '../ExportButton.jsx'
 import {
-  ALL_TIME_GRAINS,
   asPercent,
   modeStacks,
   stackOffsetFor,
@@ -46,10 +45,14 @@ import {
   backTo,
   canZoom,
   crumbs,
+  finerGrain,
+  grainButtonsFor,
+  regrain,
   rowsInWindow,
   stepInto,
   trailGrain,
   zoomBlocked,
+  zoomLadderFor,
   zoomWindow,
 } from '../../lib/trendZoom'
 import { gridProps } from '../../lib/chartVisuals.js'
@@ -93,19 +96,25 @@ export function TrendWidget({
   const [trail, setTrail] = useState([])
   const [picked, setPicked] = useState('')
 
+  // Which buckets the admin offers as buttons -- and so which rungs a click
+  // walks down. See lib/trendZoom.js.
+  const buttons = useMemo(() => grainButtonsFor(widget), [widget.grainButtons, widget.grain])
+  const ladder = useMemo(() => zoomLadderFor(widget), [widget.grainButtons, widget.grain])
+  const offered = buttons.map((b) => b.value).join(',')
+
   const adminGrain = picked || widget.grain || 'month'
   const grain = trailGrain(trail, adminGrain)
   // Memoised: `zoomWindow` builds a fresh object, and a new one on every
   // render would rebuild the whole series on every render with it.
   const window = useMemo(() => zoomWindow(trail), [trail])
 
-  // The admin changing the bucket, or the column, is a different chart --
-  // standing inside last year's September would be showing a period nobody
-  // asked for.
+  // The admin changing the bucket, the column or the buttons is a different
+  // chart -- standing inside last year's September, or on a button that is
+  // no longer there, would be showing something nobody asked for.
   useEffect(() => {
     setTrail([])
     setPicked('')
-  }, [widget.grain, widget.dateColumn])
+  }, [widget.grain, widget.dateColumn, offered])
 
   // Everything inside the period being looked at, which at the top is
   // everything.
@@ -201,7 +210,7 @@ export function TrendWidget({
     // Inside the period, if there is an inside to go to. The page filter
     // below happens either way: the zoom is what this chart does, the
     // cross-filter is what the rest of the dashboard does.
-    if (canZoom(grain, bucket)) setTrail((current) => stepInto(current, bucket, grain))
+    if (canZoom(grain, bucket, ladder)) setTrail((current) => stepInto(current, bucket, grain, ladder))
 
     // A cyclical bucket is not a span -- "March" is three Marches from three
     // different years, and no date range covers it. What it IS, exactly, is
@@ -250,6 +259,17 @@ export function TrendWidget({
   /** Everything outside the drilled bucket recedes. */
   const dim = (entry) => (activeBucket && activeBucket !== entry.name ? 0.3 : 1)
   const fade = (name) => (hover && hover !== name ? 0.25 : 1)
+
+  /**
+   * A button pressed. Inside a period it re-reads THAT period where it can
+   * -- 2026 by month, 2026 by weekday -- rather than throwing the reader
+   * back out to the top. See `regrain`.
+   */
+  function chooseGrain(value) {
+    const next = regrain(trail, value)
+    if (next.length === 0) setPicked(value)
+    setTrail(next)
+  }
 
   function toggleSeries(name) {
     setHidden((current) => {
@@ -392,8 +412,8 @@ export function TrendWidget({
             {widget.tab} · {widget.dateColumn || '—'} by {grain}
             {breakdown && ` · split by ${breakdown}`}
             {widget.cumulative && ' · cumulative'}
-            {isCyclical(grain) && ' · every year folded onto one cycle'}
-            {onCrossFilter && ' · click a period to drill in'}
+            {isCyclical(grain) && (window ? ' · folded onto one cycle' : ' · every year folded onto one cycle')}
+            {onCrossFilter && (finerGrain(grain, ladder) ? ' · click a period to drill in' : ' · click a period to filter')}
           </p>
 
           {/* Where you are, and the way back. Drawn at the top even at the
@@ -419,26 +439,36 @@ export function TrendWidget({
             </nav>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {/* Every bucket the language has, not only the one the admin
-              chose: "by day of week" is a question a reader asks of a chart
-              they are already looking at, and it was an admin-panel trip. */}
-          <select
-            value={picked || widget.grain || 'month'}
-            onChange={(e) => {
-              setPicked(e.target.value)
-              setTrail([])
-            }}
-            aria-label="Bucket this by"
-            title="Bucket this by — yours only, and only until the page is reloaded"
-            className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-600 focus:border-indigo-400 focus:outline-none"
-          >
-            {ALL_TIME_GRAINS.map((g) => (
-              <option key={g.value} value={g.value}>
-                {g.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+          {/* The buckets the admin chose to offer, as buttons: every option
+              in sight and one press away, where a dropdown hid them behind a
+              click. The lit one is what the chart is read by right now --
+              inside a period too, so a drill visibly moves it along. */}
+          {buttons.length > 0 && (
+            <div
+              role="group"
+              aria-label="Bucket this by"
+              className="flex flex-wrap items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5"
+            >
+              {buttons.map((b) => {
+                const on = b.value === grain
+                return (
+                  <button
+                    key={b.value}
+                    type="button"
+                    onClick={() => chooseGrain(b.value)}
+                    aria-pressed={on}
+                    title={`${b.title} — yours only, until the page is reloaded`}
+                    className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
+                      on ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {b.label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
           {canExport && (
             <ExportButton
               name={widget.title || widget.tab}

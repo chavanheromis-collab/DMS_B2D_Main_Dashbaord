@@ -27,6 +27,14 @@ import {
 import { activeSection } from '../../lib/sectionTabs'
 import { Btn, Field, RowControls, SectionTabs, Select, TextInput, Toggle, listOps, optValue } from './ui.jsx'
 import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
+import {
+  DEFAULT_GRAIN_BUTTONS,
+  GRAIN_BUTTONS,
+  GRAIN_BUTTON_GROUPS,
+  cleanGrainButtons,
+  drillSummary,
+  grainButtonsFor,
+} from '../../lib/trendZoom'
 import { clashingPins, nextPinColor } from '../../lib/valueColors'
 import { DEFAULT_REDUCER, GROUP_SORTS, SORT_REDUCERS, sortsByColumn } from '../../lib/groupSort'
 import { defaultMeasureLabel, emptyMeasure } from '../../lib/pivotMeasures'
@@ -211,6 +219,8 @@ function StageList({ stages, onChange, widget, tabs, tabHeaders, depth = 0, pare
                     />
                     <ConditionBuilder
                       compact
+                      name={stage.conditionsName}
+                      onName={(conditionsName) => setStage({ conditionsName })}
                       conditions={stage.conditions || []}
                       match={stage.match || 'all'}
                       tabs={depth > 0 ? tabs.filter((t) => optValue(t) === parentTab) : tabs}
@@ -580,6 +590,8 @@ export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
                         : 'Narrow further (optional) — leave empty to measure the whole tab'}
                     </p>
                     <ConditionBuilder
+                      name={kpi.conditionsName}
+                      onName={(conditionsName) => update(kpi.id, { conditionsName })}
                       conditions={kpi.conditions || []}
                       match={kpi.match || 'all'}
                       tabs={[kpiTab(kpi, stage)]}
@@ -822,6 +834,93 @@ export function ColumnOrderEditor({ columns, allColumns, onChange }) {
 // =====================================================================
 // Trend / Pivot / Gauge editors
 // =====================================================================
+
+/**
+ * The buttons a reader switches a trend with.
+ *
+ * Chips rather than a multi-select: the admin is choosing what a small row
+ * of buttons on the chart will look like, and a row of those same buttons,
+ * lit or not, IS that row. The chart's own bucket is lit and fixed -- it is
+ * always offered, or a reader who pressed Week could never get back to the
+ * Month the chart opened on.
+ */
+function GrainButtonsEditor({ widget, set }) {
+  const own = widget.grain || 'month'
+  const chosen = Array.isArray(widget.grainButtons) ? cleanGrainButtons(widget.grainButtons) : DEFAULT_GRAIN_BUTTONS
+  const offered = grainButtonsFor(widget)
+  const choose = (list) => set({ grainButtons: cleanGrainButtons(list) })
+  const toggle = (value) => choose(chosen.includes(value) ? chosen.filter((v) => v !== value) : [...chosen, value])
+
+  const presets = [
+    { label: 'Timeline (default)', list: DEFAULT_GRAIN_BUTTONS },
+    { label: 'Month · Week · Day', list: ['month', 'week', 'day'] },
+    { label: 'Everything', list: GRAIN_BUTTONS.map((b) => b.value) },
+    { label: 'No buttons', list: [] },
+  ]
+
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
+      {GRAIN_BUTTON_GROUPS.map((group) => (
+        <div key={group.label}>
+          <p className="mb-1 text-[11px] font-medium text-slate-500">{group.label}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {group.buttons.map((b) => {
+              const fixed = b.value === own
+              // The chart's own bucket is only "on" while there is a row of
+              // buttons for it to be in.
+              const on = (fixed && offered.length > 0) || chosen.includes(b.value)
+              return (
+                <button
+                  key={b.value}
+                  type="button"
+                  onClick={() => toggle(b.value)}
+                  disabled={fixed}
+                  aria-pressed={on}
+                  title={
+                    fixed
+                      ? 'The chart’s own bucket (set on the Data tab) — always offered, so readers can get back to it'
+                      : b.title
+                  }
+                  className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+                    on
+                      ? 'border-indigo-600 bg-indigo-600 text-white'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                  } ${fixed ? 'cursor-default' : ''}`}
+                >
+                  {b.label}
+                  {fixed && <span className="ml-1 text-[9px] font-normal opacity-75">default</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] text-slate-400">Quick picks:</span>
+        {presets.map((p) => (
+          <Btn key={p.label} onClick={() => choose(p.list)}>
+            {p.label}
+          </Btn>
+        ))}
+      </div>
+
+      <div className="space-y-0.5 rounded-md border border-indigo-100 bg-indigo-50/50 px-2 py-1.5">
+        <p className="text-[11px] text-slate-700">
+          {offered.length > 0
+            ? `Readers see: ${offered.map((b) => b.label).join(' · ')}`
+            : 'Readers see no buttons — the chart stays on its own bucket.'}
+        </p>
+        <p className="text-[11px] text-slate-700">{drillSummary(widget)}</p>
+      </div>
+      <p className="text-[10px] text-slate-400">
+        A reader’s choice is theirs alone and lasts until the page is reloaded. Inside a period, a finer or folded
+        button re-reads that period — 2026 by month, 2026 by weekday — instead of starting over.
+      </p>
+    </div>
+  )
+}
+
 export function TrendEditor({ widget, cols, set }) {
   const breakdown = widget.breakdown || ''
   const [part, setPart] = useState('data')
@@ -833,6 +932,12 @@ export function TrendEditor({ widget, cols, set }) {
         onPick={setPart}
         sections={[
           { key: 'data', label: 'Data', hint: 'The date column, the bucket and the calculation' },
+          {
+            key: 'buttons',
+            label: 'Buttons',
+            badge: Array.isArray(widget.grainButtons),
+            hint: 'Which buckets readers can switch the chart to, and where a click drills',
+          },
           {
             key: 'series',
             label: 'Series',
@@ -880,6 +985,8 @@ export function TrendEditor({ widget, cols, set }) {
         </Field>
       </div>
       )}
+
+      {part === 'buttons' && <GrainButtonsEditor widget={widget} set={set} />}
 
       {/* --- the breakdown ------------------------------------------------ */}
       {part === 'series' && (
@@ -1901,6 +2008,8 @@ export function GaugeEditor({ widget, cols, tabs, tabHeaders, set }) {
           tabs={[widget.tab]}
           tabHeaders={tabHeaders}
           onChange={(conditions) => set({ conditions })}
+          name={widget.conditionsName}
+          onName={(conditionsName) => set({ conditionsName })}
           compact
         />
       </div>
@@ -2019,6 +2128,8 @@ export function ScorecardEditor({ widget, tabs, tabHeaders, set }) {
             </Field>
           </div>
           <ConditionBuilder
+            name={widget[`conditions${side}Name`]}
+            onName={(v) => set({ [`conditions${side}Name`]: v })}
             conditions={widget[`conditions${side}`] || []}
             match={widget[`match${side}`] || 'all'}
             tabs={[widget.tab]}

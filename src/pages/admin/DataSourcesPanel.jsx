@@ -508,6 +508,7 @@ function SourceCard({ source, usedBy, onSave, onDelete, onReport }) {
       {part === 'computed' && selected.length > 0 && (
         <div className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-3">
           <ComputedColumns
+            sourceId={source.id}
             tabs={selected}
             tabHeaders={source.tabHeaders || {}}
             computed={draft.computed || {}}
