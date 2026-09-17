@@ -9,6 +9,7 @@ import {
   blendedColumnName,
   sidedColumn,
 } from '../../lib/blend'
+import { refTab } from '../../lib/refs'
 import { OperatorValue } from './ConditionBuilder.jsx'
 import { Btn, Field, Select, TextInput, Toggle, useWorkspaceCtx } from './ui.jsx'
 
@@ -54,7 +55,9 @@ export default function BlendEditor({ widget, set }) {
       columns: [],
       // Namespacing incoming columns by default stops "Status" from the
       // right tab from silently overwriting "Status" on the left one.
-      prefix: blend.prefix || `${String(labelFor(ref)).split(' · ')[0]}.`,
+      // The TAB's name, read from the ref itself: a label is "Sheet · Tab"
+      // and its first half is the sheet.
+      prefix: blend.prefix || `${refTab(ref)}.`,
     })
   }
 

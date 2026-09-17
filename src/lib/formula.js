@@ -307,6 +307,21 @@ function likePattern(pattern) {
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
 
 /**
+ * The start of today, worked out at most once a second.
+ *
+ * A formula is evaluated once per row, and asking the clock -- two new
+ * Dates -- for every one of forty thousand rows, in every formula, was a
+ * measurable part of what a formula costs. Nothing a dashboard does can
+ * tell a second apart at the level of a day.
+ */
+let clock = { at: 0, day: null }
+function currentDay() {
+  const now = Date.now()
+  if (!clock.day || now - clock.at > 1000) clock = { at: now, day: startOfDay(new Date(now)) }
+  return clock.day
+}
+
+/**
  * Comparison, the way a person means it.
  *
  * Two numbers compare as numbers, two dates as dates, and anything else as
@@ -514,7 +529,7 @@ export function aggregateKeys(ast, into = []) {
  */
 export function evaluateFormula(ast, row, ctx = {}) {
   const dateOrder = ctx.dateOrder || 'DMY'
-  const today = ctx.today || startOfDay(new Date())
+  const today = ctx.today || currentDay()
 
   const walk = (node) => {
     switch (node.kind) {
@@ -761,7 +776,9 @@ export function evaluateFormula(ast, row, ctx = {}) {
 
       // --- dates
       case 'TODAY':
-        return today
+        // A copy: the day above is shared, and a value handed out ends up
+        // in a row where anything may hold on to it.
+        return new Date(today)
       case 'DAYSSINCE': {
         const date = d(0)
         return date ? Math.round((today - startOfDay(date)) / MS_PER_DAY) : null

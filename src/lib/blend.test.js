@@ -1,8 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import { blendRows, blendedHeaders, normalizeKey } from './blend.js'
-import { buildLabelMap, mapTabFields, makeRef, parseRef, qualifyLegacyRefs } from './refs.js'
+import { TAB_LABEL_SEP, buildLabelMap, mapTabFields, makeRef, parseRef, qualifyLegacyRefs, refLabel, tabLabel } from './refs.js'
 
 const left = [
   { _row: 2, 'Order #': 'SO-1001', Customer: 'Acme' },
@@ -103,18 +105,53 @@ test('refs round-trip, including tab names containing a colon', () => {
   assert.deepEqual(parseRef('MASTER'), { sourceId: '', tab: 'MASTER' })
 })
 
-test('labels stay short until two sources collide', () => {
+test('a tab is always named by its sheet first: "Sheet · Tab"', () => {
   const sources = [
     { id: 'src_a', name: 'Premia Sales' },
     { id: 'src_b', name: 'Hero CRM' },
+    { id: 'src_f', name: 'FIFO' },
   ]
-  const labels = buildLabelMap(['src_a::MASTER', 'src_a::Quotations', 'src_b::MASTER'], sources)
+  const labels = buildLabelMap(['src_a::MASTER', 'src_a::Quotations', 'src_b::MASTER', 'src_f::Master'], sources)
 
-  assert.equal(labels['src_a::Quotations'], 'Quotations')
-  assert.equal(labels['src_a::MASTER'], 'MASTER · Premia Sales')
-  assert.equal(labels['src_b::MASTER'], 'MASTER · Hero CRM')
+  // Even when only one sheet has the tab: "Quotations" alone does not say
+  // which sheet it came from.
+  assert.equal(labels['src_a::Quotations'], 'Premia Sales · Quotations')
+  assert.equal(labels['src_a::MASTER'], 'Premia Sales · MASTER')
+  assert.equal(labels['src_b::MASTER'], 'Hero CRM · MASTER')
+  assert.equal(labels['src_f::Master'], 'FIFO · Master')
   // Labels double as row-map keys, so they must be unique.
-  assert.equal(new Set(Object.values(labels)).size, 3)
+  assert.equal(new Set(Object.values(labels)).size, 4)
+  assert.equal(TAB_LABEL_SEP, ' · ')
+})
+
+test('two sheets with the same name and tab still get two labels', () => {
+  const sources = [
+    { id: 'src_one1', name: 'FIFO' },
+    { id: 'src_two2', name: 'FIFO' },
+  ]
+  const labels = buildLabelMap(['src_one1::Master', 'src_two2::Master'], sources)
+  assert.equal(labels['src_one1::Master'], 'FIFO · Master')
+  assert.equal(labels['src_two2::Master'], 'FIFO · Master (two2)')
+})
+
+test('a sheet with no name leaves the tab as it is, and one ref is named the same way', () => {
+  assert.equal(tabLabel('', 'Master'), 'Master')
+  assert.equal(tabLabel(undefined, 'Master'), 'Master')
+  assert.equal(tabLabel('  FIFO  ', 'Master'), 'FIFO · Master')
+  assert.equal(buildLabelMap(['src_gone::Master'], [])['src_gone::Master'], 'Master')
+  assert.equal(refLabel('src_f::Master', [{ id: 'src_f', name: 'FIFO' }]), 'FIFO · Master')
+  assert.equal(refLabel('src_f::Master'), 'Master')
+  assert.equal(refLabel(''), '')
+})
+
+test('every screen falls back to the same "Sheet · Tab" name', () => {
+  const read = (p) => fs.readFileSync(path.join(import.meta.dirname, '..', p), 'utf8').replace(/\s+/g, ' ')
+  assert.ok(read('pages/Dashboard.jsx').includes('(ref) => labelByRef[ref] || refLabel(ref, sources) || ref'))
+  assert.ok(read('pages/Admin.jsx').includes('() => (ref) => labelByRef[ref] || refLabel(ref, sources)'))
+  // A blend's default prefix is the TAB, which a label no longer starts with.
+  const blend = read('pages/admin/BlendEditor.jsx')
+  assert.ok(blend.includes('prefix: blend.prefix || `${refTab(ref)}.`'))
+  assert.ok(!blend.includes("split(' · ')"))
 })
 
 test('mapTabFields rewrites every nested tab field without mutating the input', () => {

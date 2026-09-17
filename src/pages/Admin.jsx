@@ -5,7 +5,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, setDoc } from 
 import { ArrowLeft, Save, Undo2 } from 'lucide-react'
 import { db } from '../firebase'
 import { EMPTY_LAYOUT, PAGES } from '../lib/config'
-import { buildLabelMap, makeRef } from '../lib/refs'
+import { buildLabelMap, makeRef, refLabel } from '../lib/refs'
 import { migrateLegacy, newPageId, sortPages } from '../lib/workspace'
 import { inSpace, stampSpace } from '../lib/spaces'
 import { useSpace } from '../context/SpaceContext.jsx'
@@ -109,8 +109,8 @@ export default function Admin() {
   )
   const labelByRef = useMemo(() => buildLabelMap(allRefs, sources), [allRefs, sources])
   const labelFor = useMemo(
-    () => (ref) => labelByRef[ref] || String(ref || '').split('::').pop() || '',
-    [labelByRef]
+    () => (ref) => labelByRef[ref] || refLabel(ref, sources),
+    [labelByRef, sources]
   )
 
   // Every column a tab offers -- including the calculated ones, because to

@@ -64,46 +64,43 @@ export function refTab(ref) {
 // ---------------------------------------------------------------------
 // Display labels
 // ---------------------------------------------------------------------
+/** What sits between a sheet's name and its tab's: "FIFO NOW · Master". */
+export const TAB_LABEL_SEP = ' · '
+
 /**
- * Builds `{ [ref]: label }` for a set of refs, using the SHORTEST label
- * that is still unambiguous:
+ * How a tab is named everywhere a person reads it: the sheet, then the tab.
  *
- *   one source has a MASTER      ->  "MASTER"
- *   two sources have a MASTER    ->  "MASTER · Premia Sales" / "MASTER · Hero CRM"
+ * Always both, and in that order. "Master" on its own does not say WHICH
+ * master -- a dealership connects a FIFO sheet, a stock sheet and two DMS
+ * exports, and half of them have one -- and reading the sheet first is how
+ * the list of tabs sorts itself into sheets without anybody sorting it.
  *
- * Disambiguating only when it's actually needed keeps captions short in the
- * common case, which is what makes a multi-source page still read like a
- * single-source one.
+ * A sheet with no name (deleted, or not loaded yet) leaves the tab alone
+ * rather than printing "undefined · Master".
+ */
+export function tabLabel(sourceName, tab) {
+  const name = String(sourceName ?? '').trim()
+  return name ? `${name}${TAB_LABEL_SEP}${tab}` : String(tab ?? '')
+}
+
+/**
+ * Builds `{ [ref]: label }` for a set of refs: "Sheet · Tab" for each.
  *
  * Labels double as the render-layer KEY for row maps (see Dashboard.jsx), so
- * they must be unique -- a source whose name collides too gets its id
- * appended as a last resort rather than silently overwriting another tab's
- * rows.
+ * they must be unique -- two sheets sharing BOTH a name and a tab name get
+ * the source id's tail appended as a last resort, rather than one silently
+ * overwriting the other's rows.
  */
 export function buildLabelMap(refs, sources) {
-  const byName = new Map(sources.map((s) => [s.id, s]))
-  const seenTab = new Map()
-
+  const byId = new Map((sources || []).map((s) => [s.id, s]))
   const unique = [...new Set((refs || []).filter(Boolean))]
-
-  for (const ref of unique) {
-    const { tab } = parseRef(ref)
-    seenTab.set(tab, (seenTab.get(tab) || 0) + 1)
-  }
 
   const out = {}
   const used = new Set()
 
   for (const ref of unique) {
     const { sourceId, tab } = parseRef(ref)
-    const source = byName.get(sourceId)
-
-    let label = tab
-    if (seenTab.get(tab) > 1) {
-      label = source?.name ? `${tab} · ${source.name}` : `${tab} · ${sourceId || 'unknown'}`
-    }
-    // Two sources sharing BOTH a tab name and a display name -- rare, but it
-    // would otherwise collapse two different tabs onto one row map key.
+    let label = tabLabel(byId.get(sourceId)?.name, tab)
     if (used.has(label)) label = `${label} (${sourceId.slice(-4)})`
 
     used.add(label)
@@ -116,8 +113,7 @@ export function buildLabelMap(refs, sources) {
 export function refLabel(ref, sources = []) {
   if (!ref) return ''
   const { sourceId, tab } = parseRef(ref)
-  const source = sources.find((s) => s.id === sourceId)
-  return source?.name ? `${tab} · ${source.name}` : tab
+  return tabLabel((sources || []).find((s) => s.id === sourceId)?.name, tab)
 }
 
 // ---------------------------------------------------------------------

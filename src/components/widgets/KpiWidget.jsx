@@ -89,6 +89,11 @@ function deriveCrossFilter(widget) {
       return { match: 'all', conditions: [{ ...base, operator: 'is_not_empty' }] }
     case 'count_empty':
       return { match: 'all', conditions: [{ ...base, operator: 'is_empty' }] }
+    // Clicking a count of yeses shows the yeses -- the same three words
+    // `isYes` accepts.
+    case 'count_true':
+    case 'percent_true':
+      return { match: 'all', conditions: [{ ...base, operator: 'one_of', value: 'true, yes, y' }] }
     default:
       return null
   }

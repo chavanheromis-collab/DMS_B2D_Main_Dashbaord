@@ -171,6 +171,19 @@ export function buildNamedFilters(pages) {
 
 export const EMPTY_FILTERS = buildNamedFilters([])
 
+/**
+ * Everything a filter's answer -- or its line in a picker -- depends on.
+ *
+ * Two sets with the same signature behave identically, which is what lets
+ * a screen keep the one it has when the pages are delivered again
+ * unchanged. See hooks/useNamedFilters.js.
+ */
+export function filtersSignature(registry) {
+  return JSON.stringify(
+    (registry || EMPTY_FILTERS).list.map((f) => [f.ref, f.name, f.match, f.tab, f.conditions, f.widgetTitle, f.pageName])
+  )
+}
+
 // ---------------------------------------------------------------------
 // The set in force
 // ---------------------------------------------------------------------

@@ -51,9 +51,12 @@ tab name is no longer an address. Internally every tab is referred to as:
 <sourceId>::<tabName>          e.g.  src_k3f9a2::MASTER
 ```
 
-You never see this. The dashboard resolves refs to the shortest unambiguous
-label before anything is rendered — `MASTER` when only one source has one,
-`MASTER · Premia Sales` when two do.
+You never see this. Everywhere a tab is shown — widget captions, pickers,
+Users & Access — it is named **sheet first, then tab**: `FIFO · Master`,
+`Premia Sales · MASTER`. A tab name alone doesn't say which sheet it came
+from, and most dealership sheets have a `MASTER`. If two connected sheets
+share both a name and a tab name, the second one gets the end of its id added,
+so the two are never confused.
 
 ---
 
@@ -1990,6 +1993,24 @@ comparison side, and a pipeline stage or its KPI. Give the conditions a name
   lets you pick the widget and the filter, and writes
   `INFILTER("Walk-ins pending")` for you. It is true for rows in the filter
   and false for the rest, and it works inside a formula condition too.
+
+**To count the rows in a filter**, for example DSE calls per salesperson, use
+both together:
+
+1. Add a calculated column, say `CALC dse Calls` = `INFILTER("DSE calls")`.
+2. In a KPI, chart or pivot, pick that column with the calculation **Count
+   where column is TRUE / Yes**. Use **% of rows where column is TRUE / Yes**
+   for a share. A pivot with a measure like this per filter gives the counts
+   side by side, for each DSE or telecaller.
+
+Use this calculation rather than *Sum* or *Count where column is filled*.
+TRUE is not a number, so Sum gives 0. A FALSE is not an empty cell, so "filled"
+counts every row. The new calculation also counts the *Yes*, *Y* and *TRUE*
+that people type into a sheet.
+
+The column is worked out once, when the data loads, so counting it costs
+almost nothing on each click. That is much cheaper than a widget re-checking a
+long formula over every row.
 
 Change the conditions on the original widget and everything that uses them
 follows. A few rules keep this predictable:

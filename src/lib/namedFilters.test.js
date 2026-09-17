@@ -11,6 +11,7 @@ import {
   filterNameProblem,
   filterOptionsIn,
   filterWidgetOptions,
+  filtersSignature,
   installNamedFilters,
   matchOf,
   namedFilterByName,
@@ -23,8 +24,10 @@ import { matchesConditions, testCondition } from './filterEngine.js'
 import { FUNCTIONS, evaluateFormula, parseFormula } from './formula.js'
 import { applyComputed, compileComputed, filterNamesIn, namedFilterColumns, unknownFilterNames } from './computed.js'
 import { FORMULA_COLUMN, conditionPatch } from './conditionFormula.js'
-import { operatorMeta } from './config.js'
+import { AGGREGATIONS, operatorMeta } from './config.js'
 import { describeScope } from './userScope.js'
+import { aggregate, formatNumber, isYes } from './dataUtils.js'
+import { applyRowConditions } from './rowConditions.js'
 
 // ---------------------------------------------------------------------
 // Named filters: one widget's conditions, reused by name
@@ -360,4 +363,98 @@ test('the screens that evaluate install the set, and the columns follow it', () 
   assert.ok(admin.includes('{ ...p, widgets: draft.widgets || [] }'))
 
   assert.ok(read('lib/filterEngine.js').includes('registerFilterTester(matchesConditions)'))
+})
+
+// --- counting what a filter holds ------------------------------------------
+
+test('a yes/no column is counted by its yeses', () => {
+  const flags = [{ f: true }, { f: false }, { f: 'Yes' }, { f: ' y ' }, { f: 'TRUE' }, { f: 'no' }, { f: '' }, { f: 1 }, { f: null }]
+  assert.equal(aggregate(flags, 'f', 'count_true'), 4)
+  assert.equal(Math.round(aggregate(flags, 'f', 'percent_true')), 44)
+  assert.equal(aggregate([], 'f', 'percent_true'), 0)
+  assert.equal(isYes(true), true)
+  assert.equal(isYes(1), false, 'a quantity of one is not a yes')
+
+  // Why it had to exist: neither of these counts a TRUE.
+  assert.equal(aggregate([{ f: true }, { f: false }], 'f', 'sum'), 0)
+  assert.equal(aggregate([{ f: true }, { f: false }], 'f', 'count_filled'), 2)
+
+  assert.equal(formatNumber(4, 'comma', 'count_true'), '4')
+  assert.equal(formatNumber(44.4, 'comma', 'percent_true'), '44%')
+  for (const value of ['count_true', 'percent_true']) {
+    assert.equal(AGGREGATIONS.find((a) => a.value === value)?.needsColumn, true, value)
+  }
+})
+
+test('counting a named filter gives exactly the rows the filter keeps', () => {
+  installNamedFilters(registry)
+  const out = applyComputed(ROWS, [{ id: 'c', name: 'Pending', formula: 'INFILTER("Walk-ins pending")' }], {
+    headers: HEADERS,
+  })
+  assert.equal(aggregate(out, 'Pending', 'count_true'), rowsWhere([uses('w_kpi:conditions')]).length)
+  assert.equal(aggregate(out, 'Pending', 'count_true'), 2)
+})
+
+// --- not doing the same work twice -----------------------------------------
+
+test('a widget’s rule is worked out once, not on every draw', () => {
+  installNamedFilters(registry)
+  const widget = { rowConditions: [uses('w_kpi:conditions')], rowMatch: 'all' }
+  const first = applyRowConditions(ROWS, widget, TAB)
+  assert.deepEqual(first.map((r) => r._row), [2, 5])
+  // The same array back -- so the widget below does not start over either.
+  assert.equal(applyRowConditions(ROWS, widget, TAB), first)
+
+  // A different rule, different rows, or a changed filter is a new question.
+  assert.notEqual(applyRowConditions(ROWS, { ...widget, rowConditions: [...widget.rowConditions] }, TAB), first)
+  assert.notEqual(applyRowConditions([...ROWS], widget, TAB), first)
+  installNamedFilters(buildNamedFilters([{ id: 'p1', name: 'Sales', widgets: [{ ...kpi, conditions: [walkIns] }] }]))
+  assert.deepEqual(applyRowConditions(ROWS, widget, TAB).map((r) => r._row), [2, 3, 5])
+  installNamedFilters(registry)
+  assert.deepEqual(applyRowConditions(ROWS, widget, TAB).map((r) => r._row), [2, 5])
+
+  // No rule: the rows themselves.
+  assert.equal(applyRowConditions(ROWS, {}, TAB), ROWS)
+})
+
+test('the same filters, delivered again, are recognised as the same', () => {
+  // Saving any page sends every page again as new objects. A set that
+  // looked new would make every calculated column be worked out again.
+  const again = buildNamedFilters(JSON.parse(JSON.stringify(PAGES)))
+  assert.notEqual(again, registry)
+  assert.equal(filtersSignature(again), filtersSignature(registry))
+  const loosened = buildNamedFilters([{ id: 'p1', name: 'Sales', widgets: [{ ...kpi, conditionsMatch: 'any' }] }])
+  const same = buildNamedFilters([{ id: 'p1', name: 'Sales', widgets: [kpi] }])
+  assert.notEqual(filtersSignature(loosened), filtersSignature(same))
+
+  const hook = read('hooks/useNamedFilters.js')
+  assert.ok(hook.includes('const signature = useMemo(() => filtersSignature(fresh), [fresh])'))
+  assert.ok(hook.includes('const registry = useMemo(() => fresh, [signature])'))
+})
+
+test('calculated columns write into their own copies, never the rows they were given', () => {
+  const input = ROWS.map((r) => ({ ...r }))
+  const out = applyComputed(
+    input,
+    [
+      { id: 'a', name: 'Twice', formula: '[Amount] * 2' },
+      { id: 'b', name: 'Four', formula: '[Twice] * 2' },
+    ],
+    { headers: HEADERS }
+  )
+  assert.equal('Twice' in input[0], false)
+  assert.notEqual(out[0], input[0])
+  assert.deepEqual(out.map((r) => r.Four), [20, 80, 120, 160])
+})
+
+test('today is asked of the clock once, and never handed out shared', () => {
+  const a = evaluateFormula(parseFormula('TODAY()').ast, {})
+  const b = evaluateFormula(parseFormula('TODAY()').ast, {})
+  assert.notEqual(a, b)
+  assert.equal(a.getTime(), b.getTime())
+})
+
+test('clicking a count of yeses shows the yeses', () => {
+  const kpiWidget = read('components/widgets/KpiWidget.jsx')
+  assert.ok(kpiWidget.includes("case 'count_true': case 'percent_true': return { match: 'all', conditions: [{ ...base, operator: 'one_of', value: 'true, yes, y' }] }"))
 })

@@ -1,4 +1,5 @@
 import { matchesConditions } from './filterEngine.js'
+import { installedFilters } from './namedFilters.js'
 
 // ---------------------------------------------------------------------
 // "Only the rows where..." -- on anything
@@ -47,17 +48,58 @@ export function conditionCount(owner) {
 }
 
 /**
+ * Answers already worked out: rows -> rule -> the rows that pass.
+ *
+ * The page applies a widget's rule while it draws, and it draws on every
+ * click, hover and keystroke. A rule written as a formula over forty
+ * thousand rows is the better part of a second, so recomputing it per draw
+ * made a whole page lag. Both keys are arrays the page already keeps
+ * stable until the data or the rule actually changes, and weak, so an
+ * answer goes when its rows do.
+ */
+const remembered = new WeakMap()
+
+/**
  * Rows, narrowed by the owner's own rule.
  *
  * No rule means the rows exactly as they came -- not a copy, not a filtered
  * clone: the same array, so a widget nobody has written a rule for costs
  * nothing at all.
+ *
+ * The SAME answer array comes back for the same rows and rule, which also
+ * spares the widget below: its own work is keyed on the rows it is given,
+ * and a new array of the same rows would make it redo everything.
  */
 export function applyRowConditions(rows, owner, tab, dateOrder = 'DMY') {
   const conds = usableConditions(owner, tab)
   if (conds.length === 0) return rows || []
   const match = owner?.[ROW_MATCH] === 'any' ? 'any' : 'all'
-  return (rows || []).filter((row) => matchesConditions(row, conds, match, dateOrder))
+  const run = () => (rows || []).filter((row) => matchesConditions(row, conds, match, dateOrder))
+
+  const rules = owner?.[ROW_CONDITIONS]
+  if (!Array.isArray(rows) || !Array.isArray(rules)) return run()
+
+  let byRule = remembered.get(rows)
+  if (!byRule) {
+    byRule = new WeakMap()
+    remembered.set(rows, byRule)
+  }
+  let byKey = byRule.get(rules)
+  if (!byKey) {
+    byKey = new Map()
+    byRule.set(rules, byKey)
+  }
+  // The day is part of the question -- "today", "this month" and "last 7
+  // days" mean something else after midnight -- and so is the set of named
+  // filters a rule may point at.
+  const key = `${match}|${tab || ''}|${dateOrder}|${new Date().toDateString()}`
+  const filters = installedFilters()
+  const hit = byKey.get(key)
+  if (hit && hit.filters === filters) return hit.result
+
+  const result = run()
+  byKey.set(key, { filters, result })
+  return result
 }
 
 /** A blank condition to add, already pointed at the tab it will be read on. */

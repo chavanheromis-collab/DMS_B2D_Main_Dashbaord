@@ -129,7 +129,7 @@ export const FLOW_PERCENT_BASES = [
  * percentage fall back to the ROW COUNT, which is always additive. Showing
  * "avg 42 = 130% of parent" would be worse than showing nothing.
  */
-const ADDITIVE = new Set(['count', 'count_filled', 'count_empty', 'count_distinct', 'sum'])
+const ADDITIVE = new Set(['count', 'count_filled', 'count_empty', 'count_distinct', 'count_true', 'sum'])
 
 export const DEFAULT_FLOW = {
   label: '',

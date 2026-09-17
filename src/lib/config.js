@@ -262,6 +262,10 @@ export const AGGREGATIONS = [
   { value: 'count_distinct', label: 'Count of distinct values', needsColumn: true },
   { value: 'percent_filled', label: '% of rows where column is filled', needsColumn: true },
   { value: 'percent_empty', label: '% of rows where column is empty', needsColumn: true },
+  // A yes/no column -- INFILTER("…") in a calculated column, or a Yes/No the
+  // sheet already has -- counted by its yeses.
+  { value: 'count_true', label: 'Count where column is TRUE / Yes', needsColumn: true },
+  { value: 'percent_true', label: '% of rows where column is TRUE / Yes', needsColumn: true },
   { value: 'sum', label: 'Sum (numeric)', needsColumn: true },
   { value: 'avg', label: 'Average (numeric)', needsColumn: true },
   { value: 'min', label: 'Minimum (numeric)', needsColumn: true },

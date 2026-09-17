@@ -203,14 +203,17 @@ export function applyComputed(rows, defs, { headers = [], dateOrder = 'DMY', tod
   // Shallow copies: every widget downstream treats a row as read-only, and
   // mutating the fetched rows in place would leave a calculated column
   // behind after its definition was deleted.
-  let out = source.map((row) => ({ ...row }))
+  const out = source.map((row) => ({ ...row }))
 
   for (const column of columns) {
     // One column at a time, so its aggregates are measured over the rows as
     // they stand -- including any calculated column it was built from.
     const aggregates = buildAggregates(out, aggregateKeys(column.ast))
     const ctx = { dateOrder, today, aggregates }
-    out = out.map((row) => ({ ...row, [column.name]: evaluateFormula(column.ast, row, ctx) ?? '' }))
+    // Written into the copies made above, which belong to nobody else yet.
+    // A fresh copy per column was forty thousand objects per column for
+    // nothing.
+    for (const row of out) row[column.name] = evaluateFormula(column.ast, row, ctx) ?? ''
   }
 
   return out

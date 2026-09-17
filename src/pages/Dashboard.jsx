@@ -56,7 +56,7 @@ const WidgetsPanel = lazy(() => import('./admin/WidgetsPanel.jsx'))
 const ControlsPanel = lazy(() => import('./admin/ControlsPanel.jsx'))
 const PageSettings = lazy(() => import('./admin/PagesPanel.jsx').then((m) => ({ default: m.PageSettings })))
 import { widgetUsesPx, widgetWidthPx } from '../lib/config'
-import { buildLabelMap, collectTabRefs, makeRef, mapTabFields, parseRef } from '../lib/refs'
+import { buildLabelMap, collectTabRefs, makeRef, mapTabFields, parseRef, refLabel } from '../lib/refs'
 import { buildChoices } from '../lib/columnChoices'
 import { matchTargets } from '../lib/spin360'
 import {
@@ -555,12 +555,12 @@ export default function Dashboard() {
     () => Object.fromEntries(Object.entries(labelByRef).map(([ref, label]) => [label, ref])),
     [labelByRef]
   )
-  // A ref the label map hasn't seen (a widget pointing at a tab that has
-  // since been removed from its source) falls back to its bare tab name, so
-  // the widget shows "could not be read" rather than an empty caption.
+  // A ref the label map hasn't seen -- a tab offered in a picker but not on
+  // this page, or one since removed from its source -- is still named the
+  // same way, "Sheet · Tab", so a caption never shows a bare tab name.
   const labelFor = useCallback(
-    (ref) => labelByRef[ref] || parseRef(ref).tab || ref,
-    [labelByRef]
+    (ref) => labelByRef[ref] || refLabel(ref, sources) || ref,
+    [labelByRef, sources]
   )
 
   // Drill-downs are BORN in label space: a chart bar or pipeline stage that

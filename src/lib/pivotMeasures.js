@@ -38,6 +38,8 @@ export function defaultMeasureLabel(measure) {
     count_empty: 'Blank',
     count_distinct: 'Distinct',
     percent_filled: '% filled',
+    count_true: 'Yes in',
+    percent_true: '% yes in',
   }
   return `${words[agg] || agg} ${column}`.trim()
 }

@@ -10,6 +10,17 @@ export function isBlank(v) {
   return v === null || v === undefined || String(v).trim() === ''
 }
 
+const YES = new Set(['true', 'yes', 'y'])
+
+/**
+ * Does this cell say yes?
+ *
+ * TRUE from a calculated column -- INFILTER, a comparison -- and the "Yes",
+ * "Y" and "TRUE" people type into a sheet. Not 1: a column of quantities
+ * has plenty of ones that mean one, not yes; a 1/0 flag is what Sum is for.
+ */
+export const isYes = (v) => v === true || YES.has(String(v ?? '').trim().toLowerCase())
+
 /**
  * Turns a spreadsheet cell into a number. Sheets values arrive as strings
  * and are often decorated ("₹1,20,000", "45%", "(320)", " 12 "), so strip
@@ -265,6 +276,15 @@ export function aggregate(rows, column, agg) {
       if (list.length === 0) return 0
       return (raw.filter((v) => isBlank(v)).length / list.length) * 100
     }
+    // How many rows say yes -- which is how a yes/no column is counted.
+    // "Sum" cannot do it: TRUE is not a number, and "filled" counts the
+    // FALSEs too, since a false is not an empty cell.
+    case 'count_true':
+      return raw.filter(isYes).length
+    case 'percent_true': {
+      if (list.length === 0) return 0
+      return (raw.filter(isYes).length / list.length) * 100
+    }
     case 'mode':
       return modeOf(raw)
     default: {
@@ -321,10 +341,10 @@ export function aggregate(rows, column, agg) {
 export function formatNumber(value, format = 'comma', agg) {
   if (value === null || value === undefined || Number.isNaN(value)) return '—'
   const n = Number(value)
-  const isCounty = ['count', 'count_filled', 'count_empty', 'count_distinct'].includes(agg)
+  const isCounty = ['count', 'count_filled', 'count_empty', 'count_distinct', 'count_true'].includes(agg)
   const decimals = isCounty ? 0 : Math.abs(n) >= 100 || Number.isInteger(n) ? 0 : 1
 
-  if (agg === 'percent_filled' && format !== 'plain') {
+  if ((agg === 'percent_filled' || agg === 'percent_true') && format !== 'plain') {
     return `${n.toFixed(n >= 10 ? 0 : 1)}%`
   }
 
