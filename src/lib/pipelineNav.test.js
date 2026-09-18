@@ -661,3 +661,28 @@ test('adding a stage opens it', () => {
   assert.ok(add.includes('setOpenId(fresh.id)'))
   assert.ok(add.includes("setSection('rules')"), 'at the tab it needs first')
 })
+
+test('what a stage pop-up shows can be put in order', () => {
+  // The pop-up draws the KPIs in the order they are kept in, so that order
+  // is what a reader reads -- and it could only be changed by deleting the
+  // ones in front of the one you wanted moved.
+  const at = editor.indexOf('export function StageKpiEditor(')
+  const body = editor.slice(at, at + 12000)
+
+  assert.ok(body.includes('const ops = listOps(kpis, (next) => setStage({ kpis: next }))'))
+  assert.ok(body.includes('{kpis.map((kpi, i) => {'), 'the row has to know where it is')
+  assert.ok(body.includes('onUp={() => ops.move(i, -1)}'))
+  assert.ok(body.includes('onDown={() => ops.move(i, 1)}'))
+  assert.ok(body.includes('isLast={i === kpis.length - 1}'))
+
+  // The same for the ranked list's metrics, which are its COLUMNS -- and
+  // which had no way out at all: one added by mistake stayed for good.
+  assert.ok(body.includes('const metricOps = listOps(leaderboardMetrics, (next) => updateLeaderboard({ metrics: next }))'))
+  assert.ok(body.includes('onDelete={() => metricOps.remove(metric.id)}'))
+  assert.ok(body.includes('onUp={() => metricOps.move(index, -1)}'))
+
+  // And the pop-up itself draws them in that order rather than sorting.
+  const popup = fs.readFileSync(path.join(ROOT, 'src/components/StageKpiPopup.jsx'), 'utf8')
+  assert.ok(popup.includes('return (stage.kpis || []).map((kpi) => {'))
+  assert.ok(!/stage\.kpis[^)]*\.sort\(/.test(popup), 'nothing re-orders them on the way out')
+})

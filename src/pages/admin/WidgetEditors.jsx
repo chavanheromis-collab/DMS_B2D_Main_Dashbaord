@@ -452,12 +452,20 @@ export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
   const cols = tabHeaders?.[stage.tab] || []
 
   const update = (id, patch) => setStage({ kpis: kpis.map((k) => (k.id === id ? { ...k, ...patch } : k)) })
-  const remove = (id) => setStage({ kpis: kpis.filter((k) => k.id !== id) })
+  // The pop-up shows these in the order they are kept in, so the order is
+  // worth being able to change -- the same up / down / delete a stage has,
+  // rather than deleting three KPIs to get the fourth to the front.
+  const ops = listOps(kpis, (next) => setStage({ kpis: next }))
+  const remove = (id) => ops.remove(id)
   const pivotConfig = stage.pivot || {}
   const updatePivot = (patch) => setStage({ pivot: { ...pivotConfig, ...patch } })
   const leaderboardConfig = stage.leaderboard || {}
   const updateLeaderboard = (patch) => setStage({ leaderboard: { ...leaderboardConfig, ...patch } })
   const leaderboardMetrics = leaderboardConfig.metrics || []
+  // A metric is a COLUMN of the ranked list in the pop-up, so its place in
+  // this list is its place on screen. It had neither a way up nor a way
+  // out: one added by mistake stayed for good.
+  const metricOps = listOps(leaderboardMetrics, (next) => updateLeaderboard({ metrics: next }))
 
   function add() {
     const fresh = {
@@ -499,7 +507,7 @@ export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
             </p>
           )}
 
-          {kpis.map((kpi) => {
+          {kpis.map((kpi, i) => {
             const open = openKpi === kpi.id
             const color = kpi.color || KPI_PALETTE[0]
 
@@ -524,9 +532,13 @@ export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
                     <span className="truncate text-[12px] font-semibold text-slate-700">{kpi.label || 'Untitled'}</span>
                     <span className="truncate text-[10px] text-slate-400">{kpiSummary(kpi, AGGREGATIONS)}</span>
                   </button>
-                  <button onClick={() => remove(kpi.id)} className="text-slate-300 hover:text-rose-500" title="Delete">
-                    <X size={14} />
-                  </button>
+                  <RowControls
+                    onUp={() => ops.move(i, -1)}
+                    onDown={() => ops.move(i, 1)}
+                    onDelete={() => remove(kpi.id)}
+                    isFirst={i === 0}
+                    isLast={i === kpis.length - 1}
+                  />
                 </div>
 
                 {open && (
@@ -710,7 +722,8 @@ export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
           </div>
 
           {leaderboardMetrics.map((metric, index) => (
-            <div key={metric.id} className="grid grid-cols-2 gap-1.5 rounded-lg border border-slate-200 bg-white p-2 md:grid-cols-4">
+            <div key={metric.id} className="flex items-start gap-1.5 rounded-lg border border-slate-200 bg-white p-2">
+              <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 md:grid-cols-4">
               <TextInput
                 value={metric.label}
                 onChange={(v) =>
@@ -752,6 +765,14 @@ export function StageKpiEditor({ stage, tabs, tabHeaders, setStage }) {
                 }
                 options={NUMBER_FORMATS}
                 className="w-full"
+              />
+              </div>
+              <RowControls
+                onUp={() => metricOps.move(index, -1)}
+                onDown={() => metricOps.move(index, 1)}
+                onDelete={() => metricOps.remove(metric.id)}
+                isFirst={index === 0}
+                isLast={index === leaderboardMetrics.length - 1}
               />
             </div>
           ))}
