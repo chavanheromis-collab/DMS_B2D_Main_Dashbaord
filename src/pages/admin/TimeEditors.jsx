@@ -4,8 +4,7 @@ import { CALENDAR_LAYOUTS, CALENDAR_SPANS, WEEK_STARTS } from '../../lib/calenda
 import { GANTT_ENDS, GANTT_SORTS } from '../../lib/ganttData'
 import { COHORT_GRAINS, COHORT_METRICS } from '../../lib/cohortData'
 import { legendSwatches } from '../../lib/heatColor'
-import { looksLikeDateColumn } from '../../lib/dataUtils'
-import { Field, Select, TextInput, Toggle } from './ui.jsx'
+import { Field, Select, TextInput, Toggle, useDateColumns } from './ui.jsx'
 import { ValueColorEditor } from './WidgetEditors.jsx'
 
 // =====================================================================
@@ -49,7 +48,7 @@ function ScalePicker({ value, onChange, steps = 5, label = 'Colour scale' }) {
 // Calendar heat map
 // =====================================================================
 export function CalendarEditor({ widget, cols, set }) {
-  const dateCols = cols.filter(looksLikeDateColumn)
+  const dateCols = useDateColumns(widget.tab, cols)
   const steps = Number(widget.steps) || 5
 
   return (
@@ -123,7 +122,7 @@ export function CalendarEditor({ widget, cols, set }) {
 // Timeline / Gantt
 // =====================================================================
 export function GanttEditor({ widget, cols, set }) {
-  const dateCols = cols.filter(looksLikeDateColumn)
+  const dateCols = useDateColumns(widget.tab, cols)
   const endMode = widget.endMode || 'column'
 
   return (
@@ -225,7 +224,7 @@ export function GanttEditor({ widget, cols, set }) {
 // Cohort / retention
 // =====================================================================
 export function CohortEditor({ widget, cols, set }) {
-  const dateCols = cols.filter(looksLikeDateColumn)
+  const dateCols = useDateColumns(widget.tab, cols)
   const metric = widget.metric || 'retention'
 
   return (

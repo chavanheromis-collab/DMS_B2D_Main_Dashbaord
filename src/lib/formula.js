@@ -26,7 +26,7 @@
 //     DAYSSINCE([Invoice Date])
 //     [Amount] / TOTAL([Amount]) * 100
 
-import { isBlank, toDate, toNumber } from './dataUtils.js'
+import { DATE_SHAPE, isBlank, toDate, toNumber } from './dataUtils.js'
 import { namedFilterByName, rowInNamedFilter } from './namedFilters.js'
 
 // ---------------------------------------------------------------------
@@ -331,8 +331,9 @@ function currentDay() {
 // "15/09/2026" is a date, not the number 15092026. Numbers used to be tried
 // first, and a number is what a slashed date becomes once its slashes are
 // stripped -- so 02/10/2025 came out LATER than 01/09/2026. Anything shaped
-// like a date is now compared as one before anything else is tried.
-const DATE_SHAPE = /^\s*(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}|\d{1,2}[-\s][A-Za-z]{3,}|[A-Za-z]{3,}\s+\d{1,2},?\s+\d{2,4})/
+// like a date is now compared as one before anything else is tried. The
+// shape itself lives in dataUtils: deciding whether a COLUMN holds dates
+// asks the same question, and two answers to it would drift apart.
 
 function compare(a, b, dateOrder) {
   const datey = (v) => v instanceof Date || (typeof v === 'string' && DATE_SHAPE.test(v))

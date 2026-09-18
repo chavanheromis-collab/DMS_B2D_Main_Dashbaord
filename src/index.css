@@ -617,7 +617,14 @@ aside.fixed.right-0 {
  * utility class cannot quietly undo the offsets below. */
 .widget-sized > .card > :is(.widget-title, *:has(.widget-title)) {
   position: sticky;
-  top: 0;
+  /* Stuck where the negative margin below already puts it: at the card's
+     top edge. A sticky offset is measured inside the card's PADDING, so a
+     zero offset pushed the strip back down by one padding -- a visual shift
+     the layout does not know about -- and the strip sat over the first
+     8px of whatever the widget drew under it: the top row of a progress
+     list, half its label gone. This offset is the same padding, taken
+     back, so the strip stays exactly where it was laid out. */
+  top: calc(var(--card-padding, 1rem) * -1);
   z-index: 3;
   /* The card's own surface, or content would read through it. The solid
      layer only -- the sheen is a gradient anchored to the card, and

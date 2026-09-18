@@ -27,7 +27,7 @@ import { applyRowConditions } from '../lib/rowConditions'
 import { isVisible } from '../lib/visibility'
 import { mergeDraft } from '../lib/editMode'
 import { canDrop, dragPages, orderPages, personalOrder } from '../lib/pageOrder'
-import { valuesForRef } from '../lib/columnValues'
+import { dateColumnsForRef, valuesForRef } from '../lib/columnValues'
 import { canRedo, canUndo, commitHistory, emptyHistory, historyKeyAction, redoHistory, undoHistory } from '../lib/history'
 import { chromeClass } from '../lib/widgetChrome'
 import { makeWidget, WIDGET_TYPES } from '../lib/newWidget'
@@ -1707,10 +1707,16 @@ export default function Dashboard() {
       labelFor,
       // The same value pickers the admin panel has: every condition written
       // on the page gets the column's real values instead of a blank box.
-      valuesFor: (ref, column) => valuesForRef(sourcesById, ref, column),
+      // A widget on the page names its tab by LABEL; the source documents
+      // are keyed by ref. Everything the on-page editor asks about a tab
+      // goes back through the label map, or it asks about nothing.
+      valuesFor: (ref, column) => valuesForRef(sourcesById, refByLabel[ref] || ref, column),
+      // Which columns hold dates, from the last sync -- the on-page editor
+      // offers the same date columns the admin panel does.
+      knownDateColumns: (ref) => dateColumnsForRef(sourcesById, refByLabel[ref] || ref),
       namedFilters,
     }),
-    [allTabOptions, allTabHeaders, pageSources, labelFor, sourcesById, namedFilters]
+    [allTabOptions, allTabHeaders, pageSources, labelFor, sourcesById, namedFilters, refByLabel]
   )
 
   /**

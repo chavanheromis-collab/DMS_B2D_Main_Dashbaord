@@ -5,8 +5,7 @@ import { COMPARE_MODES, DEFAULT_STAT, STAT_LAYOUTS } from '../../lib/statGrid'
 import { BAND_MODES, DEFAULT_BULLET_ROW } from '../../lib/bullet'
 import { MOVER_PERIODS, MOVER_RANKS } from '../../lib/movers'
 import { WAFFLE_SHAPES } from '../../lib/waffleData'
-import { looksLikeDateColumn } from '../../lib/dataUtils'
-import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps } from './ui.jsx'
+import { Btn, Field, RowControls, Select, TextInput, Toggle, listOps, useDateColumns } from './ui.jsx'
 import ConditionBuilder from './ConditionBuilder.jsx'
 import { ValueColorEditor } from './WidgetEditors.jsx'
 
@@ -74,7 +73,7 @@ function ConditionPanel({ title, conditions, match, tab, tabHeaders, onCondition
 export function StatGridEditor({ widget, cols, tabHeaders, set }) {
   const stats = widget.stats || []
   const ops = listOps(stats, (next) => set({ stats: next }))
-  const dateCols = cols.filter(looksLikeDateColumn)
+  const dateCols = useDateColumns(widget.tab, cols)
 
   // "Previous period" and the sparkline both need a date column, and
   // saying so once at the top is kinder than disabling a control further
@@ -441,7 +440,7 @@ export function BulletEditor({ widget, cols, tabHeaders, set }) {
 // =====================================================================
 export function MoversEditor({ widget, cols, tabHeaders, set }) {
   const byDate = (widget.periodMode || 'date') === 'date'
-  const dateCols = cols.filter(looksLikeDateColumn)
+  const dateCols = useDateColumns(widget.tab, cols)
 
   return (
     <div className="space-y-2">

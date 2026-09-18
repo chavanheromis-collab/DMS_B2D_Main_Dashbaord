@@ -89,7 +89,12 @@ test('a shrunk widget keeps its heading; only the body scrolls', () => {
 
   const rule = css.slice(at, css.indexOf('}', at))
   assert.ok(rule.includes('position: sticky'))
-  assert.ok(rule.includes('top: 0'))
+  // Not `top: 0`. A sticky offset is measured inside the card's padding, so
+  // zero pushed the strip down by one padding, over the top 8px of the
+  // widget's own content -- a progress list lost half its first label. The
+  // offset has to take back exactly what the negative margin below gives.
+  assert.ok(rule.includes('top: calc(var(--card-padding, 1rem) * -1)'))
+  assert.ok(!/\btop: 0\b/.test(rule), 'the strip is pushed back down over the content')
   assert.ok(rule.includes('background-color: var(--card-bg'), 'or the body reads through it')
   assert.ok(rule.includes('backdrop-filter'), 'and a translucent card surface still hides it')
 

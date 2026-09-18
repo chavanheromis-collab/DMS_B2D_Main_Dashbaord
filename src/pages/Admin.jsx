@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { valuesForRef } from '../lib/columnValues'
+import { dateColumnsForRef, valuesForRef } from '../lib/columnValues'
 import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, setDoc } from 'firebase/firestore'
 import { ArrowLeft, Save, Undo2 } from 'lucide-react'
 import { db } from '../firebase'
@@ -152,9 +152,13 @@ export default function Admin() {
   )
   const namedFilters = useNamedFilters(livePages)
 
+  // What the last sync found in each column, so a date picker offers a
+  // column a formula fills with dates whatever the sheet calls it.
+  const knownDateColumns = useCallback((ref) => dateColumnsForRef(sourcesById, ref), [sourcesById])
+
   const ctx = useMemo(
-    () => ({ tabOptions, tabHeaders, sources, labelFor, valuesFor, namedFilters }),
-    [tabOptions, tabHeaders, sources, labelFor, valuesFor, namedFilters]
+    () => ({ tabOptions, tabHeaders, sources, labelFor, valuesFor, namedFilters, knownDateColumns }),
+    [tabOptions, tabHeaders, sources, labelFor, valuesFor, namedFilters, knownDateColumns]
   )
 
   // --- Writes ------------------------------------------------------------

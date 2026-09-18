@@ -9,7 +9,7 @@ import {
   updateCell,
   updateCells,
 } from './_lib/googleSheets.js'
-import { valueIndexFor } from '../src/lib/columnValues.js'
+import { dateColumnsFor, valueIndexFor } from '../src/lib/columnValues.js'
 import { staleRows } from '../src/lib/rowFingerprint.js'
 import {
   canAdd,
@@ -144,11 +144,17 @@ function syncHeaders(data) {
     if (!result?.headers?.length) continue
     const { sourceId, tab } = parseRef(ref)
     if (!sourceId) continue
-    if (!bySource.has(sourceId)) bySource.set(sourceId, {})
-    bySource.get(sourceId)[tab] = result.headers
+    if (!bySource.has(sourceId)) bySource.set(sourceId, { tabHeaders: {}, tabDateColumns: {} })
+    const entry = bySource.get(sourceId)
+    entry.tabHeaders[tab] = result.headers
+    // ...and WHICH of them hold dates, decided by what is in them rather
+    // than by what they are called. A column a sheet formula fills with
+    // dates is named whatever the sheet names it, and the admin's date
+    // pickers offered it only if the name happened to say "date".
+    entry.tabDateColumns[tab] = dateColumnsFor(result.rows, result.headers)
   }
-  for (const [sourceId, tabHeaders] of bySource.entries()) {
-    adminDb.doc(`dataSources/${sourceId}`).set({ tabHeaders }, { merge: true }).catch(() => {})
+  for (const [sourceId, patch] of bySource.entries()) {
+    adminDb.doc(`dataSources/${sourceId}`).set(patch, { merge: true }).catch(() => {})
   }
 }
 
@@ -229,12 +235,18 @@ async function handleGet(req, res, uid) {
     // it lasts until the next sync, which is the right lifetime: it
     // describes the data as it was last read, and so does everything else.
     const tabValues = {}
+    // Which columns hold dates -- see dateColumnsFor. Worked out here for
+    // the same reason the values are: the rows are already in hand.
+    const tabDateColumns = {}
     const summary = {}
     for (const [tab, result] of Object.entries(data)) {
       if (result?.headers?.length) tabHeaders[tab] = result.headers
       if (result?.rows?.length) {
         const index = valueIndexFor(result.rows, result.headers || [])
         if (Object.keys(index).length > 0) tabValues[tab] = index
+        tabDateColumns[tab] = dateColumnsFor(result.rows, result.headers || [], {
+          order: source.dateOrder || 'DMY',
+        })
       }
       summary[tab] = {
         rows: result?.rows?.length ?? 0,
@@ -254,7 +266,7 @@ async function handleGet(req, res, uid) {
     // reports success, so it must not claim a write that never landed.
     await adminDb
       .doc(`dataSources/${sourceId}`)
-      .set({ tabHeaders, tabValues, lastSyncedAt: syncedAt }, { merge: true })
+      .set({ tabHeaders, tabValues, tabDateColumns, lastSyncedAt: syncedAt }, { merge: true })
 
     return res.status(200).json({ tabs: summary, syncedAt })
   }

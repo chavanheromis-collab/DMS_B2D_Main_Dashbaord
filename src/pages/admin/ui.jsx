@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { dateColumnsIn } from '../../lib/dataUtils'
 import { TYPING_PAUSE, useTypingBuffer } from '../../hooks/useTypingBuffer'
 import { activeSection, sectionMark, visibleSections } from '../../lib/sectionTabs.js'
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
@@ -26,10 +27,34 @@ export const WorkspaceCtx = createContext({
   // Null outside a screen that holds the pages; the pickers then read the
   // set that screen last installed.
   namedFilters: null,
+  // Which of a tab's columns held dates at the last sync, worked out from
+  // the real rows rather than from their names. See lib/columnValues.js.
+  knownDateColumns: () => [],
 })
 
 export function useWorkspaceCtx() {
   return useContext(WorkspaceCtx)
+}
+
+/**
+ * The columns of `tab` a date picker should offer.
+ *
+ * Asked in one place because every editor that wants a date column was
+ * asking the column's NAME, and a name is a guess: a column a sheet
+ * formula fills with dates is called whatever the sheet calls it. What the
+ * last sync found in the rows comes first, the values this tab kept a
+ * sample of second, the name last -- see `dateColumnsIn`.
+ */
+export function useDateColumns(tab, cols) {
+  const { valuesFor, knownDateColumns } = useWorkspaceCtx()
+  return useMemo(
+    () =>
+      dateColumnsIn(cols, {
+        known: knownDateColumns?.(tab),
+        valuesOf: (column) => valuesFor?.(tab, column),
+      }),
+    [cols, tab, valuesFor, knownDateColumns]
+  )
 }
 
 /** The value of an option that may be a bare string or a { value, label }. */

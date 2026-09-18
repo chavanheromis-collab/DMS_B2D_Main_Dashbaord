@@ -20,6 +20,8 @@
 //
 // Pure: rows in, values out. No Firestore, no network, no React.
 
+import { isBlank, looksLikeDateValue } from './dataUtils.js'
+
 /** More than this is not a dropdown, it is a scroll bar with a search box. */
 export const MAX_PER_COLUMN = 200
 
@@ -88,6 +90,45 @@ export function valueIndexFor(rows, headers, { max = MAX_PER_COLUMN, budget = MA
   }
 
   return out
+}
+
+/**
+ * Which of a tab's columns hold dates, decided by what is IN them.
+ *
+ * Run at a sync, where every row is already in hand, and stored beside the
+ * headers. It has to happen here rather than from the value sample above:
+ * a column with more than `MAX_PER_COLUMN` distinct values is not sampled
+ * at all, and a date column on a busy sheet -- two years of daily dates --
+ * is exactly that column.
+ *
+ * Only the first `sample` filled cells of each column are read. A column is
+ * dates or it is not; forty thousand rows do not make that clearer than
+ * four hundred do, and this runs on every page read.
+ */
+export function dateColumnsFor(rows, headers, { order = 'DMY', sample = 400, share = 0.8 } = {}) {
+  const out = []
+  for (const column of headers || []) {
+    if (!column) continue
+    let filled = 0
+    let dates = 0
+    for (const row of rows || []) {
+      const value = row?.[column]
+      if (isBlank(value)) continue
+      filled += 1
+      if (looksLikeDateValue(value, order)) dates += 1
+      if (filled >= sample) break
+    }
+    if (filled >= 3 && dates / filled >= share) out.push(column)
+  }
+  return out
+}
+
+/** What the last sync said about one tab, addressed the way a page does. */
+export function dateColumnsForRef(sourcesById, ref) {
+  const [sourceId, tab] = String(ref || '').split('::')
+  if (!sourceId || !tab) return []
+  const list = sourcesById?.[sourceId]?.tabDateColumns?.[tab]
+  return Array.isArray(list) ? list : []
 }
 
 /**

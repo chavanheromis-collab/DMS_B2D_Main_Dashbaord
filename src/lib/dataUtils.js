@@ -1141,9 +1141,74 @@ export function bucketedValues(rows, column, spec, dateOrder = 'DMY', cap = 500)
     .map((e) => e[0])
 }
 
-/** Columns that look like they hold dates -- used to pre-select in admin. */
-export function looksLikeDateColumn(name) {
-  return /date|day|時|timestamp|created|updated|on$/i.test(String(name || ''))
+/**
+ * Anything SHAPED like a date: "15/09/2026", "12 May 2024", "2026-09-15".
+ *
+ * Separate from `toDate`, which is deliberately forgiving -- it is handed a
+ * cell somebody has already called a date, so it tries hard, and `500`
+ * comes back as a date because `new Date("500")` is a year. That is the
+ * right answer to "read this as a date" and the wrong one to "IS this a
+ * date", which is the question a column of amounts turns on.
+ */
+export const DATE_SHAPE = /^\s*(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}|\d{1,2}[-\s][A-Za-z]{3,}|[A-Za-z]{3,}\s+\d{1,2},?\s+\d{2,4})/
+
+/** Is this cell a date -- shaped like one, and readable as one? */
+export function looksLikeDateValue(value, order = 'DMY') {
+  if (value instanceof Date) return !Number.isNaN(value.getTime())
+  const s = String(value ?? '').trim()
+  if (s === '' || !DATE_SHAPE.test(s)) return false
+  return Boolean(toDate(s, order))
+}
+
+const DATE_NAME = /date|day|時|timestamp|created|updated|on$/i
+
+/** How much of a column has to read as a date before the column is one. */
+const DATE_SHARE = 0.8
+const DATE_SAMPLE = 60
+
+/**
+ * Does this column hold dates?
+ *
+ * The name used to be the whole answer, and a name is a guess: a column a
+ * sheet formula fills with dates is called whatever the sheet calls it,
+ * and "Scheduled Follow" or "PM-E SUBMITTED" was never going to match a
+ * pattern. So a SAMPLE of what is in it answers too, where the caller has
+ * one -- and the name still answers alone for a column nothing has been
+ * read from yet.
+ *
+ * `values` is guarded rather than trusted: `cols.filter(looksLikeDateColumn)`
+ * hands in the index as the second argument, and a number is not a sample.
+ */
+export function looksLikeDateColumn(name, values = null, order = 'DMY') {
+  if (DATE_NAME.test(String(name || ''))) return true
+  if (!Array.isArray(values)) return false
+
+  const filled = []
+  for (const value of values) {
+    if (!isBlank(value)) filled.push(value)
+    if (filled.length >= DATE_SAMPLE) break
+  }
+  // Two dates in a column of names is a coincidence: a column has to be
+  // mostly dates, and have enough in it to say so.
+  if (filled.length < 3) return false
+  return filled.filter((value) => looksLikeDateValue(value, order)).length / filled.length >= DATE_SHARE
+}
+
+/**
+ * The columns of a tab that hold dates, best answer first.
+ *
+ * `known` is what the last sync worked out from the real rows -- the only
+ * one of the three that can see a column too busy to keep a sample of.
+ * `valuesOf` is that sample, which covers a source nobody has read since.
+ * The name has the last word, for both.
+ */
+export function dateColumnsIn(cols, { known = null, valuesOf = null, order = 'DMY' } = {}) {
+  const found = new Set((known || []).filter(Boolean).map(String))
+  return (cols || []).filter((col) => {
+    const name = typeof col === 'string' ? col : col?.value
+    if (!name) return false
+    return found.has(name) || looksLikeDateColumn(name, valuesOf ? valuesOf(name) : null, order)
+  })
 }
 
 /**

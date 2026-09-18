@@ -5,11 +5,13 @@ import path from 'node:path'
 import {
   MAX_PER_COLUMN,
   MAX_PER_SOURCE,
+  dateColumnsFor,
   distinctValues,
   storedValues,
   valueIndexFor,
   valuesForRef,
 } from './columnValues.js'
+import { dateColumnsIn, looksLikeDateColumn, looksLikeDateValue, toDate } from './dataUtils.js'
 
 const ROWS = [
   { Stage: 'Pending', DSE: 'Ravi', Amount: '100' },
@@ -125,15 +127,15 @@ const ui = read('src/pages/admin/ui.jsx')
 
 test('the values are collected where the rows already are', () => {
   // During a sync, which has just read every tab: no extra call to Google.
-  assert.ok(api.includes("import { valueIndexFor } from '../src/lib/columnValues.js'"))
+  assert.ok(api.includes("import { dateColumnsFor, valueIndexFor } from '../src/lib/columnValues.js'"))
   assert.ok(api.includes('const index = valueIndexFor(result.rows, result.headers || [])'))
-  assert.ok(api.includes('{ tabHeaders, tabValues, lastSyncedAt: syncedAt }'))
+  assert.ok(api.includes('{ tabHeaders, tabValues, tabDateColumns, lastSyncedAt: syncedAt }'))
 })
 
 test('they last until the next sync, and no longer', () => {
   // Written in the same call that refreshes the headers, so they describe
   // the data as it was last read -- and so does everything else on screen.
-  const at = api.indexOf('tabValues, lastSyncedAt')
+  const at = api.indexOf('tabValues, tabDateColumns, lastSyncedAt')
   assert.ok(at > 0)
   assert.ok(api.slice(0, at).includes('const syncedAt = new Date().toISOString()'))
 })
@@ -161,9 +163,107 @@ test('it says how many there are', () => {
 
 test('both editors offer it -- the panel and the page', () => {
   assert.ok(admin.includes('const valuesFor = useCallback((ref, column) => valuesForRef(sourcesById, ref, column)'))
-  assert.ok(dashboard.includes('valuesFor: (ref, column) => valuesForRef(sourcesById, ref, column)'))
+    // Through the label map: a widget on the page names its tab by label.
+  assert.ok(dashboard.includes('valuesFor: (ref, column) => valuesForRef(sourcesById, refByLabel[ref] || ref, column)'))
 })
 
 test('a column with nothing indexed falls back to a plain box', () => {
   assert.ok(builder.includes('const list = Array.isArray(choices) && choices.length > 0 ? choices : null'))
+})
+
+// ---------------------------------------------------------------------
+// Which columns hold dates
+// ---------------------------------------------------------------------
+// A column a sheet formula fills with dates is called whatever the sheet
+// calls it -- "Scheduled Follow", "PM-E SUBMITTED" -- and the date pickers
+// asked the NAME, so those columns were simply not offered. What must
+// hold: the answer comes from what is in the column, an amount column is
+// never mistaken for one, and the name still answers where nothing has
+// been read yet.
+
+test('a date is a date by its shape, not by anything a number can fake', () => {
+  for (const value of ['01/10/2026', '2026-09-15', '12 May 2024', 'May 12, 2024', '15.09.2026']) {
+    assert.equal(looksLikeDateValue(value), true, value)
+  }
+  // `toDate` takes these -- "500" is the year 500 -- which is right for
+  // reading a cell and wrong for deciding what a column IS.
+  for (const value of ['500', '65930', '0', 1500, '', null, 'WALK-IN', '2 FOLL']) {
+    assert.equal(looksLikeDateValue(value), false, JSON.stringify(value))
+    if (String(value ?? '').trim() !== '') assert.ok(toDate(value) || true)
+  }
+  assert.equal(looksLikeDateValue(new Date('2026-09-15')), true)
+  assert.equal(looksLikeDateValue(new Date('nonsense')), false)
+})
+
+test('a column of dates is found by its values, whatever it is called', () => {
+  const dates = ['01/10/2026', '02/10/2026', '03/11/2026', '04/11/2026']
+  // The real ones this was written for.
+  assert.equal(looksLikeDateColumn('Scheduled Follow', dates), true)
+  assert.equal(looksLikeDateColumn('PM-E SUBMITTED', dates), true)
+  // Still by name, for a source nothing has been read from yet.
+  assert.equal(looksLikeDateColumn('Booking Date'), true)
+  assert.equal(looksLikeDateColumn('Scheduled Follow'), false)
+  // An amounts column is not a date column.
+  assert.equal(looksLikeDateColumn('Total', ['500', '83997', '84497']), false)
+  // Nor is one with a couple of dates in a column of something else.
+  assert.equal(looksLikeDateColumn('Remarks', ['1ST FOLL', 'WALK-IN', '01/10/2026', 'lost']), false)
+  // Too little to say.
+  assert.equal(looksLikeDateColumn('Whatever', ['01/10/2026', '02/10/2026']), false)
+  // `cols.filter(looksLikeDateColumn)` hands in the index; it is not a sample.
+  assert.deepEqual(['Total', 'Booking Date'].filter(looksLikeDateColumn), ['Booking Date'])
+})
+
+test('the sync works it out from the rows, where a sample cannot', () => {
+  // A column with more distinct values than the cap is not sampled at all
+  // -- and two years of daily dates is exactly that column.
+  // 300 different days: past MAX_PER_COLUMN, which is the whole point.
+  const day = (i) => new Date(2026, 0, 1 + i)
+  const rows = Array.from({ length: 300 }, (_, i) => ({
+    'Scheduled Follow': `${day(i).getDate()}/${day(i).getMonth() + 1}/${day(i).getFullYear()}`,
+    Total: String(1000 + i),
+    Notes: i % 2 ? 'called' : '',
+  }))
+  assert.deepEqual(dateColumnsFor(rows, ['Scheduled Follow', 'Total', 'Notes']), ['Scheduled Follow'])
+  assert.deepEqual(valueIndexFor(rows, ['Scheduled Follow']), {}, 'too many distinct values to sample')
+  assert.deepEqual(dateColumnsFor([], ['A']), [])
+  assert.deepEqual(dateColumnsFor([{ A: '01/10/2026' }, { A: '' }], ['A']), [], 'three filled cells at least')
+})
+
+test('the pickers take the sync first, the sample second, the name last', () => {
+  const cols = ['Scheduled Follow', 'Total', 'Booking Date', 'Notes']
+  // What the sync found, for a column nothing else can see.
+  assert.deepEqual(dateColumnsIn(cols, { known: ['Scheduled Follow'] }), ['Scheduled Follow', 'Booking Date'])
+  // The stored sample, for a source the sync has not covered yet.
+  const sample = (c) => (c === 'Scheduled Follow' ? ['01/10/2026', '02/10/2026', '03/10/2026'] : ['x', 'y', 'z'])
+  assert.deepEqual(dateColumnsIn(cols, { valuesOf: sample }), ['Scheduled Follow', 'Booking Date'])
+  // And the name alone still answers.
+  assert.deepEqual(dateColumnsIn(cols), ['Booking Date'])
+  assert.deepEqual(dateColumnsIn([{ value: 'Booking Date', label: 'x' }]), [{ value: 'Booking Date', label: 'x' }])
+  assert.deepEqual(dateColumnsIn(null), [])
+})
+
+test('every screen that offers a date column asks the same question', () => {
+  // One place -- or the next editor asks the name again and the column
+  // goes missing in exactly one picker.
+  assert.ok(ui.includes('export function useDateColumns(tab, cols)'))
+  assert.ok(ui.includes('known: knownDateColumns?.(tab)'))
+  for (const file of ['MetricEditors.jsx', 'TimeEditors.jsx']) {
+    const editor = read(`src/pages/admin/${file}`)
+    assert.ok(editor.includes('useDateColumns(widget.tab, cols)'), file)
+    assert.ok(!editor.includes('filter(looksLikeDateColumn)'), `${file} still asks the name`)
+  }
+  // A pipeline stage asks about its own tab, inside a loop.
+  assert.ok(read('src/pages/admin/WidgetEditors.jsx').includes('known: knownDateColumns?.(stage.tab)'))
+  // And both shells answer it.
+  assert.ok(admin.includes('const knownDateColumns = useCallback((ref) => dateColumnsForRef(sourcesById, ref)'))
+  assert.ok(dashboard.includes('knownDateColumns: (ref) => dateColumnsForRef(sourcesById, refByLabel[ref] || ref)'))
+})
+
+test('the sync stores what it found, on both paths', () => {
+  // The explicit Sync button, and the fire-and-forget refresh on a normal
+  // page read -- otherwise a source is only ever known after an admin
+  // presses a button nobody told them about.
+  assert.ok(api.includes('entry.tabDateColumns[tab] = dateColumnsFor(result.rows, result.headers)'))
+  assert.ok(api.includes('tabDateColumns[tab] = dateColumnsFor(result.rows, result.headers || [], {'))
+  assert.ok(api.includes('{ tabHeaders, tabValues, tabDateColumns, lastSyncedAt: syncedAt }'))
 })

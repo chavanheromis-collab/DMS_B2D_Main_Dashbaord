@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from 'react'
 import { Bookmark, ChevronRight, Copy, Link as LinkIcon, Lock, Plus, X } from 'lucide-react'
 import { NUMBER_FORMATS, PALETTE, SLIDER_FILTER_KINDS, uid } from '../../lib/config'
-import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUtils'
+import { DATE_BUCKETS, bucketNeeds, dateColumnsIn } from '../../lib/dataUtils'
 import {
   DATE_PRESETS,
   DEFAULT_FY_START,
@@ -347,7 +347,7 @@ export default function ControlsPanel({
   // are right for where they are.
   targets = {},
 }) {
-  const { labelFor, valuesFor } = useWorkspaceCtx()
+  const { labelFor, valuesFor, knownDateColumns } = useWorkspaceCtx()
   const ops = listOps(controls, setControls)
   const [adding, setAdding] = useState('select')
   const [openId, setOpenId] = useState(null)
@@ -396,7 +396,10 @@ export default function ControlsPanel({
       // Point a new control at a column that suits its kind, so it does
       // something sensible the moment it's added rather than needing two
       // more clicks before it will even render.
-      const dateCol = cols.find(looksLikeDateColumn)
+      const [dateCol] = dateColumnsIn(cols, {
+        known: knownDateColumns?.(tab),
+        valuesOf: (col) => valuesFor?.(tab, col),
+      })
       const column = ['date', 'dateslider'].includes(adding) ? dateCol || cols[0] || '' : cols[0] || ''
       Object.assign(base, {
         column,

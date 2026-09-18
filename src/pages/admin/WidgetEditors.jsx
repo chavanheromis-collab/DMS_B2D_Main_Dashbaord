@@ -10,7 +10,7 @@ import {
   aggNeedsColumn,
   uid,
 } from '../../lib/config'
-import { DATE_BUCKETS, bucketNeeds, looksLikeDateColumn } from '../../lib/dataUtils'
+import { DATE_BUCKETS, bucketNeeds, dateColumnsIn } from '../../lib/dataUtils'
 import {
   DEFAULT_STAGE_WIDTH,
   MAX_DEPTH,
@@ -25,7 +25,7 @@ import {
   subStages,
 } from '../../lib/pipelineNav'
 import { activeSection } from '../../lib/sectionTabs'
-import { Btn, Field, RowControls, SectionTabs, Select, TextInput, Toggle, listOps, optValue } from './ui.jsx'
+import { Btn, Field, RowControls, SectionTabs, Select, TextInput, Toggle, listOps, optValue, useWorkspaceCtx } from './ui.jsx'
 import { ALL_TIME_GRAINS, BREAKDOWN_GRAINS, SERIES_MODES, SERIES_PALETTES, SERIES_SORTS } from '../../lib/seriesData'
 import {
   DEFAULT_GRAIN_BUTTONS,
@@ -102,6 +102,9 @@ function newStage({ tab, index, nested }) {
  */
 function StageList({ stages, onChange, widget, tabs, tabHeaders, depth = 0, parentTab, tab, addLabel }) {
   const ops = listOps(stages, onChange)
+  // Which columns hold dates is a question about the rows, not about the
+  // column's name -- and each stage asks it of its own tab, below.
+  const { valuesFor, knownDateColumns } = useWorkspaceCtx()
 
   // One stage open at a time. Six stages, each with its conditions, its KPIs
   // and its sub-stages all unrolled, is a form nobody can see the end of --
@@ -122,7 +125,10 @@ function StageList({ stages, onChange, widget, tabs, tabHeaders, depth = 0, pare
     <div className="space-y-1">
       {stages.map((stage, i) => {
         const setStage = (patch) => ops.update(stage.id, patch)
-        const dateCols = (tabHeaders?.[stage.tab] || []).filter(looksLikeDateColumn)
+        const dateCols = dateColumnsIn(tabHeaders?.[stage.tab] || [], {
+          known: knownDateColumns?.(stage.tab),
+          valuesOf: (column) => valuesFor?.(stage.tab, column),
+        })
         const kids = subStages(stage)
         const open = openId === stage.id
         const color = stage.color || '#4F46E5'
